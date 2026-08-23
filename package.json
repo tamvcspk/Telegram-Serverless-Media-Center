@@ -16,8 +16,10 @@
     "docs:check": "node tools/docs-check/check.mjs",
     "lint": "eslint .",
     "test:libs": "vitest run --root libs",
-    "build:web": "pnpm --filter web run build",
-    "build:sw": "node sw/build.mjs"
+    "build:worker": "node libs/worker-host/build.mjs",
+    "build:web": "node libs/worker-host/build.mjs && pnpm --filter web run build",
+    "build:sw": "node sw/build.mjs",
+    "dev": "node libs/worker-host/build.mjs && pnpm --filter web run start"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

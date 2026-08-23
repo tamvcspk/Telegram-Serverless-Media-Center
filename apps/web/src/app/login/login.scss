@@ -1,0 +1,26 @@
+.login {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 24rem;
+
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    align-items: flex-start;
+  }
+
+  mat-form-field {
+    width: 100%;
+  }
+
+  .hint {
+    font-size: 0.85rem;
+    opacity: 0.75;
+  }
+
+  .error {
+    color: var(--mat-sys-error, #b3261e);
+  }
+}

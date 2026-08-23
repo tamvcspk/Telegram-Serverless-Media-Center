@@ -1,0 +1,61 @@
+<section class="login">
+  @switch (status()) {
+    @case ('checking') {
+      <p>Đang kiểm tra phiên đăng nhập…</p>
+    }
+
+    @case ('phone') {
+      <form (submit)="onSubmitPhone($event, apiIdInput.value, apiHashInput.value, phoneInput.value)">
+        <mat-form-field appearance="outline">
+          <mat-label>API_ID</mat-label>
+          <input matInput type="number" #apiIdInput required />
+        </mat-form-field>
+        <mat-form-field appearance="outline">
+          <mat-label>API_HASH</mat-label>
+          <input matInput #apiHashInput required />
+        </mat-form-field>
+        <mat-form-field appearance="outline">
+          <mat-label>Số điện thoại</mat-label>
+          <input matInput type="tel" #phoneInput placeholder="+84…" required />
+        </mat-form-field>
+        <button mat-flat-button color="primary" type="submit" [disabled]="submitting()">Gửi mã</button>
+      </form>
+      <p class="hint">
+        Lấy API_ID/API_HASH tại
+        <a href="https://my.telegram.org" target="_blank" rel="noopener">my.telegram.org</a> — dự án không nhúng
+        credential nào của riêng ai.
+      </p>
+    }
+
+    @case ('code') {
+      <form (submit)="onSubmitCode($event, codeInput.value)">
+        <p>Telegram đã gửi mã qua {{ codeViaApp() ? 'ứng dụng' : 'SMS' }}.</p>
+        <mat-form-field appearance="outline">
+          <mat-label>Mã xác nhận</mat-label>
+          <input matInput #codeInput required />
+        </mat-form-field>
+        <button mat-flat-button color="primary" type="submit">Xác nhận</button>
+      </form>
+    }
+
+    @case ('password') {
+      <form (submit)="onSubmitPassword($event, passwordInput.value)">
+        <p>Tài khoản có bật xác thực 2 bước.{{ passwordHint() ? ' Gợi ý: ' + passwordHint() : '' }}</p>
+        <mat-form-field appearance="outline">
+          <mat-label>Mật khẩu 2FA</mat-label>
+          <input matInput type="password" #passwordInput required />
+        </mat-form-field>
+        <button mat-flat-button color="primary" type="submit">Xác nhận</button>
+      </form>
+    }
+
+    @case ('authenticated') {
+      <p>Đã đăng nhập là {{ user()?.firstName }} (id {{ user()?.id }}).</p>
+      <button mat-stroked-button (click)="onLogout()">Đăng xuất</button>
+    }
+  }
+
+  @if (errorMessage(); as message) {
+    <p class="error">{{ message }}</p>
+  }
+</section>

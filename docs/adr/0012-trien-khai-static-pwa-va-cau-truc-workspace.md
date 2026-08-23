@@ -67,3 +67,18 @@ Quy tắc phụ thuộc, **ép bằng lint** (`eslint-plugin-boundaries`) chứ 
 **Tiêu cực / phải chấp nhận**
 - URL có `#/` xấu hơn và kém thân thiện SEO — không quan trọng với một app đứng sau màn hình đăng nhập.
 - Hai đường build (app và SW) phải giữ đồng bộ; cần một smoke test CI kiểm tra `sw.js` thực sự nằm ở gốc và có scope đúng.
+
+## Cập nhật sau khi Accepted (2026-08-24, slice Auth F1.1)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**, chỉ có thêm một đường build thứ ba.
+
+Khi `libs/worker-host/src/core-worker.ts` bắt đầu import `@tsmc/core-mtproto` (GramJS) thật cho slice Auth, cách dựng Core Worker ở bản đầu — `new Worker(new URL('./core-worker.ts', import.meta.url))`, để `@angular/build:application` tự code-split — **không dùng tiếp được**. Angular CLI's application builder không có hook chèn esbuild plugin tuỳ biến, trong khi GramJS cần polyfill/alias thủ công cho các module Node không có ý nghĩa trong trình duyệt (`fs`, `net`, `tls`).
+
+**Quyết định (không thay đổi quyết định gốc, chỉ bổ sung)**: Core Worker cũng có build riêng bằng esbuild — giống `sw/` đã quy định ở trên — ngay khi nó phụ thuộc một package Node-oriented như GramJS:
+
+- `libs/worker-host/build.mjs` bundle `core-worker.ts` → `apps/web/public/core-worker.js`. Cấu hình esbuild dùng lại **nguyên xi** cấu hình đã kiểm chứng thật ở SPIKE-03 (`esbuild-plugin-polyfill-node` với `globals: {process, buffer}`, `alias: {fs, net, tls → stub rỗng}`) — không đoán lại. Đã build thành công thật với `telegram@2.26.22`: **266.6 KB brotli** (so với 236 KB brotli của SPIKE-03 — chênh lệch hợp lý vì có thêm logic login + Comlink + Dexie).
+- Khác với `sw.js` (build **sau** `ng build`, ghi vào `dist/web/browser/`): `core-worker.js` build **trước**, ghi thẳng vào `apps/web/public/`. Lý do: `public/` được cả `ng serve` (dev server) lẫn `ng build` phục vụ như static asset — giống `favicon.ico`/`manifest.webmanifest` đã hoạt động — nên dev không phải chạy full `ng build` mới có Core Worker sống. File này là artifact sinh ra, không commit (`.gitignore`).
+- Script mới: `npm run build:worker`, chạy trước `ng build`/`ng serve` (`build:web` và `dev` ở root `package.json` đã gọi nó tự động).
+- `apps/web/src/app` gọi `createCoreWorkerClient()` từ `@tsmc/worker-host` như cũ — bất biến "chỉ qua worker-host" của ADR này không đổi, chỉ đổi CÁCH worker được nạp (`new Worker('/core-worker.js')` thay vì `new URL(...)`).
+
+**Hệ quả bổ sung**: bất kỳ `libs/core-*` nào sau này cần vào Core Worker và có dependency Node-oriented tương tự (không chỉ GramJS) sẽ đi theo đúng mẫu này, không cần bàn lại.

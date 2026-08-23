@@ -6,6 +6,11 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "dependencies": {
+    "@tsmc/core-mtproto": "workspace:*",
     "comlink": "^4.4.2"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "esbuild-plugin-polyfill-node": "^0.3.0"
   }
 }

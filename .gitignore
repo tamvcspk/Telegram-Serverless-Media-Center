@@ -22,3 +22,7 @@ docs/spikes/*.local.json
 # "node tools/spike-03/build.mjs", không commit (986 KB + 2.5 MB).
 tools/spike-03/dist-*.js
 tools/spike-03-teleproto/dist-*.js
+
+# Core Worker bundle (GramJS) — dựng lại bằng "npm run build:worker",
+# không commit. Đặt trong public/ để ng serve/ng build đều phục vụ được.
+apps/web/public/core-worker.js

@@ -4,5 +4,11 @@
   "private": true,
   "type": "module",
   "main": "src/index.ts",
-  "types": "src/index.ts"
+  "types": "src/index.ts",
+  "dependencies": {
+    "dexie": "^4.4.5"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.5"
+  }
 }
