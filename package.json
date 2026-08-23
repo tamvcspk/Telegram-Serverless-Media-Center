@@ -1,0 +1,21 @@
+{
+  "name": "tsmc",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Telegram Serverless Media Center — media center chạy hoàn toàn trong trình duyệt",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@11.23.0",
+  "scripts": {
+    "spike": "npx --yes serve spike --listen 5173",
+    "deploy:spike": "npx --yes firebase-tools hosting:channel:deploy spike-01 --expires 7d",
+    "deploy:staging": "npx --yes firebase-tools deploy --only hosting",
+    "spike:auto": "node tools/spike-runner/run.mjs",
+    "docs:check": "node tools/docs-check/check.mjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^23.11.1"
+  }
+}

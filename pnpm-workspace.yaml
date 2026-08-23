@@ -1,0 +1,13 @@
+packages:
+  - "apps/*"
+  - "libs/*"
+  - "tools/*"
+allowBuilds:
+  '@parcel/watcher': true
+  bufferutil: true
+  core-js: true
+  es5-ext: true
+  esbuild: true
+  lmdb: true
+  msgpackr-extract: true
+  utf-8-validate: true

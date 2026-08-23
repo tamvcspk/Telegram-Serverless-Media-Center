@@ -1,0 +1,15 @@
+{
+  "name": "@tsmc/spike-02",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "SPIKE-02 — kiểm chứng CDN_REDIRECT của MTProto. CHỈ chạy trong terminal của chính bạn, không qua Claude.",
+  "dependencies": {
+    "input": "^1.0.1",
+    "telegram": "2.26.22"
+  },
+  "scripts": {
+    "login": "node login.mjs",
+    "scan": "node scan.mjs"
+  }
+}

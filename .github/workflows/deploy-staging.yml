@@ -1,0 +1,68 @@
+name: Deploy staging (Firebase Hosting)
+
+# ADR-0015: môi trường kiểm thử trên Google Cloud free tier.
+# Cần secret FIREBASE_SERVICE_ACCOUNT (JSON của service account có quyền Firebase Hosting Admin)
+# và FIREBASE_PROJECT_ID.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Kiểm tra bất biến của ADR-0011: bản staging không được nới lỏng CSP một cách âm thầm.
+      # ADR-0016 nới 'unsafe-inline' cho style-src (Angular Material chèn <style> lúc chạy,
+      # và không có server để sinh nonce theo request). script-src thì TUYỆT ĐỐI không được nới
+      # — đó mới là con đường dẫn tới chiếm tài khoản Telegram.
+      - name: Kiểm tra CSP
+        run: |
+          grep -q "frame-ancestors 'none'" firebase.json
+          grep -q "object-src 'none'" firebase.json
+          SCRIPT_SRC=$(grep -o "script-src [^;]*" firebase.json || true)
+          echo "script-src: $SCRIPT_SRC"
+          if echo "$SCRIPT_SRC" | grep -q "unsafe-inline"; then
+            echo "script-src chứa 'unsafe-inline' — cấm tuyệt đối, xem ADR-0011"; exit 1
+          fi
+          # Dấu nháy đứng ngay trước là bắt buộc: nếu không, 'wasm-unsafe-eval'
+          # (được phép, cần cho ffmpeg.wasm) sẽ khớp nhầm và luôn fail.
+          if echo "$SCRIPT_SRC" | grep -q "'unsafe-eval'"; then
+            echo "script-src chứa 'unsafe-eval' (khác 'wasm-unsafe-eval') — cấm, xem ADR-0011"; exit 1
+          fi
+
+      - name: Kiểm tra tài liệu
+        run: npm run docs:check
+
+      # Kiểm tra bất biến của ADR-0012: sw.js phải ở gốc site, không nằm trong thư mục con.
+      - name: Kiểm tra scope Service Worker
+        run: test -f spike/sw.js
+
+      - name: Deploy preview (pull request)
+        if: github.event_name == 'pull_request'
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: ${{ secrets.FIREBASE_PROJECT_ID }}
+          expires: 7d
+
+      - name: Deploy live (main)
+        if: github.event_name != 'pull_request'
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: ${{ secrets.FIREBASE_PROJECT_ID }}
+          channelId: live

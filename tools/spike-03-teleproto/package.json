@@ -1,0 +1,9 @@
+{
+  "name": "@tsmc/spike-03-teleproto",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "teleproto": "^1.228.5"
+  }
+}

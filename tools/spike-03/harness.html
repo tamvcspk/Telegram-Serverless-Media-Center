@@ -1,0 +1,25 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>spike-03 harness</title></head>
+<body>
+<script type="module">
+  const url = new URL(location.href).searchParams.get('bundle');
+  const t0 = performance.now();
+  await import(url);
+  const t1 = performance.now();
+
+  // Placeholder api_id/api_hash — chỉ để đo chi phí *dựng object*, không connect().
+  const client = new window.__spike03.TelegramClient(
+    new window.__spike03.StringSession(''),
+    12345,
+    '0123456789abcdef0123456789abcdef',
+    { connectionRetries: 0 }
+  );
+  const t2 = performance.now();
+
+  window.__result = {
+    importMs: +(t1 - t0).toFixed(1),   // fetch (cache) + parse + evaluate module
+    constructMs: +(t2 - t1).toFixed(1), // new TelegramClient(...)
+    hasClient: !!client,
+  };
+</script>
+</body></html>

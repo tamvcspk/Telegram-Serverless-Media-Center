@@ -1,0 +1,24 @@
+node_modules/
+dist/
+.angular/
+coverage/
+*.log
+.DS_Store
+Thumbs.db
+.firebaserc
+.firebase/
+.env
+.env.*
+*.key
+
+# SPIKE-02: session MTProto = toàn quyền tài khoản Telegram thật (xem ADR-0011).
+# Không bao giờ được vào git, kể cả vô tình.
+tools/spike-02/*.session
+tools/spike-02/*.session.local
+tools/spike-02/.session.local
+docs/spikes/*.local.json
+
+# Bundle do SPIKE-03 sinh ra để đo kích thước — dựng lại bằng
+# "node tools/spike-03/build.mjs", không commit (986 KB + 2.5 MB).
+tools/spike-03/dist-*.js
+tools/spike-03-teleproto/dist-*.js
