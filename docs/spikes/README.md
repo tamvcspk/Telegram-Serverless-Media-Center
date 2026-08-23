@@ -20,8 +20,10 @@ Quy tắc: **một spike chỉ đóng khi có số liệu từ thiết bị th�
 
 **Vì sao quan trọng:** nếu câu trả lời là "không" trên iOS, toàn bộ Epic 4 không chạy được trên iPhone/iPad và ta phải biết điều đó **trước khi** viết download scheduler, chứ không phải sau.
 
+> **Mã nguồn đã xoá (2026-08-24)** sau khi spike đóng và số liệu đã ghi lại đầy đủ bên dưới — không còn cần kiểm chứng lại, xem [docs/adr/README.md](../adr/README.md) cho nguyên tắc "một spike chỉ đóng khi có số liệu thật". Lịch sử mã nguồn vẫn còn trong git log nếu cần soi lại. Phần "Cách chạy" dưới đây mô tả cách spike ĐÃ chạy, không còn thực thi được nữa.
+
 ### Bàn thử nghiệm
-`spike/` — trang tĩnh độc lập, **không cần Telegram, không cần build, không phụ thuộc Angular**.
+`spike/` (đã xoá) — trang tĩnh độc lập, **không cần Telegram, không cần build, không phụ thuộc Angular**.
 
 Nó dựng lại đúng đường đi thật của [ADR-0005](../adr/0005-streaming-qua-service-worker-http-range.md), chỉ thay nguồn byte:
 
@@ -33,7 +35,7 @@ TESTBED        :  <video> → SW → tab (File.slice) → file trên máy
 
 Việc cố ý tách khỏi Telegram là điểm mấu chốt: nếu spike hỏng, ta biết chắc lỗi thuộc về trình duyệt chứ không phải MTProto, GramJS hay mạng.
 
-### Cách chạy
+### Cách chạy (lịch sử — mã nguồn đã xoá)
 ```bash
 # Tự động trên Chrome/Edge cài sẵn (chỉ phủ được desktop Chromium)
 npm run spike:auto -- "D:/duong/dan/phim.mp4"
@@ -45,7 +47,6 @@ npm run spike
 npm run deploy:spike        # → https://<project>--spike-01-<hash>.web.app
 ```
 
-**Đã deploy (2026-08-23):** https://tsmc-staging--spike-01-dfcswtj5.web.app — hết hạn 2026-08-30. Mở thẳng URL này trên iPhone/iPad thật để chạy phần còn thiếu của ma trận thiết bị bên dưới; không cần đăng nhập hay cấu hình gì thêm. Nếu link đã hết hạn, chạy lại lệnh trên để tạo preview mới.
 Mở URL trên máy cần test → chọn một file video → bấm lần lượt A, B, C → bấm **Copy báo cáo** → dán vào bảng kết quả bên dưới.
 
 ### Tiêu chí đạt/không đạt
@@ -136,9 +137,11 @@ File thử: `IMG_0953.mov` (65.9 MB, 35.2s) và `IMG_0842.mov` (119.4 MB, 63.9s)
 
 Trạng thái đăng nhập MTProto không phải là "một API key" — nó là **toàn quyền tài khoản Telegram thật**: đọc/gửi tin nhắn, xoá tài khoản, mạo danh chủ tài khoản. Việc đăng nhập đòi hỏi số điện thoại và mã OTP gửi trực tiếp tới thiết bị của bạn — một luồng tương tác con người không thể (và không nên) chạy qua tool call của Claude. Đây đúng là mô hình đe doạ mà chính [ADR-0011](../adr/0011-bao-mat-session-va-noi-dung-khong-tin-cay.md) mô tả cho ứng dụng thật; áp dụng luôn cho cách ta kiểm chứng spike.
 
-### Cách chạy — **bạn tự chạy trong terminal của bạn**
+> **Mã nguồn đã xoá (2026-08-24)** sau khi đóng spike — số liệu bên dưới là bằng chứng đã ghi lại, không còn cần chạy lại. Lịch sử mã nguồn vẫn còn trong git log.
 
-Tool sẵn có ở `tools/spike-02/`, chia hai bước tách bạch:
+### Cách chạy (lịch sử — mã nguồn đã xoá) — **bạn tự chạy trong terminal của bạn**
+
+Tool từng ở `tools/spike-02/`, chia hai bước tách bạch:
 
 ```bash
 cd tools/spike-02
@@ -193,7 +196,9 @@ Kết quả ghi ra `docs/spikes/spike-02-result.local.json` — file này **ch�
 
 **Ngưỡng chấp nhận:** app shell dưới 300 KB brotli (không tính GramJS, được lazy-load riêng theo [ADR-0004](../adr/0004-mo-hinh-da-luong.md)); Core Worker nạp lười và không chặn màn hình đăng nhập.
 
-### Cách chạy
+> **Mã nguồn đã xoá (2026-08-24)** sau khi đóng spike — cấu hình esbuild (polyfill Node cho `fs`/`net`/`tls`) đã được đưa nguyên xi vào `libs/worker-host/build.mjs` khi triển khai slice Auth (F1.1), xem [ADR-0012 § Cập nhật sau khi Accepted](../adr/0012-trien-khai-static-pwa-va-cau-truc-workspace.md#cập-nhật-sau-khi-accepted-2026-08-24-slice-auth-f11). Lịch sử mã nguồn vẫn còn trong git log.
+
+### Cách chạy (lịch sử — mã nguồn đã xoá)
 ```bash
 node tools/spike-03/build.mjs     # bundle bằng esbuild, in kích thước raw/gzip/brotli
 node tools/spike-03/measure.mjs   # nạp bundle trong Chrome thật, đo thời gian import + khởi tạo
@@ -242,7 +247,7 @@ Lỗi crash của teleproto tới từ xung đột giữa cách nó dùng biến
 2. **Đầu tư sửa teleproto cho browser** (fix xung đột `process`, đóng góp ngược upstream nếu maintainer đồng ý), chấp nhận rủi ro "chưa ai kiểm chứng dài hạn". Phù hợp nếu ưu tiên "có người vá lỗi lâu dài".
 3. **Theo dõi định kỳ**, khởi động với GramJS (đã kiểm chứng hoạt động), đặt lịch đánh giá lại (ví dụ mỗi quý, hoặc ngay khi Telegram đổi giao thức làm GramJS hỏng thật) — tận dụng đúng lớp bọc `TelegramGateway` đã thiết kế sẵn cho tình huống này.
 
-**Đã chốt (2026-08-23): hướng 1** — giữ GramJS, ghim cứng `telegram@2.26.22` ở mọi package tiêu thụ nó (`tools/spike-02`, `tools/spike-03`, và sau này `libs/core-mtproto`). Chi tiết và lý do đầy đủ ghi ở phần "Cập nhật sau khi Accepted" của [ADR-0003](../adr/0003-chon-thu-vien-mtproto-gramjs.md#cập-nhật-sau-khi-accepted-2026-08-23-spike-03).
+**Đã chốt (2026-08-23): hướng 1** — giữ GramJS, ghim cứng `telegram@2.26.22` ở mọi package tiêu thụ nó (lúc spike còn chạy: `tools/spike-02`, `tools/spike-03`; nay: `libs/core-mtproto`). Chi tiết và lý do đầy đủ ghi ở phần "Cập nhật sau khi Accepted" của [ADR-0003](../adr/0003-chon-thu-vien-mtproto-gramjs.md#cập-nhật-sau-khi-accepted-2026-08-23-spike-03).
 
 ---
 

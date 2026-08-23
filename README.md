@@ -2,7 +2,7 @@
 
 Media center chạy **hoàn toàn trong trình duyệt**. Telegram đóng vai identity provider, kho lưu trữ, CDN và cơ sở dữ liệu đồng bộ. Không backend, không chi phí băng thông.
 
-> ⚠️ **Trạng thái: giai đoạn kiến trúc.** Chưa có ứng dụng chạy được. Repo hiện chứa 16 ADR, 5 spike (3 đã đóng bằng số liệu thật), một bàn thử nghiệm streaming đã deploy, và bộ công cụ kiểm tra tài liệu.
+> ⚠️ **Trạng thái: đang xây dần từng slice.** 16 ADR, đăng nhập Telegram thật (F1.1) đã chạy được — xem [tsmc-staging.web.app](https://tsmc-staging.web.app). Browsing/player/sync chưa có. 3 spike đã đóng bằng số liệu thật rồi xoá mã nguồn (số liệu giữ lại ở [docs/spikes/](docs/spikes/)); SPIKE-04/05 chưa dựng.
 
 ## Bắt đầu từ đâu
 
@@ -17,26 +17,26 @@ Media center chạy **hoàn toàn trong trình duyệt**. Telegram đóng vai id
 ## Cấu trúc repo
 
 ```text
-apps/       web — scaffold Angular đã dựng, chưa có tính năng thật (auth/browse/player)
-libs/       core-mtproto, core-download, core-index, core-sync, core-storage,
-            shared-models, worker-host — đã dựng skeleton, chưa có logic nghiệp vụ
-sw/         Service Worker build riêng bằng esbuild + Workbox injectManifest — đã dựng skeleton
-spike/      bàn thử nghiệm SPIKE-01, static thuần, không phụ thuộc framework
-tools/      docs-check, spike-runner, spike-02, spike-03 — đã có
+apps/       web — Angular, zoneless. Auth (F1.1) chạy thật; browse/player chưa có
+libs/       core-mtproto (TelegramGateway thật), core-storage (Dexie), worker-host
+            (Core Worker + Comlink) — có logic thật. core-download/core-index/
+            core-sync/shared-models — skeleton, chưa có logic nghiệp vụ
+sw/         Service Worker build riêng bằng esbuild + Workbox injectManifest — skeleton
+tools/      docs-check — có sẵn
             tsmc-ingest CLI, tsmc-bot — chưa dựng (ADR-0013)
 docs/       architecture.md · adr/ · spikes/ · catalog-spec.md
 .claude/    skills dùng chung cho contributor: /adr, /spike, /docs-check
 ```
 
-Ranh giới phụ thuộc giữa `apps/web` và `libs/*` được quy định ở [ADR-0012](docs/adr/0012-trien-khai-static-pwa-va-cau-truc-workspace.md) và được ép bằng `eslint-plugin-boundaries` (`npm run lint`), không phải bằng thoả thuận miệng. Slice tiếp theo: Auth end-to-end (F1.1) — `TelegramGateway.login` thật, mã hoá session (ADR-0011).
+Ranh giới phụ thuộc giữa `apps/web` và `libs/*` được quy định ở [ADR-0012](docs/adr/0012-trien-khai-static-pwa-va-cau-truc-workspace.md) và được ép bằng `eslint-plugin-boundaries` (`npm run lint`), không phải bằng thoả thuận miệng.
 
-## Chạy bàn thử nghiệm
+## Chạy dev
 
 ```bash
-npm run spike            # http://localhost:5173 — localhost là secure context nên Service Worker chạy được
+npm run dev               # build Core Worker rồi ng serve — http://localhost:4200
 ```
 
-Muốn kiểm chứng trên iPhone/iPad thật (bắt buộc cho SPIKE-01) thì phải deploy — xem phần dưới.
+Cần `API_ID`/`API_HASH` của chính bạn tại [my.telegram.org](https://my.telegram.org) để đăng nhập thật — xem "Yêu cầu với người dùng cuối" bên dưới.
 
 ## Deploy lên Firebase Hosting (Google Cloud free tier)
 
@@ -49,12 +49,12 @@ cp .firebaserc.example .firebaserc     # rồi điền project id vào
 # 2. Đăng nhập (mở trình duyệt — phải do người thật làm)
 npx --yes firebase-tools login
 
-# 3. Deploy
+# 3. Deploy (tự build:web + build:sw trước, xem script "predeploy")
 npm run deploy:staging                 # → https://<project>.web.app
-npm run deploy:spike                   # → URL preview riêng, tự hết hạn sau 7 ngày
+npm run deploy:preview                 # → URL preview riêng, tự hết hạn sau 7 ngày
 ```
 
-Preview channel là thứ nên dùng khi thử spike: mỗi lần thử một URL riêng, mở thẳng trên điện thoại, không đụng vào bản chính.
+Đang chạy thật tại **https://tsmc-staging.web.app**. Preview channel là thứ nên dùng khi thử một nhánh/thay đổi trên thiết bị thật mà không đụng vào bản staging chính.
 
 ## Nguyên tắc bất di bất dịch
 

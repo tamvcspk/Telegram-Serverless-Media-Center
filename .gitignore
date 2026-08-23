@@ -11,17 +11,9 @@ Thumbs.db
 .env.*
 *.key
 
-# SPIKE-02: session MTProto = toàn quyền tài khoản Telegram thật (xem ADR-0011).
-# Không bao giờ được vào git, kể cả vô tình.
-tools/spike-02/*.session
-tools/spike-02/*.session.local
-tools/spike-02/.session.local
+# Kết quả spike chỉ chứa số liệu tổng hợp, không bao giờ chứa session MTProto
+# thật (xem ADR-0011) — nhưng vẫn không commit vì là artifact cục bộ.
 docs/spikes/*.local.json
-
-# Bundle do SPIKE-03 sinh ra để đo kích thước — dựng lại bằng
-# "node tools/spike-03/build.mjs", không commit (986 KB + 2.5 MB).
-tools/spike-03/dist-*.js
-tools/spike-03-teleproto/dist-*.js
 
 # Core Worker bundle (GramJS) — dựng lại bằng "npm run build:worker",
 # không commit. Đặt trong public/ để ng serve/ng build đều phục vụ được.

@@ -2,7 +2,7 @@
 
 Media center chạy **hoàn toàn trong trình duyệt**, dùng Telegram làm identity provider + kho lưu trữ + CDN + CSDL đồng bộ. Không backend.
 
-**Trạng thái: giai đoạn kiến trúc.** Chưa có app. Repo hiện có 16 ADR, 4 spike (3 đã đóng), và một bàn thử nghiệm streaming đã deploy.
+**Trạng thái: đang xây dần từng slice.** 16 ADR. Auth (F1.1) chạy thật, deploy tại https://tsmc-staging.web.app. Browse/player/sync chưa có. 3 spike đã đóng bằng số liệu thật rồi xoá mã nguồn (số liệu giữ ở [docs/spikes/](docs/spikes/)); SPIKE-04/05 chưa dựng.
 
 Đọc [docs/architecture.md](docs/architecture.md) trước khi sửa bất cứ thứ gì có tính kiến trúc. Quyết định ràng buộc nằm ở [docs/adr/](docs/adr/).
 
@@ -57,8 +57,9 @@ npm run docs:check
 
 ```bash
 npm run docs:check      # kiểm tra tài liệu
-npm run spike           # bàn thử nghiệm streaming, localhost:5173
-npm run spike:auto -- "<file.mp4>"   # SPIKE-01 tự động trên Chrome
-npm run deploy:spike    # preview channel cho thiết bị thật
-npm run deploy:staging  # deploy staging
+npm run dev              # build Core Worker rồi ng serve, localhost:4200
+npm run lint             # eslint-plugin-boundaries ép ranh giới ADR-0012
+npm run test:libs        # vitest cho libs/*, chạy bằng Node thuần
+npm run deploy:preview   # preview channel, tự hết hạn sau 7 ngày
+npm run deploy:staging   # deploy staging thật (tự build trước)
 ```

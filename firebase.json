@@ -1,6 +1,6 @@
 {
   "hosting": {
-    "public": "spike",
+    "public": "apps/web/dist/web/browser",
     "ignore": ["**/.*", "**/node_modules/**"],
     "cleanUrls": false,
     "trailingSlash": false,

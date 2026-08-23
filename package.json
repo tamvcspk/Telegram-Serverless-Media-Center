@@ -9,10 +9,9 @@
   },
   "packageManager": "pnpm@11.23.0",
   "scripts": {
-    "spike": "npx --yes serve spike --listen 5173",
-    "deploy:spike": "npx --yes firebase-tools hosting:channel:deploy spike-01 --expires 7d",
-    "deploy:staging": "npx --yes firebase-tools deploy --only hosting",
-    "spike:auto": "node tools/spike-runner/run.mjs",
+    "predeploy": "npm run build:web && npm run build:sw",
+    "deploy:preview": "npm run predeploy && npx --yes firebase-tools hosting:channel:deploy preview --expires 7d",
+    "deploy:staging": "npm run predeploy && npx --yes firebase-tools deploy --only hosting",
     "docs:check": "node tools/docs-check/check.mjs",
     "lint": "eslint .",
     "test:libs": "vitest run --root libs",
