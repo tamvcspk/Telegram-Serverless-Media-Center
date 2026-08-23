@@ -1,0 +1,17 @@
+{
+  "name": "Telegram Serverless Media Center",
+  "short_name": "TSMC",
+  "description": "Media center chạy hoàn toàn trong trình duyệt, dùng Telegram làm identity provider + kho lưu trữ + CDN + CSDL đồng bộ.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b1220",
+  "theme_color": "#0b1220",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    }
+  ]
+}

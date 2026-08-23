@@ -2,6 +2,7 @@ packages:
   - "apps/*"
   - "libs/*"
   - "tools/*"
+  - "sw"
 allowBuilds:
   '@parcel/watcher': true
   bufferutil: true
@@ -10,4 +11,5 @@ allowBuilds:
   esbuild: true
   lmdb: true
   msgpackr-extract: true
+  unrs-resolver: true
   utf-8-validate: true

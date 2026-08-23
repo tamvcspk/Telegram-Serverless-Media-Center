@@ -5,7 +5,18 @@
     <title>TSMC</title>
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      Khớp chính xác header CSP trong firebase.json (ADR-0011 + amendment
+      ADR-0016). Meta không hỗ trợ frame-ancestors/Referrer-Policy — hai
+      directive đó chỉ áp dụng được qua header khi host hỗ trợ.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self' wss://*.web.telegram.org blob:; worker-src 'self' blob:; base-uri 'none'; object-src 'none'"
+    />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="theme-color" content="#0b1220" />
   </head>
   <body>
     <app-root></app-root>

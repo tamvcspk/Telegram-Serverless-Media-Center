@@ -1,0 +1,13 @@
+{
+  "name": "@tsmc/sw",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "workbox-precaching": "^7.4.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "workbox-build": "^7.4.1"
+  }
+}

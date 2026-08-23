@@ -17,8 +17,10 @@ Media center chạy **hoàn toàn trong trình duyệt**. Telegram đóng vai id
 ## Cấu trúc repo
 
 ```text
-apps/       ứng dụng (web) — chưa dựng
-libs/       core-mtproto, core-download, core-index, core-sync, core-storage, shared-models — chưa dựng
+apps/       web — scaffold Angular đã dựng, chưa có tính năng thật (auth/browse/player)
+libs/       core-mtproto, core-download, core-index, core-sync, core-storage,
+            shared-models, worker-host — đã dựng skeleton, chưa có logic nghiệp vụ
+sw/         Service Worker build riêng bằng esbuild + Workbox injectManifest — đã dựng skeleton
 spike/      bàn thử nghiệm SPIKE-01, static thuần, không phụ thuộc framework
 tools/      docs-check, spike-runner, spike-02, spike-03 — đã có
             tsmc-ingest CLI, tsmc-bot — chưa dựng (ADR-0013)
@@ -26,7 +28,7 @@ docs/       architecture.md · adr/ · spikes/ · catalog-spec.md
 .claude/    skills dùng chung cho contributor: /adr, /spike, /docs-check
 ```
 
-Ranh giới phụ thuộc giữa `apps/` và `libs/` được quy định ở [ADR-0012](docs/adr/0012-trien-khai-static-pwa-va-cau-truc-workspace.md) và sẽ được ép bằng lint, không phải bằng thoả thuận miệng.
+Ranh giới phụ thuộc giữa `apps/web` và `libs/*` được quy định ở [ADR-0012](docs/adr/0012-trien-khai-static-pwa-va-cau-truc-workspace.md) và được ép bằng `eslint-plugin-boundaries` (`npm run lint`), không phải bằng thoả thuận miệng. Slice tiếp theo: Auth end-to-end (F1.1) — `TelegramGateway.login` thật, mã hoá session (ADR-0011).
 
 ## Chạy bàn thử nghiệm
 

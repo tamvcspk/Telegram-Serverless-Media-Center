@@ -13,9 +13,21 @@
     "deploy:spike": "npx --yes firebase-tools hosting:channel:deploy spike-01 --expires 7d",
     "deploy:staging": "npx --yes firebase-tools deploy --only hosting",
     "spike:auto": "node tools/spike-runner/run.mjs",
-    "docs:check": "node tools/docs-check/check.mjs"
+    "docs:check": "node tools/docs-check/check.mjs",
+    "lint": "eslint .",
+    "test:libs": "vitest run --root libs",
+    "build:web": "pnpm --filter web run build",
+    "build:sw": "node sw/build.mjs"
   },
   "devDependencies": {
-    "puppeteer-core": "^23.11.1"
+    "@eslint/js": "^10.0.1",
+    "angular-eslint": "^22.1.0",
+    "eslint": "^10.9.0",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-boundaries": "^7.2.0",
+    "puppeteer-core": "^23.11.1",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^4.1.11"
   }
 }
