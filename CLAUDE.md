@@ -2,7 +2,7 @@
 
 Media center chạy **hoàn toàn trong trình duyệt**, dùng Telegram làm identity provider + kho lưu trữ + CDN + CSDL đồng bộ. Không backend.
 
-**Trạng thái: đang xây dần từng slice.** 16 ADR. Auth (F1.1) chạy thật, deploy tại https://tsmc-staging.web.app. Browse/player/sync chưa có. 3 spike đã đóng bằng số liệu thật rồi xoá mã nguồn (số liệu giữ ở [docs/spikes/](docs/spikes/)); SPIKE-04/05 chưa dựng.
+**Trạng thái: đang xây dần từng slice.** 16 ADR. Auth (F1.1) và Sync & Hydration (F1.2/F1.3) chạy thật, deploy tại https://tsmc-staging.web.app — dò/tạo kênh state, ghi event, đẩy lên Telegram đã kiểm chứng bằng tài khoản thật; nén snapshot (>200 event hoặc snapshot >7 ngày) và gộp nhiều kênh state (ADR-0014) chưa qua kiểm chứng thiết bị thật (không tự phát sinh trong một lần dùng bình thường). Browse/player chưa có. 3 spike đã đóng bằng số liệu thật rồi xoá mã nguồn (số liệu giữ ở [docs/spikes/](docs/spikes/)); SPIKE-04/05 chưa dựng.
 
 Đọc [docs/architecture.md](docs/architecture.md) trước khi sửa bất cứ thứ gì có tính kiến trúc. Quyết định ràng buộc nằm ở [docs/adr/](docs/adr/).
 

@@ -57,3 +57,11 @@ Tab nào cũng có Core Worker riêng, nhưng chỉ **một tab giữ vai leader
 - Đóng tab là dừng phát. Chấp nhận được: đây là web app, không phải trình tải nền.
 - SW phải tự tìm client: dùng `clients.matchAll()`, ưu tiên client cùng `resultingClientId` với request; nếu có nhiều tab thì chọn tab đang phát. Cần heartbeat để phát hiện tab chết.
 - Debug xuyên ba ngữ cảnh rất khó → bắt buộc có **correlation id** trong mọi message và một trang `#/debug` hiển thị log gộp. Đây là hạng mục hạ tầng, không phải "nice to have".
+
+## Cập nhật sau khi Accepted (2026-08-24, slice Sync F1.2/F1.3)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**.
+
+"Mỗi tab có Core Worker riêng" (bất biến đúng) ngầm giả định thêm một điều ADR này chưa nói rõ: **cũng chỉ một Core Worker cho mỗi tab**, không phải một Core Worker cho mỗi *component* trong tab. `libs/worker-host/src/index.ts` ban đầu không enforce điều này — `createCoreWorkerClient()` tạo một `Worker` mới ở MỖI lần gọi. Khi slice Sync thêm component thứ hai (`SyncStatus`, bên cạnh `Login`) cũng tự gọi hàm này, kết quả là **hai Core Worker độc lập trong cùng một tab**: một cái đã đăng nhập + `initSync()` (từ `Login`), một cái hoàn toàn trống (từ `SyncStatus`) — RPC ghi gọi vào cái trống thất bại âm thầm (chi tiết ở [ADR-0009 § Cập nhật](./0009-dong-bo-state-event-log-va-snapshot.md#cập-nhật-sau-khi-accepted-2026-08-24-slice-sync-f12f13)).
+
+Đã vá: `createCoreWorkerClient()` giờ là singleton cấp module (`client ??= Comlink.wrap(...)`), có test regression xác nhận nhiều lời gọi chỉ tạo đúng một `Worker`. Bài học cho các slice sau: bất kỳ component Angular nào cần nói chuyện với Core Worker phải gọi `createCoreWorkerClient()` — **không** tự giữ instance riêng hay tự `new Worker(...)`.

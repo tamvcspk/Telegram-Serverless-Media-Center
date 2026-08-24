@@ -89,3 +89,9 @@ Bảng đầy đủ về hai tầng dữ liệu (kèm ví dụ cụ thể từng
 - Logic dò kênh state là mã có trạng thái, nhiều nhánh, và **phải có test cho cả bốn kịch bản** (không có / một / nhiều / bị xoá). Đây là chỗ hỏng thì user mất dữ liệu, nên không được làm qua loa.
 - Phân giải lại kênh qua username tốn thêm RPC lúc khởi động; cache `access_hash` theo tài khoản và chỉ phân giải lại khi gặp lỗi.
 - User có thể tự tay xoá kênh state trong Telegram. Cảnh báo trong mô tả kênh, và mỗi khi kênh biến mất thì hiện đúng thông điệp "state đã mất, sẽ tạo mới" thay vì âm thầm bắt đầu lại từ số 0.
+
+## Cập nhật sau khi Accepted (2026-08-24, slice Sync F1.2/F1.3)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**.
+
+Bước 5 của quy trình dò/tạo kênh (`channels.CreateChannel` với `broadcast:true`, `about` bắt đầu `tsmc-state/1`) đã kiểm chứng thành công trên tài khoản Telegram thật lúc đăng nhập lần đầu trên staging — kênh `TSMC State` tạo đúng, dò lại được qua `about` prefix. Chưa có dịp kiểm chứng thật nhánh "tìm thấy nhiều hơn một" (cần dàn dựng ≥2 kênh state thủ công) hay nhánh dán link (`t.me/c/<id>`) — cả hai vẫn chỉ được phủ bởi test có mock, xem `libs/core-sync/src/hydrate.spec.ts`.
