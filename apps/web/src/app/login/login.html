@@ -5,7 +5,9 @@
     }
 
     @case ('phone') {
-      <form (submit)="onSubmitPhone($event, apiIdInput.value, apiHashInput.value, phoneInput.value)">
+      <form
+        (submit)="onSubmitPhone($event, apiIdInput.value, apiHashInput.value, dialCodeSelect.value, phoneInput.value)"
+      >
         <mat-form-field appearance="outline">
           <mat-label>API_ID</mat-label>
           <input matInput type="number" #apiIdInput required />
@@ -14,10 +16,20 @@
           <mat-label>API_HASH</mat-label>
           <input matInput #apiHashInput required />
         </mat-form-field>
-        <mat-form-field appearance="outline">
-          <mat-label>Số điện thoại</mat-label>
-          <input matInput type="tel" #phoneInput placeholder="+84…" required />
-        </mat-form-field>
+        <div class="phone-row">
+          <mat-form-field appearance="outline" class="dial-code">
+            <mat-label>Mã vùng</mat-label>
+            <select matNativeControl #dialCodeSelect required [value]="defaultDialCode">
+              @for (country of countryDialCodes; track country.iso2) {
+                <option [value]="country.dialCode">{{ country.name }} (+{{ country.dialCode }})</option>
+              }
+            </select>
+          </mat-form-field>
+          <mat-form-field appearance="outline" class="national-number">
+            <mat-label>Số điện thoại</mat-label>
+            <input matInput type="tel" inputmode="numeric" #phoneInput placeholder="912345678" required />
+          </mat-form-field>
+        </div>
         <button mat-flat-button color="primary" type="submit" [disabled]="submitting()">Gửi mã</button>
       </form>
       <p class="hint">

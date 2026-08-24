@@ -15,6 +15,21 @@
     width: 100%;
   }
 
+  .phone-row {
+    display: flex;
+    gap: 0.5rem;
+    width: 100%;
+
+    .dial-code {
+      flex: 0 0 auto;
+      min-width: 9rem;
+    }
+
+    .national-number {
+      flex: 1 1 auto;
+    }
+  }
+
   .hint {
     font-size: 0.85rem;
     opacity: 0.75;

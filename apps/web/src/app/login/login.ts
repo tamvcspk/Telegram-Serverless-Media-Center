@@ -5,6 +5,7 @@ import { MatInputModule } from '@angular/material/input';
 import * as Comlink from 'comlink';
 import { createCoreWorkerClient } from '@tsmc/worker-host';
 import type { TelegramUserSummary } from '@tsmc/shared-models';
+import { COUNTRY_DIAL_CODES, toE164 } from './country-codes';
 
 type LoginStatus = 'checking' | 'phone' | 'code' | 'password' | 'authenticated';
 
@@ -26,6 +27,9 @@ export class Login {
 
   private pendingCode: ((code: string) => void) | null = null;
   private pendingPassword: ((password: string) => void) | null = null;
+
+  readonly countryDialCodes = COUNTRY_DIAL_CODES;
+  readonly defaultDialCode = COUNTRY_DIAL_CODES[0].dialCode;
 
   readonly status = signal<LoginStatus>('checking');
   readonly user = signal<TelegramUserSummary | null>(null);
@@ -54,41 +58,56 @@ export class Login {
     this.status.set('phone');
   }
 
-  async onSubmitPhone(event: Event, apiIdRaw: string, apiHash: string, phoneNumber: string): Promise<void> {
+  async onSubmitPhone(
+    event: Event,
+    apiIdRaw: string,
+    apiHash: string,
+    dialCode: string,
+    nationalNumber: string
+  ): Promise<void> {
     event.preventDefault();
     this.errorMessage.set(null);
 
     const apiId = Number(apiIdRaw);
-    if (!apiId || !apiHash.trim() || !phoneNumber.trim()) {
+    if (!apiId || !apiHash.trim() || !nationalNumber.trim()) {
       this.errorMessage.set('Điền đầy đủ API_ID, API_HASH và số điện thoại.');
       return;
     }
+    const phoneNumber = toE164(dialCode, nationalNumber);
 
     this.submitting.set(true);
     try {
+      // QUAN TRỌNG: bọc CẢ object callbacks bằng một Comlink.proxy() duy
+      // nhất, không bọc từng hàm rời rồi nhét vào object thường — Comlink
+      // chỉ kiểm tra marker proxy ở đối số cấp cao nhất, không đệ quy vào
+      // thuộc tính bên trong object thường. Bọc riêng lẻ từng hàm khiến
+      // Comlink rơi về structured-clone mặc định của postMessage cho CẢ
+      // object chứa (vì bản thân object đó không có marker) → lỗi
+      // "could not be cloned" (Chrome) / "the object cannot be cloned"
+      // (Safari/iOS) — đã tái hiện thật trên cả hai nền tảng.
       const summary = await this.client.login(
         { apiId, apiHash },
         phoneNumber,
-        {
-          phoneCode: Comlink.proxy((isCodeViaApp?: boolean) => {
+        Comlink.proxy({
+          phoneCode: (isCodeViaApp?: boolean) => {
             this.codeViaApp.set(Boolean(isCodeViaApp));
             this.status.set('code');
             return new Promise<string>((resolve) => {
               this.pendingCode = resolve;
             });
-          }),
-          password: Comlink.proxy((hint?: string) => {
+          },
+          password: (hint?: string) => {
             this.passwordHint.set(hint);
             this.status.set('password');
             return new Promise<string>((resolve) => {
               this.pendingPassword = resolve;
             });
-          }),
-          onError: Comlink.proxy(async (err: Error) => {
+          },
+          onError: async (err: Error) => {
             this.errorMessage.set(err.message);
             return false;
-          })
-        }
+          }
+        })
       );
       this.user.set(summary);
       this.status.set('authenticated');
