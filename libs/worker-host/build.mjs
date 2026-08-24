@@ -7,8 +7,10 @@ import path from 'node:path';
 
 // Build Core Worker riêng khỏi Angular CLI — ADR-0012 addendum. GramJS cần
 // polyfill fs/net/tls không có trong esbuild builder của Angular; cấu hình
-// dưới đây tái dùng NGUYÊN XI cấu hình đã kiểm chứng thật ở SPIKE-03
-// (236 KB brotli, ~110ms init trên Chrome thật) — không đoán lại.
+// dưới đây bắt nguồn từ SPIKE-03 (236 KB brotli, ~110ms init trên Chrome
+// thật) — nhưng SPIKE-03 chỉ đo lúc NẠP bundle, không gọi connect() nên
+// không hề chạm code path crypto thật (xem CHANGELOG dưới). Đã phát hiện +
+// vá thêm khi kiểm thử đăng nhập thật.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const outfile = path.join(__dirname, '..', '..', 'apps', 'web', 'public', 'core-worker.js');
 
@@ -20,7 +22,21 @@ await build({
   target: 'es2022',
   minify: true,
   outfile,
-  plugins: [polyfillNode({ globals: { process: true, buffer: true } })],
+  plugins: [
+    polyfillNode({
+      globals: { process: true, buffer: true },
+      polyfills: {
+        // Mặc định của plugin là "empty" cho crypto — bundle vẫn build
+        // thành công (không lỗi build-time) nhưng GramJS gọi
+        // `crypto.randomBytes` lúc connect() thật thì vỡ runtime:
+        // "hg.default.randomBytes is not a function" — tái hiện được trên
+        // CẢ Chrome desktop lẫn Safari/iOS, không phải lỗi riêng WebKit.
+        // Bật polyfill crypto thật (@jspm/core, nền WebCrypto) để có
+        // randomBytes/pbkdf2/... hoạt động đúng.
+        crypto: true
+      }
+    })
+  ],
   // fs/net không có polyfill browser có nghĩa — GramJS chỉ chạm chúng trên
   // nhánh code dành cho Node (session lưu file, transport TCP thô); stub
   // rỗng để xác nhận nhánh browser (WebSocket) không thực sự gọi tới.

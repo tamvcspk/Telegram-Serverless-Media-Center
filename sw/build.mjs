@@ -26,7 +26,12 @@ const { count, size, warnings } = await injectManifest({
   globDirectory: browserDir,
   // Tên file (ngoài sw.js) do build của app tự hash, an toàn để precache toàn bộ.
   globPatterns: ['**/*.{js,css,html}'],
-  globIgnores: ['sw.bundle.js', 'sw.js']
+  globIgnores: ['sw.bundle.js', 'sw.js'],
+  // Mặc định Workbox là 2 MB — core-worker.js (bundle GramJS + polyfill
+  // crypto) đã vượt mốc đó (~3.2 MB raw) và bị âm thầm loại khỏi precache
+  // nếu không nới ngưỡng này, khiến app mất khả năng chạy offline cho phần
+  // quan trọng nhất. Nới rộng có chủ đích, còn dư chỗ cho tăng trưởng.
+  maximumFileSizeToCacheInBytes: 5 * 1024 * 1024
 });
 
 await rm(swBundle);

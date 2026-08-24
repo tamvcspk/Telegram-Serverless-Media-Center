@@ -21,7 +21,7 @@
             <mat-label>Mã vùng</mat-label>
             <select matNativeControl #dialCodeSelect required [value]="defaultDialCode">
               @for (country of countryDialCodes; track country.iso2) {
-                <option [value]="country.dialCode">{{ country.name }} (+{{ country.dialCode }})</option>
+                <option [value]="country.dialCode">+{{ country.dialCode }} {{ country.name }}</option>
               }
             </select>
           </mat-form-field>

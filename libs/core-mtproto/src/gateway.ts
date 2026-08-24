@@ -1,3 +1,6 @@
+// PHẢI đứng trước import 'telegram': patch globalThis.window trước khi
+// platform.js của GramJS tính isBrowser (xem browser-shim.ts).
+import './browser-shim';
 import { Api, TelegramClient, sessions } from 'telegram';
 import type { LoginCallbacks, TelegramCredentials, TelegramUserSummary } from '@tsmc/shared-models';
 import { deleteSessionRecord, getSessionRecord, putSessionRecord } from '@tsmc/core-storage';
