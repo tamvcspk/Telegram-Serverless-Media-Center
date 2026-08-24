@@ -82,3 +82,8 @@ Khi `libs/worker-host/src/core-worker.ts` bắt đầu import `@tsmc/core-mtprot
 - `apps/web/src/app` gọi `createCoreWorkerClient()` từ `@tsmc/worker-host` như cũ — bất biến "chỉ qua worker-host" của ADR này không đổi, chỉ đổi CÁCH worker được nạp (`new Worker('/core-worker.js')` thay vì `new URL(...)`).
 
 **Hệ quả bổ sung**: bất kỳ `libs/core-*` nào sau này cần vào Core Worker và có dependency Node-oriented tương tự (không chỉ GramJS) sẽ đi theo đúng mẫu này, không cần bàn lại.
+
+**Cập nhật tiếp trong cùng slice — hai phát hiện khi đăng nhập thật lần đầu:**
+
+- **`polyfillNode()` mặc định KHÔNG polyfill `crypto`.** `esbuild-plugin-polyfill-node` để `polyfills.crypto = "empty"` theo mặc định — build vẫn thành công (không lỗi build-time) nhưng GramJS vỡ ngay lúc chạy (`randomBytes is not a function`, chi tiết ở [ADR-0003 § Cập nhật 2026-08-24](./0003-chon-thu-vien-mtproto-gramjs.md#cập-nhật-sau-khi-accepted-2026-08-24-slice-auth-f11)). Đã bật tường minh `polyfills: { crypto: true }` trong `libs/worker-host/build.mjs`. Con số **266.6 KB brotli** ghi ở trên đã đổi thành **422.9 KB brotli** sau khi bật — chênh lệch chấp nhận được (polyfill crypto nền WebCrypto qua `@jspm/core`, không phải lỗi cấu hình), không tính vào ngân sách app shell 300 KB vì Core Worker vẫn lazy-load riêng ([ADR-0004](./0004-mo-hinh-da-luong.md)).
+- **Hệ quả kéo theo cho Service Worker**: `core-worker.js` tăng từ ~1.09 MB lên ~3.15 MB raw, vượt ngưỡng mặc định 2 MB của Workbox `injectManifest` — bị **âm thầm loại khỏi precache manifest** (chỉ in cảnh báo, không lỗi build) nếu không xử lý, khiến app mất khả năng chạy offline cho đúng phần quan trọng nhất. Đã nới `maximumFileSizeToCacheInBytes: 5 * 1024 * 1024` trong `sw/build.mjs`.

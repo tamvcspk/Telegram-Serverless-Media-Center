@@ -69,3 +69,26 @@ Nói cách khác: **thư viện đang dùng (GramJS) vẫn là lựa chọn kh�
 **Quyết định của chủ dự án (2026-08-23):** giữ GramJS, **ghim cứng phiên bản** `telegram@2.26.22` (không dùng range `^`) trong mọi package tiêu thụ nó. Lý do chọn: đây là lựa chọn duy nhất đã kiểm chứng chạy được trong browser thật ngay hôm nay; đánh đổi rủi ro bảo trì dài hạn lấy tiến độ, và dựa vào `TelegramGateway` để giữ chi phí đổi thư viện về sau ở mức một package thay vì viết lại toàn bộ. Không đầu tư sửa `teleproto` cho browser ở giai đoạn này.
 
 Hệ quả thực thi: pin version chính xác ở mọi `package.json` dùng `telegram`; theo dõi thủ công khi Telegram đổi TL layer làm GramJS hỏng thật (không có CI tự động cảnh báo việc này — ghi vào checklist vận hành khi có, chưa phải việc của giai đoạn kiến trúc).
+
+## Cập nhật sau khi Accepted (2026-08-24, slice Auth F1.1)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**, xem lý do bên dưới.
+
+Khi triển khai `TelegramGateway.login` thật và deploy thử lên staging, đăng nhập thật lập tức vỡ ngay bước gửi mã: `hg.default.randomBytes is not a function` — tái hiện được trên **cả Windows Chrome lẫn iOS Safari**, không phải lỗi riêng WebKit.
+
+**Gốc rễ, xác nhận bằng cách đọc source GramJS thật** (không suy đoán): GramJS tự nhận diện "đang chạy Node hay browser" bằng đúng một dòng ở `platform.js`:
+```js
+exports.isBrowser = !exports.isDeno && typeof window !== "undefined";
+exports.isNode = !exports.isBrowser;
+```
+Dedicated Worker — nơi **duy nhất** được phép chạy GramJS theo [ADR-0004](./0004-mo-hinh-da-luong.md) — không có `window` (Worker global scope chỉ có `self`). GramJS vì vậy **luôn** tưởng nhầm mình đang chạy Node, dù thực tế đang ở trong trình duyệt. Ba hệ quả cụ thể đã xác nhận bằng cách đọc thẳng mã nguồn:
+
+1. `CryptoFile.js` dùng `require("crypto")` kiểu Node để lấy `randomBytes` cho các bước tạo nonce của MTProto handshake. Bundler cần polyfill cho việc này ở trình duyệt — nhưng mặc định của `esbuild-plugin-polyfill-node` là **tắt hẳn** polyfill crypto (`polyfills.crypto = "empty"`), nên build vẫn **thành công** (không lỗi build-time) nhưng vỡ ngay khi chạm runtime. Đây đúng là lỗ hổng verification: [SPIKE-03](../spikes/README.md#spike-03) chỉ đo lúc *nạp* bundle, chưa từng gọi `connect()` nên chưa từng chạm nhánh crypto này.
+2. `telegramBaseClient.js` chọn địa chỉ DC mặc định dựa trên `isNode`: tưởng là Node thì dùng thẳng IP thô của DC (`149.154.167.91`) qua `ws://` cổng 80; tưởng là browser thì dùng hostname `*.web.telegram.org` qua `wss://` cổng 443 (`useWSS` cũng suy từ `window.location.protocol`, vốn không tồn tại trong Worker). Nhánh "Node" bị chặn thẳng bởi CSP `connect-src` ([ADR-0011](./0011-bao-mat-session-va-noi-dung-khong-tin-cay.md)) — và IP thô cũng không có chứng chỉ TLS hợp lệ cho `wss://` dù CSP có cho qua.
+3. `Helpers.js` gọi `.unref()` trên id của timer khi tưởng là Node — `number` trả về từ `setTimeout` của trình duyệt/Worker không có method này, sẽ crash nếu nhánh đó từng được thực thi (chưa gặp thật, nhưng cùng gốc rễ).
+
+**Sửa tại nguồn (patch GramJS) không khả thi/không nên** — đây là dependency ghim cứng đã bị archive (xem addendum trên). Thay vào đó, `libs/core-mtproto/src/browser-shim.ts` gán `globalThis.window = self` **trước khi** `telegram` được import lần đầu (thứ tự import quyết định thời điểm `platform.js` tính `isBrowser`) — vá đúng gốc rễ, sửa cả 3 hệ quả trên cùng lúc thay vì ba bản vá rời rạc.
+
+**Đã verify bằng kết nối MTProto thật** (dùng credential giả — không phải tài khoản người dùng thật, đúng ranh giới an toàn của CLAUDE.md): sau khi vá, kết nối đúng tới `vesta.web.telegram.org`, và nhận đúng lỗi thật từ server Telegram (`400: API_ID_INVALID`, đúng vì API_ID là giả) thay vì crash phía client. Xác nhận pipeline kết nối MTProto trong Worker chạy đúng end-to-end.
+
+**Điều thay đổi**: rủi ro "khoá cứng vào GramJS" đã ghi ở addendum trước nặng thêm một chút — không chỉ là "gói bị archive, không ai vá lỗi giao thức", mà còn là "gói còn giả định môi trường Node ở nhiều chỗ, phải tự dò và vá từng quirk khi chạm tới". Lớp bọc `TelegramGateway`/`browser-shim.ts` tiếp tục giữ chi phí này ở đúng một package — quyết định giữ GramJS **không đổi**.
