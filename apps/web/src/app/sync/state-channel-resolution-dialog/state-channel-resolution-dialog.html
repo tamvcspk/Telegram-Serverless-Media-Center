@@ -1,0 +1,47 @@
+<h2 mat-dialog-title>Tìm thấy nhiều kênh đồng bộ</h2>
+
+<mat-dialog-content>
+  <p>
+    Tài khoản này có nhiều hơn một kênh state (dữ liệu tiến trình xem, bộ sưu tập, cài đặt). Chọn kênh đang dùng,
+    hoặc gộp tất cả lại nếu không chắc.
+  </p>
+
+  <mat-tab-group>
+    <mat-tab label="Chọn kênh">
+      <div class="candidates">
+        @for (candidate of data.candidates; track candidate.id) {
+          <label class="candidate">
+            <input
+              type="radio"
+              name="candidate"
+              [value]="candidate.id"
+              [checked]="selectedChannelId() === candidate.id"
+              (change)="selectedChannelId.set(candidate.id)"
+            />
+            <span class="title">{{ candidate.title }}</span>
+            <span class="meta">{{ candidate.eventCount }} sự kiện · cập nhật {{ candidate.updatedAt | date: 'medium' }}</span>
+          </label>
+        }
+      </div>
+      <div class="actions">
+        <button mat-flat-button color="primary" [disabled]="!selectedChannelId()" (click)="onUseSelected()">
+          Dùng kênh đã chọn
+        </button>
+        <button mat-stroked-button (click)="onMergeAll()">Gộp tất cả</button>
+      </div>
+    </mat-tab>
+
+    <mat-tab label="Dán link">
+      <form class="link-form" (submit)="onSubmitLink($event, linkInput.value)">
+        <mat-form-field appearance="outline">
+          <mat-label>Link kênh state</mat-label>
+          <input matInput #linkInput placeholder="https://t.me/c/…" />
+        </mat-form-field>
+        @if (linkError(); as err) {
+          <p class="error">{{ err }}</p>
+        }
+        <button mat-flat-button color="primary" type="submit">Dùng link này</button>
+      </form>
+    </mat-tab>
+  </mat-tab-group>
+</mat-dialog-content>

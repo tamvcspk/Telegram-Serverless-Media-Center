@@ -2,5 +2,21 @@
 // Ngoại lệ duy nhất trong nhóm core-*: được phép dùng liveQuery, không phụ thuộc @angular/*.
 export const LIB_NAME = '@tsmc/core-storage' as const;
 
-export type { SessionRecord } from './session-store';
+// Re-export để apps/web đọc qua liveQuery → toSignal() (ADR-0007 "đường
+// đọc") mà không cần tự thêm dependency trực tiếp vào `dexie` — chi tiết
+// dùng Dexie ở dưới nên nằm gọn trong package này.
+export { liveQuery } from 'dexie';
+
+export type { SessionRecord, SyncMetaRecord, SyncStateRecord, OutboxRecord } from './session-store';
 export { getSessionRecord, putSessionRecord, deleteSessionRecord } from './session-store';
+
+export {
+  getSyncMeta,
+  putSyncMeta,
+  getSyncState,
+  putSyncState,
+  appendOutbox,
+  listOutbox,
+  removeOutbox,
+  countOutbox
+} from './sync-store';

@@ -11,7 +11,14 @@
     "target": "ES2022",
     "module": "ES2022",
     "moduleResolution": "bundler",
-    "noEmit": true
+    "noEmit": true,
+    // Chỉ comlink-callback-proxy.spec.ts cần (node:worker_threads —
+    // MessageChannel thật để test đúng đường postMessage). An toàn: "types"
+    // là setting theo TỪNG tsconfig, apps/web dùng tsconfig riêng của nó
+    // nên không bao giờ thấy "node" ở đây; source thật (core-worker.ts) đã
+    // không còn cần Buffer/Node type nào từ sau khi gateway-sync.ts chuyển
+    // sang Uint8Array.
+    "types": ["node"]
   },
   "include": ["src"]
 }

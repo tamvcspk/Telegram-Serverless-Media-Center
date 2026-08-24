@@ -26,3 +26,10 @@ export interface LoginCallbacks {
   /** Trả về true để dừng hẳn luồng đăng nhập, false để cho thử lại. */
   onError(err: Error): Promise<boolean>;
 }
+
+// DTO cho slice Sync & Hydration (F1.2/F1.3) — ADR-0009, ADR-0014.
+export type { SyncEvent, SyncEventInput, SyncEventBase } from './sync-events';
+export { isSyncEvent } from './sync-events';
+export type { SyncState, ProgressEntry, Collection, SourceRef, SettingValue, SnapshotV1 } from './sync-state';
+export { createEmptySyncState } from './sync-state';
+export type { StateChannelCandidate, StateChannelChoice, StateChannelResolutionCallbacks } from './sync-channel';

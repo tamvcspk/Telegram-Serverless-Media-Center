@@ -1,0 +1,52 @@
+.candidates {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.candidate {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.5rem;
+  border: 1px solid var(--mat-sys-outline-variant, #ccc);
+  border-radius: 0.5rem;
+  cursor: pointer;
+
+  .title {
+    font-weight: 500;
+  }
+
+  .meta {
+    font-size: 0.8rem;
+    opacity: 0.75;
+  }
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.link-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 1rem;
+
+  mat-form-field {
+    width: 100%;
+  }
+
+  .error {
+    color: var(--mat-sys-error, #b3261e);
+    font-size: 0.85rem;
+    margin: 0;
+  }
+
+  button {
+    align-self: flex-start;
+  }
+}

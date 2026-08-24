@@ -1,0 +1,32 @@
+.sync-status {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-width: 24rem;
+  margin-top: 1rem;
+
+  h2 {
+    font-size: 1rem;
+    margin: 0;
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.9rem;
+  }
+
+  .error {
+    color: var(--mat-sys-error, #b3261e);
+  }
+
+  .hint {
+    font-size: 0.8rem;
+    opacity: 0.75;
+  }
+
+  .actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+}

@@ -1,0 +1,36 @@
+<section class="sync-status">
+  <h2>Đồng bộ</h2>
+
+  @if (meta(); as m) {
+    <p>
+      Kênh state:
+      @if (m.stateChannelId) {
+        <span>đã tìm/tạo (id {{ m.stateChannelId }})</span>
+      } @else {
+        <span>đang dò…</span>
+      }
+    </p>
+    <p>Sự kiện chờ gửi: {{ pendingOutboxCount() }}</p>
+    @if (m.lastSyncAt) {
+      <p>Đồng bộ lần cuối: {{ m.lastSyncAt | date: 'medium' }}</p>
+    }
+    @if (m.lastError; as err) {
+      <p class="error">Lỗi đồng bộ gần nhất: {{ err }}</p>
+    }
+  } @else {
+    <p>Đang tải trạng thái đồng bộ…</p>
+  }
+
+  <div class="actions">
+    <button mat-stroked-button [disabled]="flushing()" (click)="onForceFlush()">Đồng bộ ngay</button>
+    <button mat-stroked-button [disabled]="writingTest()" (click)="onWriteTestEvent()">Ghi sự kiện thử</button>
+  </div>
+  <p class="hint">
+    "Ghi sự kiện thử" tạo một thay đổi settings thật (dùng để tự kiểm đường ghi — chưa có màn hình cài đặt thật ở
+    slice này). Bấm xong, "Sự kiện chờ gửi" phải tăng lên 1 ngay (ghi optimistic cục bộ), rồi "Đồng bộ ngay" phải đưa
+    nó về 0 và cập nhật "Đồng bộ lần cuối".
+  </p>
+  @if (actionError(); as err) {
+    <p class="error">{{ err }}</p>
+  }
+</section>

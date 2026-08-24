@@ -2,8 +2,16 @@
 // platform.js của GramJS tính isBrowser (xem browser-shim.ts).
 import './browser-shim';
 import { Api, TelegramClient, sessions } from 'telegram';
-import type { LoginCallbacks, TelegramCredentials, TelegramUserSummary } from '@tsmc/shared-models';
+import type {
+  LoginCallbacks,
+  SnapshotV1,
+  StateChannelCandidate,
+  SyncEvent,
+  TelegramCredentials,
+  TelegramUserSummary
+} from '@tsmc/shared-models';
 import { deleteSessionRecord, getSessionRecord, putSessionRecord } from '@tsmc/core-storage';
+import { createSyncGatewayMethods, type MinimalChannel } from './gateway-sync';
 import { decryptSessionString, encryptSessionString, generateSessionKey } from './session-crypto';
 
 const { StringSession } = sessions;
@@ -17,6 +25,19 @@ export interface TelegramGateway {
   login(credentials: TelegramCredentials, phoneNumber: string, callbacks: LoginCallbacks): Promise<TelegramUserSummary>;
   restoreSession(): Promise<TelegramUserSummary | null>;
   logout(): Promise<void>;
+
+  // Phần dưới đây khớp shape @tsmc/core-sync SyncGateway (gateway-port.ts)
+  // — cố ý KHÔNG import type đó ở đây (core-mtproto không phụ thuộc
+  // core-sync, xem CLAUDE.md bất biến #3 + plan slice Sync). Khớp cấu trúc
+  // được xác nhận tại nơi nối dây thật, worker-host/core-worker.ts.
+  listOwnStateChannelCandidates(): Promise<StateChannelCandidate[]>;
+  getChannelById(id: string): Promise<MinimalChannel | null>;
+  createStateChannel(): Promise<MinimalChannel>;
+  sendEvent(channelId: string, event: SyncEvent): Promise<{ msgId: number }>;
+  fetchEventsSince(channelId: string, sinceMsgId: number): Promise<Array<{ msgId: number; event: SyncEvent }>>;
+  fetchPinnedSnapshot(channelId: string): Promise<SnapshotV1 | null>;
+  publishSnapshot(channelId: string, snapshot: SnapshotV1, compactedMsgIds: number[]): Promise<{ msgId: number }>;
+  serverNow(): number;
 }
 
 function toUserSummary(user: Api.TypeUser): TelegramUserSummary {
@@ -46,7 +67,17 @@ export function createTelegramGateway(): TelegramGateway {
     await putSessionRecord({ id: 'default', apiId: credentials.apiId, apiHash: credentials.apiHash, iv, ciphertext, cryptoKey });
   }
 
+  function requireClient(): TelegramClient {
+    if (!client) {
+      throw new Error('TelegramGateway: chưa đăng nhập (gọi login()/restoreSession() trước).');
+    }
+    return client;
+  }
+
+  const syncMethods = createSyncGatewayMethods(requireClient);
+
   return {
+    ...syncMethods,
     async login(credentials, phoneNumber, callbacks) {
       const stringSession = new StringSession('');
       client = new TelegramClient(stringSession, credentials.apiId, credentials.apiHash, {

@@ -82,7 +82,7 @@ describe('@tsmc/core-mtproto createTelegramGateway', () => {
 
   it('login(): forward đúng tham số cho signInUser, mã hoá + lưu session, map đúng DTO', async () => {
     mocks.connect.mockResolvedValue(undefined);
-    mocks.signInUser.mockResolvedValue(new Api.User({ id: 111n, firstName: 'Tam', username: 'tamvcspk' }));
+    mocks.signInUser.mockResolvedValue(new Api.User({ id: 111n, firstName: 'Tam', username: 'tamvcspk' } as never));
 
     const gateway = createTelegramGateway();
     const result = await gateway.login(credentials, '+84123456789', noopCallbacks);
@@ -128,7 +128,7 @@ describe('@tsmc/core-mtproto createTelegramGateway', () => {
     mocks.getSessionRecord.mockResolvedValue({ id: 'default', apiId: 1, apiHash: 'test-hash', iv, ciphertext, cryptoKey: key });
     mocks.connect.mockResolvedValue(undefined);
     mocks.checkAuthorization.mockResolvedValue(true);
-    mocks.getMe.mockResolvedValue(new Api.User({ id: 222n, firstName: 'Restored' }));
+    mocks.getMe.mockResolvedValue(new Api.User({ id: 222n, firstName: 'Restored' } as never));
 
     const gateway = createTelegramGateway();
     const result = await gateway.restoreSession();
@@ -153,7 +153,7 @@ describe('@tsmc/core-mtproto createTelegramGateway', () => {
 
   it('logout(): gọi auth.LogOut TRƯỚC khi xoá session cục bộ', async () => {
     mocks.connect.mockResolvedValue(undefined);
-    mocks.signInUser.mockResolvedValue(new Api.User({ id: 111n }));
+    mocks.signInUser.mockResolvedValue(new Api.User({ id: 111n } as never));
     mocks.invoke.mockResolvedValue(undefined);
 
     const gateway = createTelegramGateway();

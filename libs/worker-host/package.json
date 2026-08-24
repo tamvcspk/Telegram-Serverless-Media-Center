@@ -7,9 +7,13 @@
   "types": "src/index.ts",
   "dependencies": {
     "@tsmc/core-mtproto": "workspace:*",
+    "@tsmc/core-storage": "workspace:*",
+    "@tsmc/core-sync": "workspace:*",
+    "@tsmc/shared-models": "workspace:*",
     "comlink": "^4.4.2"
   },
   "devDependencies": {
+    "@types/node": "^26.2.0",
     "esbuild": "^0.28.2",
     "esbuild-plugin-polyfill-node": "^0.3.0"
   }

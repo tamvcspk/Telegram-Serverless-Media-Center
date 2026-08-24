@@ -6,6 +6,7 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "dependencies": {
+    "@tsmc/shared-models": "workspace:*",
     "dexie": "^4.4.5"
   },
   "devDependencies": {

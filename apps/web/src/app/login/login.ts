@@ -1,11 +1,15 @@
-import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
+import { MatDialog } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import * as Comlink from 'comlink';
+import { firstValueFrom } from 'rxjs';
 import { createCoreWorkerClient } from '@tsmc/worker-host';
-import type { TelegramUserSummary } from '@tsmc/shared-models';
+import type { StateChannelCandidate, StateChannelChoice, TelegramUserSummary } from '@tsmc/shared-models';
 import { COUNTRY_DIAL_CODES, toE164 } from './country-codes';
+import { SyncStatus } from '../sync/sync-status';
+import { StateChannelResolutionDialog } from '../sync/state-channel-resolution-dialog/state-channel-resolution-dialog';
 
 type LoginStatus = 'checking' | 'phone' | 'code' | 'password' | 'authenticated';
 
@@ -17,13 +21,14 @@ type LoginStatus = 'checking' | 'phone' | 'code' | 'password' | 'authenticated';
  */
 @Component({
   selector: 'app-login',
-  imports: [MatButtonModule, MatFormFieldModule, MatInputModule],
+  imports: [MatButtonModule, MatFormFieldModule, MatInputModule, SyncStatus],
   templateUrl: './login.html',
   styleUrl: './login.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class Login {
   private readonly client = createCoreWorkerClient();
+  private readonly dialog = inject(MatDialog);
 
   private pendingCode: ((code: string) => void) | null = null;
   private pendingPassword: ((password: string) => void) | null = null;
@@ -48,6 +53,7 @@ export class Login {
       if (summary) {
         this.user.set(summary);
         this.status.set('authenticated');
+        void this.initSync();
         return;
       }
     } catch (err) {
@@ -56,6 +62,36 @@ export class Login {
       console.warn('[login] restoreSession lỗi:', err);
     }
     this.status.set('phone');
+  }
+
+  /**
+   * Dò/tạo kênh state + hydrate (ADR-0009/0014) — gọi sau khi đã xác thực,
+   * tách khỏi login()/restoreSession() để hai mối quan tâm không lẫn vào
+   * nhau. Không chặn UI: lỗi (mất mạng, v.v.) chỉ log, sync-status tự hiện
+   * lastError qua liveQuery khi retry ở lần forceFlush() kế tiếp.
+   */
+  private async initSync(): Promise<void> {
+    try {
+      await this.client.initSync(
+        Comlink.proxy({
+          chooseCandidate: (candidates: StateChannelCandidate[]) => this.chooseStateChannel(candidates)
+        })
+      );
+    } catch (err) {
+      console.warn('[login] initSync lỗi:', err);
+    }
+  }
+
+  private async chooseStateChannel(candidates: StateChannelCandidate[]): Promise<StateChannelChoice> {
+    const ref = this.dialog.open(StateChannelResolutionDialog, {
+      data: { candidates },
+      disableClose: true
+    });
+    const choice = await firstValueFrom(ref.afterClosed());
+    // disableClose:true + dialog chỉ close(choice) qua các nút thật —
+    // undefined về lý thuyết không xảy ra, nhưng vẫn cần trả một giá trị
+    // hợp lệ để không treo resolveStateChannel() phía Core Worker mãi mãi.
+    return choice ?? { kind: 'use', channelId: candidates[0].id };
   }
 
   async onSubmitPhone(
@@ -111,6 +147,7 @@ export class Login {
       );
       this.user.set(summary);
       this.status.set('authenticated');
+      void this.initSync();
     } catch (err) {
       this.errorMessage.set(err instanceof Error ? err.message : 'Đăng nhập thất bại.');
       this.status.set('phone');
