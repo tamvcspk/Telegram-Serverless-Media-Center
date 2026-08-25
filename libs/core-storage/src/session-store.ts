@@ -72,6 +72,16 @@ export interface PublisherTrustRecord {
   fetchedAt: number;
 }
 
+// Index tìm kiếm đã serialize (MiniSearch, ADR-0008 §Vòng đời) — slice
+// Browse (F3). Một bản ghi 'default' duy nhất (không tách theo nguồn — một
+// index dùng chung cho mọi góc nhìn, lọc bằng `filter` lúc search, xem
+// libs/core-search). `updatedAt` chỉ để debug, không dùng để quyết định gì.
+export interface SearchIndexRecord {
+  id: 'default';
+  json: string;
+  updatedAt: number;
+}
+
 // Trạng thái quét mỗi nguồn — ADR-0010. Một bản ghi/`sourceId`.
 export interface IndexMetaRecord {
   sourceId: string;
@@ -94,6 +104,7 @@ class TsmcDatabase extends Dexie {
   media!: Table<MediaRecord, [string, number]>;
   indexMeta!: Table<IndexMetaRecord, string>;
   publisherTrust!: Table<PublisherTrustRecord, [string, string]>;
+  searchIndex!: Table<SearchIndexRecord, string>;
 
   constructor() {
     super('tsmc');
@@ -142,6 +153,20 @@ class TsmcDatabase extends Dexie {
       media: '[sourceId+msgId], sourceId',
       indexMeta: 'sourceId',
       publisherTrust: '[sourceId+publisherId]'
+    });
+    // Version 5 — index tìm kiếm serialize (slice Browse F3, ADR-0008).
+    // `searchIndex` một bản ghi 'default' — MiniSearch chạy trong Core
+    // Worker, giữ nguyên bộ nhớ giữa các lần gọi, chỉ ghi xuống đây để khởi
+    // động nguội không phải index lại (worker-host debounce lúc lưu).
+    this.version(5).stores({
+      session: 'id',
+      syncMeta: 'id',
+      syncState: 'id',
+      outbox: '++localId',
+      media: '[sourceId+msgId], sourceId',
+      indexMeta: 'sourceId',
+      publisherTrust: '[sourceId+publisherId]',
+      searchIndex: 'id'
     });
   }
 }

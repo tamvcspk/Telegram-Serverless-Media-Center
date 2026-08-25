@@ -11,6 +11,7 @@ import { COUNTRY_DIAL_CODES, toE164 } from './country-codes';
 import { SyncStatus } from '../sync/sync-status';
 import { StateChannelResolutionDialog } from '../sync/state-channel-resolution-dialog/state-channel-resolution-dialog';
 import { ChannelIndex } from '../index/channel-index';
+import { Browse } from '../browse/browse';
 
 type LoginStatus = 'checking' | 'phone' | 'code' | 'password' | 'authenticated';
 
@@ -22,7 +23,7 @@ type LoginStatus = 'checking' | 'phone' | 'code' | 'password' | 'authenticated';
  */
 @Component({
   selector: 'app-login',
-  imports: [MatButtonModule, MatFormFieldModule, MatInputModule, SyncStatus, ChannelIndex],
+  imports: [MatButtonModule, MatFormFieldModule, MatInputModule, SyncStatus, ChannelIndex, Browse],
   templateUrl: './login.html',
   styleUrl: './login.scss',
   changeDetection: ChangeDetectionStrategy.OnPush

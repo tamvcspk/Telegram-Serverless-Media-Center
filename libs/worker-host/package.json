@@ -8,6 +8,7 @@
   "dependencies": {
     "@tsmc/core-index": "workspace:*",
     "@tsmc/core-mtproto": "workspace:*",
+    "@tsmc/core-search": "workspace:*",
     "@tsmc/core-storage": "workspace:*",
     "@tsmc/core-sync": "workspace:*",
     "@tsmc/shared-models": "workspace:*",

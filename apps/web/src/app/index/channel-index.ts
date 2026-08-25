@@ -4,7 +4,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { countMediaBySource, getIndexMeta, getSyncState, liveQuery, listMediaBySource, type IndexMetaRecord, type MediaRecord } from '@tsmc/core-storage';
+import { countMediaBySource, getIndexMeta, getSyncState, liveQuery, type IndexMetaRecord } from '@tsmc/core-storage';
 import { createCoreWorkerClient } from '@tsmc/worker-host';
 import type { SourceRef } from '@tsmc/shared-models';
 import { from } from 'rxjs';
@@ -130,18 +130,6 @@ export class ChannelIndex {
   readonly loadingMemberChannels = signal(false);
   readonly memberChannels = signal<readonly { id: string; title: string; isBroadcast: boolean }[]>([]);
 
-  // TẠM THỜI — chỉ để chốt phase F2 bằng cách xác minh resolveItemTrust()
-  // thật trên thiết bị thật (không có cách nào khác để "truy cập" một item
-  // khi Browse UI (F3) chưa tồn tại). Khi F3 dựng xong, cơ chế truy cập THẬT
-  // (item được render trong danh sách duyệt phim) sẽ tự gọi client.resolveItemTrust()
-  // lúc đó — khối UI thủ công này (nút "Xem item"/"Xác minh") PHẢI bị xoá,
-  // không giữ lại song song với F3. Cơ chế lâu dài (RPC + resolvePublisherTrust()
-  // + eventual correctness) đã nằm trong core-index/core-mtproto, không phụ
-  // thuộc khối UI này — xoá khối này không mất logic gì.
-  readonly expandedSourceIds = signal<ReadonlySet<string>>(new Set());
-  readonly itemsBySource = signal<ReadonlyMap<string, readonly MediaRecord[]>>(new Map());
-  readonly resolvingItemKeys = signal<ReadonlySet<string>>(new Set());
-
   async onAddSource(event: Event, refInput: HTMLInputElement): Promise<void> {
     event.preventDefault();
     const ref = refInput.value.trim();
@@ -213,52 +201,6 @@ export class ChannelIndex {
     }
   }
 
-  // TẠM THỜI — xem comment ở khai báo expandedSourceIds phía trên.
-  async onToggleItems(sourceId: string): Promise<void> {
-    const next = new Set(this.expandedSourceIds());
-    if (next.has(sourceId)) {
-      next.delete(sourceId);
-    } else {
-      next.add(sourceId);
-      await this.refreshItems(sourceId);
-    }
-    this.expandedSourceIds.set(next);
-  }
-
-  private async refreshItems(sourceId: string): Promise<void> {
-    const items = await listMediaBySource(sourceId);
-    this.itemsBySource.update((prev) => new Map(prev).set(sourceId, items));
-  }
-
-  // TẠM THỜI — gọi resolveItemTrust() thủ công vì chưa có Browse UI thật để
-  // tự trigger lúc item được truy cập. Logic RPC/resolver là lâu dài; nút
-  // bấm này thì không.
-  async onVerifyItem(sourceId: string, ref: string, msgId: number): Promise<void> {
-    const key = `${sourceId}:${msgId}`;
-    this.resolvingItemKeys.update((prev) => new Set(prev).add(key));
-    this.actionError.set(null);
-    try {
-      const result = await this.client.resolveItemTrust(sourceId, ref, msgId);
-      // Kết quả vẫn 'pending' KHÔNG phải nút không hoạt động — nghĩa là đã
-      // thật sự tra cứu (channels.GetParticipant cho đúng publisher này)
-      // nhưng Telegram VẪN từ chối tiết lộ (CHAT_ADMIN_REQUIRED ngay cả khi
-      // hỏi một người, không chỉ khi liệt kê toàn bộ). Trước đây im lặng,
-      // trông như nút không làm gì — báo rõ để phân biệt với lỗi thật.
-      if (result.trust === 'pending') {
-        this.actionError.set('Đã thử xác minh nhưng Telegram vẫn từ chối tiết lộ (kể cả tra cứu một người) — chưa xác định được, thử lại sau.');
-      }
-      await this.refreshItems(sourceId);
-    } catch (err) {
-      this.actionError.set(err instanceof Error ? err.message : String(err));
-    } finally {
-      this.resolvingItemKeys.update((prev) => {
-        const next = new Set(prev);
-        next.delete(key);
-        return next;
-      });
-    }
-  }
-
   async onScan(sourceId: string, ref: string, opts?: { tier: 'full' }): Promise<void> {
     this.scanningIds.update((prev) => new Set(prev).add(sourceId));
     this.actionError.set(null);
@@ -275,9 +217,6 @@ export class ChannelIndex {
       });
       if (result.error) {
         this.actionError.set(result.error);
-      }
-      if (this.expandedSourceIds().has(sourceId)) {
-        await this.refreshItems(sourceId);
       }
     } catch (err) {
       this.actionError.set(err instanceof Error ? err.message : String(err));

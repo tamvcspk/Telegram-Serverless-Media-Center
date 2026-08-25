@@ -2,6 +2,7 @@ import * as Comlink from 'comlink';
 import { createTelegramGateway } from '@tsmc/core-mtproto';
 import { createSyncEngine, type SyncGateway, type SyncStoragePort } from '@tsmc/core-sync';
 import { createIndexEngine, type IndexGateway, type IndexStoragePort } from '@tsmc/core-index';
+import { createSearchEngine, type SearchEngine } from '@tsmc/core-search';
 import {
   appendOutbox,
   countMediaBySource,
@@ -11,17 +12,22 @@ import {
   getIndexMeta,
   getMediaItem,
   getPublisherTrust,
+  getSearchIndexBlob,
   getSyncMeta,
   getSyncState,
+  listAllMedia,
+  listMediaBySource,
   listOutbox,
   putIndexMeta,
   putPublisherTrust,
+  putSearchIndexBlob,
   putSyncMeta,
   putSyncState,
   removeOutbox,
   replaceMediaItems,
   updateMediaItemTrust,
-  upsertMediaItems
+  upsertMediaItems,
+  type MediaRecord
 } from '@tsmc/core-storage';
 import type { StateChannelResolutionCallbacks } from '@tsmc/shared-models';
 
@@ -81,6 +87,78 @@ const indexStorage: IndexStoragePort = {
 // SyncGateway phía trên.
 const indexEngine = createIndexEngine(gateway as unknown as IndexGateway, indexStorage);
 
+// Tìm kiếm (F3, ADR-0008) — nạp lười lúc RPC đầu tiên cần tới (searchMedia
+// hoặc sau scanSource() đầu tiên), không nạp lúc module load vì đọc
+// IndexedDB là async còn phần trên của file này chạy đồng bộ. Nạp từ bản
+// serialize đã lưu (nhanh); nếu chưa có (lần đầu dùng F3 trên một tài khoản
+// đã quét từ trước) thì backfill từ toàn bộ media đã có trong Dexie.
+let searchEnginePromise: Promise<SearchEngine> | null = null;
+function getSearchEngine(): Promise<SearchEngine> {
+  searchEnginePromise ??= (async () => {
+    const serialized = await getSearchIndexBlob();
+    if (serialized) {
+      return createSearchEngine(serialized);
+    }
+    const engine = createSearchEngine();
+    const bySource = new Map<string, MediaRecord[]>();
+    for (const item of await listAllMedia()) {
+      const list = bySource.get(item.sourceId) ?? [];
+      list.push(item);
+      bySource.set(item.sourceId, list);
+    }
+    for (const [sourceId, items] of bySource) {
+      engine.reindexSource(sourceId, items.map(toSearchDocument));
+    }
+    return engine;
+  })();
+  return searchEnginePromise;
+}
+
+function toSearchDocument(item: MediaRecord) {
+  return {
+    sourceId: item.sourceId,
+    msgId: item.msgId,
+    title: item.title,
+    originalTitle: item.originalTitle,
+    cast: item.cast,
+    director: item.director,
+    genres: item.genres
+  };
+}
+
+// Debounce ghi bản serialize xuống IndexedDB (ADR-0008 §Vòng đời điểm 2) —
+// mỗi lần scan/resolve trust có thể gọi liên tiếp, không cần ghi disk mỗi
+// lần, chỉ cần ghi bản MỚI NHẤT sau khi im lặng một lúc.
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+function scheduleSearchIndexSave(engine: SearchEngine): void {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    void putSearchIndexBlob(engine.serialize());
+  }, 2000);
+}
+
+async function scanSourceAndReindex(sourceId: string, ref: string, opts?: { tier: 'full' }) {
+  const result = await indexEngine.scanSource(sourceId, ref, opts);
+  const engine = await getSearchEngine();
+  const items = await listMediaBySource(sourceId);
+  engine.reindexSource(sourceId, items.map(toSearchDocument));
+  scheduleSearchIndexSave(engine);
+  return result;
+}
+
+async function resolveItemTrustAndReindex(sourceId: string, ref: string, msgId: number) {
+  const result = await indexEngine.resolveItemTrust(sourceId, ref, msgId);
+  // Item bị xoá thật (không phải admin) → gỡ khỏi index tìm kiếm, tránh kết
+  // quả tìm kiếm trỏ tới item không còn tồn tại trong Dexie (xem trust.ts).
+  const stillThere = await getMediaItem(sourceId, msgId);
+  if (!stillThere) {
+    const engine = await getSearchEngine();
+    engine.discardItem(sourceId, msgId);
+    scheduleSearchIndexSave(engine);
+  }
+  return result;
+}
+
 const api = {
   login: gateway.login.bind(gateway),
   restoreSession: gateway.restoreSession.bind(gateway),
@@ -115,12 +193,18 @@ const api = {
   // (liveQuery, đường đọc — không qua RPC). `ref` là username/invite link
   // user nhập lúc addSource() (CLAUDE.md bất biến #10), hoặc link t.me/c/<id>
   // do UI tự sinh khi user chọn thẳng từ listMemberChannels().
-  scanSource: (sourceId: string, ref: string, opts?: { tier: 'full' }) => indexEngine.scanSource(sourceId, ref, opts),
+  // Bọc thêm reindex vào search engine (F3) sau khi quét/resolve xong — xem
+  // scanSourceAndReindex/resolveItemTrustAndReindex phía trên. Logic quét/
+  // trust thật vẫn nằm nguyên trong indexEngine (core-index), không đụng.
+  scanSource: (sourceId: string, ref: string, opts?: { tier: 'full' }) => scanSourceAndReindex(sourceId, ref, opts),
   // Trust "eventual correctness" — resolve trust của MỘT item lúc UI thật
   // sự hiển thị/mở nó (on-access), không phải lúc quét. Xem index-engine.ts
   // resolveItemTrust() + trust.ts. UI gọi cái này, KHÔNG gọi lại scanSource()
   // để "verify" — scanSource() không bao giờ tra cứu theo từng publisher.
-  resolveItemTrust: (sourceId: string, ref: string, msgId: number) => indexEngine.resolveItemTrust(sourceId, ref, msgId),
+  resolveItemTrust: (sourceId: string, ref: string, msgId: number) => resolveItemTrustAndReindex(sourceId, ref, msgId),
+  // Tìm kiếm (F3, ADR-0008) — chỉ gọi khi ô tìm kiếm CÓ nội dung; duyệt
+  // không gõ gì đọc thẳng IndexedDB qua liveQuery (đường đọc), không qua RPC.
+  searchMedia: async (query: string, opts?: { sourceId?: string; limit?: number }) => (await getSearchEngine()).search(query, opts),
   // Passthrough gateway thẳng (không qua indexEngine — chỉ đọc, không đụng
   // storage), cùng kiểu với login/restoreSession ở trên. Cho UI liệt kê để
   // user CHỌN kênh thay vì tự gõ ref (nguồn lỗi resolve thật đã gặp).

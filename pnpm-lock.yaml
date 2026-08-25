@@ -92,6 +92,9 @@ importers:
       tslib:
         specifier: ^2.3.0
         version: 2.8.1
+      valibot:
+        specifier: ^1.1.0
+        version: 1.4.2(typescript@6.0.3)
     devDependencies:
       '@angular/build':
         specifier: ^22.1.5
@@ -138,6 +141,15 @@ importers:
         specifier: 2.26.22
         version: 2.26.22(supports-color@7.2.0)
 
+  libs/core-search:
+    dependencies:
+      '@tsmc/shared-models':
+        specifier: workspace:*
+        version: link:../shared-models
+      minisearch:
+        specifier: ^7.2.0
+        version: 7.2.0
+
   libs/core-storage:
     dependencies:
       '@tsmc/shared-models':
@@ -171,6 +183,9 @@ importers:
       '@tsmc/core-mtproto':
         specifier: workspace:*
         version: link:../core-mtproto
+      '@tsmc/core-search':
+        specifier: workspace:*
+        version: link:../core-search
       '@tsmc/core-storage':
         specifier: workspace:*
         version: link:../core-storage
@@ -4023,6 +4038,9 @@ packages:
   minipass@7.1.3:
     resolution: {integrity: sha512-tEBHqDnIoM/1rXME1zgka9g6Q2lcoCkxHLuc7ODJ5BxbP5d4c2Z5cGgtXAku59200Cx7diuHTOYfSBD8n6mm8A==}
     engines: {node: '>=16 || 14 >=14.17'}
+
+  minisearch@7.2.0:
+    resolution: {integrity: sha512-dqT2XBYUOZOiC5t2HRnwADjhNS2cecp9u+TJRiJ1Qp/f5qjkeT5APcGPjHw+bz89Ms8Jp+cG4AlE+QZ/QnDglg==}
 
   mitt@3.0.1:
     resolution: {integrity: sha512-vKivATfr97l2/QBCYAkXYDbrIWPM2IIKEl7YPhjCvKlG3kE2gm+uBo6nEXK3M5/Ffh/FLpKExzOQ3JJoJGFKBw==}
@@ -8910,6 +8928,8 @@ snapshots:
   minimist@1.2.8: {}
 
   minipass@7.1.3: {}
+
+  minisearch@7.2.0: {}
 
   mitt@3.0.1: {}
 

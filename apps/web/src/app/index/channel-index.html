@@ -82,36 +82,7 @@
         <button mat-stroked-button [disabled]="diagnosingIds().has(row.source.id)" (click)="onDiagnose(row.source.id, row.source.ref)">
           Chẩn đoán (500 tin mới nhất, không lọc)
         </button>
-        <!-- TẠM THỜI (xem comment ở channel-index.ts) — chỉ để xác minh
-             resolveItemTrust() thật trên thiết bị thật trước khi chốt phase.
-             Sẽ bị xoá khi Browse UI (F3) tự trigger lúc item được truy cập. -->
-        <button mat-stroked-button type="button" (click)="onToggleItems(row.source.id)">
-          {{ expandedSourceIds().has(row.source.id) ? 'Ẩn item' : 'Xem item (trust)' }}
-        </button>
       </div>
-
-      @if (expandedSourceIds().has(row.source.id)) {
-        <div class="items">
-          @for (item of itemsBySource().get(row.source.id) ?? []; track item.msgId) {
-            <div class="item-row">
-              <span>#{{ item.msgId }} — {{ item.title ?? '(chưa có title)' }}</span>
-              <span class="trust" [class.pending]="item.trust === 'pending'">{{ item.trust }}</span>
-              @if (item.trust === 'pending') {
-                <button
-                  mat-stroked-button
-                  type="button"
-                  [disabled]="resolvingItemKeys().has(row.source.id + ':' + item.msgId)"
-                  (click)="onVerifyItem(row.source.id, row.source.ref, item.msgId)"
-                >
-                  Xác minh
-                </button>
-              }
-            </div>
-          } @empty {
-            <p class="hint">Chưa có item nào (quét trước).</p>
-          }
-        </div>
-      }
 
       @if (diagnostics().get(row.source.id); as d) {
         <div class="diagnostics">

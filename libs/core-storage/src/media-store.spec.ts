@@ -7,6 +7,7 @@ import {
   getIndexMeta,
   getMediaItem,
   getPublisherTrust,
+  listAllMedia,
   listMediaBySource,
   putIndexMeta,
   putPublisherTrust,
@@ -80,6 +81,18 @@ describe('@tsmc/core-storage media store', () => {
 
     await deleteMediaItem('src-5', 1);
     expect(await getMediaItem('src-5', 1)).toBeUndefined();
+  });
+
+  it('listAllMedia(): gộp item của MỌI nguồn — slice Browse (F3)', async () => {
+    await replaceMediaItems('src-8a', [itemA]);
+    await replaceMediaItems('src-8b', [itemB]);
+
+    const all = await listAllMedia();
+    expect(all.some((i) => i.sourceId === 'src-8a' && i.msgId === 1)).toBe(true);
+    expect(all.some((i) => i.sourceId === 'src-8b' && i.msgId === 2)).toBe(true);
+
+    await deleteMediaBySource('src-8a');
+    await deleteMediaBySource('src-8b');
   });
 
   it('getPublisherTrust()/putPublisherTrust() — cache theo [sourceId+publisherId], độc lập giữa các nguồn', async () => {

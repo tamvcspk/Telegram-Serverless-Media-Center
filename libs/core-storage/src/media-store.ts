@@ -46,6 +46,11 @@ export async function listMediaBySource(sourceId: string): Promise<MediaRecord[]
   return getDb().media.where('sourceId').equals(sourceId).toArray();
 }
 
+/** Toàn bộ item, MỌI nguồn — slice Browse (F3). Không tự lọc nguồn đã `removed` (SyncState, private state) vì package này không biết gì về SyncState; tầng gọi (apps/web/browse) tự lọc theo `SyncState.sources`. */
+export async function listAllMedia(): Promise<MediaRecord[]> {
+  return getDb().media.toArray();
+}
+
 export async function getMediaItem(sourceId: string, msgId: number): Promise<MediaRecord | undefined> {
   return getDb().media.get([sourceId, msgId]);
 }

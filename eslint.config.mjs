@@ -6,7 +6,7 @@ import boundaries from 'eslint-plugin-boundaries';
 
 // Ranh giới phụ thuộc ADR-0012 §2, ép bằng lint chứ không phải thoả thuận
 // miệng (CLAUDE.md). Bốn "loại phần tử": app, lib-mtproto, lib-download,
-// lib-core (index/sync/storage/worker-host), lib-shared (shared-models).
+// lib-core (index/search/sync/storage/worker-host), lib-shared (shared-models).
 const boundariesElements = [
   { type: 'app', pattern: 'apps/web/src/**' },
   { type: 'lib-mtproto', pattern: 'libs/core-mtproto/src/**' },
@@ -15,6 +15,7 @@ const boundariesElements = [
     type: 'lib-core',
     pattern: [
       'libs/core-index/src/**',
+      'libs/core-search/src/**',
       'libs/core-sync/src/**',
       'libs/core-storage/src/**',
       'libs/worker-host/src/**'

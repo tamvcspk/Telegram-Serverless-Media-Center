@@ -1,0 +1,67 @@
+<section class="browse">
+  <h2>Duyệt phim</h2>
+
+  <mat-form-field appearance="outline" class="search">
+    <mat-label>Tìm theo tên phim, đạo diễn, diễn viên…</mat-label>
+    <input matInput #queryInput [value]="store.query()" (input)="onQueryInput(queryInput.value)" />
+  </mat-form-field>
+
+  @if (sources().length > 0) {
+    <mat-chip-set aria-label="Lọc theo nguồn" class="source-filter">
+      <mat-chip [class.active]="store.sourceId() === null" (click)="onSourceChipChange(null)">Tất cả nguồn</mat-chip>
+      @for (source of sources(); track source.id) {
+        <mat-chip [class.active]="store.sourceId() === source.id" (click)="onSourceChipChange(source.id)">
+          {{ sourceLabel(source) }}
+        </mat-chip>
+      }
+    </mat-chip-set>
+  }
+
+  @if (rows().length === 0) {
+    <p class="hint">
+      @if (store.query()) {
+        Không tìm thấy phim nào khớp "{{ store.query() }}".
+      } @else {
+        Chưa có phim nào — quét một nguồn ở phần Index bên trên trước.
+      }
+    </p>
+  } @else {
+    <cdk-virtual-scroll-viewport itemSize="72" class="viewport">
+      <div
+        class="row"
+        *cdkVirtualFor="let row of rows(); trackBy: trackByRow"
+        role="button"
+        tabindex="0"
+        (click)="onItemClick(row)"
+        (keydown.enter)="onItemClick(row)"
+        (keydown.space)="$event.preventDefault(); onItemClick(row)"
+      >
+        <span class="poster-placeholder" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2.5" y="4.5" width="19" height="15" rx="1.5" />
+            <path d="M9.5 9l6 3-6 3z" fill="currentColor" stroke="none" />
+          </svg>
+        </span>
+        <span class="info">
+          <span class="title">{{ row.title ?? '(chưa có tên)' }}</span>
+          <span class="meta">
+            @if (row.year) {
+              {{ row.year }}
+            }
+            @if (row.kind) {
+              · {{ row.kind === 'episode' ? 'tập phim' : 'phim lẻ' }}
+            }
+            @if (row.genres && row.genres.length > 0) {
+              · {{ row.genres.join(', ') }}
+            }
+          </span>
+        </span>
+        @if (row.trust === 'pending' || row.trust === 'not-admin') {
+          <span class="trust-badge" [class.warn]="row.trust === 'not-admin'">
+            {{ row.trust === 'pending' ? 'chưa xác minh' : 'không rõ nguồn' }}
+          </span>
+        }
+      </div>
+    </cdk-virtual-scroll-viewport>
+  }
+</section>
