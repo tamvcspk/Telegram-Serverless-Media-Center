@@ -6,6 +6,7 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "dependencies": {
+    "@tsmc/core-index": "workspace:*",
     "@tsmc/core-mtproto": "workspace:*",
     "@tsmc/core-storage": "workspace:*",
     "@tsmc/core-sync": "workspace:*",

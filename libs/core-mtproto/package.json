@@ -8,6 +8,7 @@
   "dependencies": {
     "@tsmc/core-storage": "workspace:*",
     "@tsmc/shared-models": "workspace:*",
+    "big-integer": "^1.6.52",
     "telegram": "2.26.22"
   }
 }

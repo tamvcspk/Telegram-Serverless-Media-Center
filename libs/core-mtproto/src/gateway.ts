@@ -12,6 +12,14 @@ import type {
 } from '@tsmc/shared-models';
 import { deleteSessionRecord, getSessionRecord, putSessionRecord } from '@tsmc/core-storage';
 import { createSyncGatewayMethods, type MinimalChannel } from './gateway-sync';
+import {
+  createIndexGatewayMethods,
+  type ChannelDiagnosticMessage,
+  type IndexHistoryMessage,
+  type MemberChannelSummary,
+  type PinnedCatalogDocument,
+  type ResolvedIndexChannel
+} from './gateway-index';
 import { decryptSessionString, encryptSessionString, generateSessionKey } from './session-crypto';
 
 const { StringSession } = sessions;
@@ -38,6 +46,18 @@ export interface TelegramGateway {
   fetchPinnedSnapshot(channelId: string): Promise<SnapshotV1 | null>;
   publishSnapshot(channelId: string, snapshot: SnapshotV1, compactedMsgIds: number[]): Promise<{ msgId: number }>;
   serverNow(): number;
+
+  // Phần dưới đây khớp shape @tsmc/core-index IndexGateway (gateway-port.ts)
+  // — cùng lý do KHÔNG import type đó ở đây như nhóm SyncGateway phía trên.
+  listMemberChannels(): Promise<MemberChannelSummary[]>;
+  resolveIndexChannel(ref: string): Promise<ResolvedIndexChannel | null>;
+  getPinnedCatalogDocument(channelId: string): Promise<PinnedCatalogDocument | null>;
+  fetchHistorySince(channelId: string, minId: number, limit: number, direction?: 'asc' | 'desc'): Promise<IndexHistoryMessage[]>;
+  getChannelAdmins(channelId: string): Promise<string[] | null>;
+  /** Tra cứu MỘT publisher — dùng lúc truy cập (on-access), không dùng hàng loạt lúc quét. Xem comment ở gateway-index.ts. */
+  checkPublisherIsAdmin(channelId: string, publisherId: string): Promise<boolean | null>;
+  /** Chẩn đoán — không lọc gì cả, xem comment ChannelDiagnosticMessage (gateway-index.ts). Chỉ debug UI gọi. */
+  diagnoseChannel(ref: string, limit: number): Promise<ChannelDiagnosticMessage[]>;
 }
 
 function toUserSummary(user: Api.TypeUser): TelegramUserSummary {
@@ -75,9 +95,11 @@ export function createTelegramGateway(): TelegramGateway {
   }
 
   const syncMethods = createSyncGatewayMethods(requireClient);
+  const indexMethods = createIndexGatewayMethods(requireClient);
 
   return {
     ...syncMethods,
+    ...indexMethods,
     async login(credentials, phoneNumber, callbacks) {
       const stringSession = new StringSession('');
       client = new TelegramClient(stringSession, credentials.apiId, credentials.apiHash, {

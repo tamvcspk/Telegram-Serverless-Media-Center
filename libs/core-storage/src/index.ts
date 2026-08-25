@@ -7,7 +7,7 @@ export const LIB_NAME = '@tsmc/core-storage' as const;
 // dùng Dexie ở dưới nên nằm gọn trong package này.
 export { liveQuery } from 'dexie';
 
-export type { SessionRecord, SyncMetaRecord, SyncStateRecord, OutboxRecord } from './session-store';
+export type { SessionRecord, SyncMetaRecord, SyncStateRecord, OutboxRecord, MediaRecord, IndexMetaRecord, TrustLabel, PublisherTrustRecord } from './session-store';
 export { getSessionRecord, putSessionRecord, deleteSessionRecord } from './session-store';
 
 export {
@@ -20,3 +20,19 @@ export {
   removeOutbox,
   countOutbox
 } from './sync-store';
+
+export type { MediaItemInput } from './media-store';
+export {
+  getIndexMeta,
+  putIndexMeta,
+  replaceMediaItems,
+  upsertMediaItems,
+  deleteMediaBySource,
+  countMediaBySource,
+  listMediaBySource,
+  getMediaItem,
+  updateMediaItemTrust,
+  deleteMediaItem,
+  getPublisherTrust,
+  putPublisherTrust
+} from './media-store';

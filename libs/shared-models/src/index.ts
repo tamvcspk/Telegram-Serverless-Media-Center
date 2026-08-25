@@ -33,3 +33,7 @@ export { isSyncEvent } from './sync-events';
 export type { SyncState, ProgressEntry, Collection, SourceRef, SettingValue, SnapshotV1 } from './sync-state';
 export { createEmptySyncState } from './sync-state';
 export type { StateChannelCandidate, StateChannelChoice, StateChannelResolutionCallbacks } from './sync-channel';
+
+// DTO cho slice Index (F2) — ADR-0010, docs/catalog-spec.md.
+export type { CatalogItemV1, CatalogEnvelopeV1 } from './catalog';
+export { catalogItemV1Schema, catalogEnvelopeV1Schema, parseCatalogEnvelope, parseCatalogItem, sanitizeUntrustedString } from './catalog';

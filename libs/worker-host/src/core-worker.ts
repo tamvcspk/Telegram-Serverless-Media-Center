@@ -1,15 +1,27 @@
 import * as Comlink from 'comlink';
 import { createTelegramGateway } from '@tsmc/core-mtproto';
 import { createSyncEngine, type SyncGateway, type SyncStoragePort } from '@tsmc/core-sync';
+import { createIndexEngine, type IndexGateway, type IndexStoragePort } from '@tsmc/core-index';
 import {
   appendOutbox,
+  countMediaBySource,
   countOutbox,
+  deleteMediaBySource,
+  deleteMediaItem,
+  getIndexMeta,
+  getMediaItem,
+  getPublisherTrust,
   getSyncMeta,
   getSyncState,
   listOutbox,
+  putIndexMeta,
+  putPublisherTrust,
   putSyncMeta,
   putSyncState,
-  removeOutbox
+  removeOutbox,
+  replaceMediaItems,
+  updateMediaItemTrust,
+  upsertMediaItems
 } from '@tsmc/core-storage';
 import type { StateChannelResolutionCallbacks } from '@tsmc/shared-models';
 
@@ -46,6 +58,29 @@ const storagePort: SyncStoragePort = {
 // nối dây này.
 const syncEngine = createSyncEngine(gateway as unknown as SyncGateway, storagePort);
 
+// IndexStoragePort (core-index) khớp cấu trúc CHÍNH XÁC với các hàm
+// media-store.ts của core-storage (cùng field name/optionality — xem
+// session-store.ts IndexMetaRecord) nên re-export thẳng, không cần adapter
+// như storagePort.listOutbox ở trên.
+const indexStorage: IndexStoragePort = {
+  getIndexMeta,
+  putIndexMeta,
+  replaceMediaItems,
+  upsertMediaItems,
+  deleteMediaBySource,
+  countMediaItems: countMediaBySource,
+  getMediaItem,
+  updateMediaItemTrust,
+  deleteMediaItem,
+  getPublisherTrust,
+  putPublisherTrust
+};
+
+// TelegramGateway (core-mtproto) khai báo trực tiếp các method khớp shape
+// IndexGateway (core-index) mà KHÔNG import type đó — cùng quy ước với
+// SyncGateway phía trên.
+const indexEngine = createIndexEngine(gateway as unknown as IndexGateway, indexStorage);
+
 const api = {
   login: gateway.login.bind(gateway),
   restoreSession: gateway.restoreSession.bind(gateway),
@@ -74,7 +109,25 @@ const api = {
   addSource: (id: string, ref: string) => syncEngine.mutate({ op: 'source.add', id, ref }),
   removeSource: (id: string) => syncEngine.mutate({ op: 'source.remove', id }),
   configureSource: (id: string, patch: Record<string, unknown>) => syncEngine.mutate({ op: 'source.configure', id, patch }),
-  setSetting: (key: string, val: unknown) => syncEngine.mutate({ op: 'settings.set', k: key, val })
+  setSetting: (key: string, val: unknown) => syncEngine.mutate({ op: 'settings.set', k: key, val }),
+
+  // Index (F2) — UI gọi trực tiếp với sourceId/ref lấy từ SyncState.sources
+  // (liveQuery, đường đọc — không qua RPC). `ref` là username/invite link
+  // user nhập lúc addSource() (CLAUDE.md bất biến #10), hoặc link t.me/c/<id>
+  // do UI tự sinh khi user chọn thẳng từ listMemberChannels().
+  scanSource: (sourceId: string, ref: string, opts?: { tier: 'full' }) => indexEngine.scanSource(sourceId, ref, opts),
+  // Trust "eventual correctness" — resolve trust của MỘT item lúc UI thật
+  // sự hiển thị/mở nó (on-access), không phải lúc quét. Xem index-engine.ts
+  // resolveItemTrust() + trust.ts. UI gọi cái này, KHÔNG gọi lại scanSource()
+  // để "verify" — scanSource() không bao giờ tra cứu theo từng publisher.
+  resolveItemTrust: (sourceId: string, ref: string, msgId: number) => indexEngine.resolveItemTrust(sourceId, ref, msgId),
+  // Passthrough gateway thẳng (không qua indexEngine — chỉ đọc, không đụng
+  // storage), cùng kiểu với login/restoreSession ở trên. Cho UI liệt kê để
+  // user CHỌN kênh thay vì tự gõ ref (nguồn lỗi resolve thật đã gặp).
+  listMemberChannels: gateway.listMemberChannels.bind(gateway),
+  // Chẩn đoán — không lọc gì cả, xem ChannelDiagnosticMessage (gateway-index.ts).
+  // Debug UI dùng để trả lời "kênh này thật ra có gì" trước khi chỉnh filter.
+  diagnoseChannel: gateway.diagnoseChannel.bind(gateway)
 };
 
 export type CoreWorkerApi = typeof api;
