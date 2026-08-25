@@ -76,3 +76,36 @@ Lưu `lastIndexedMsgId` cho mỗi nguồn; quét delta dùng `min_id`. Xử lý 
 - Catalog có thể lệch với thực tế của kênh → luôn xác thực tại thời điểm phát, và xử lý sai lệch theo bảng trạng thái ở [ADR-0007](./0007-luu-tru-cuc-bo-indexeddb-dexie.md).
 - **Mọi trường trong catalog đều là chuỗi do người lạ kiểm soát.** Bắt buộc validate bằng schema (Valibot/Zod) trước khi lưu, giới hạn độ dài, và không bao giờ render bằng `innerHTML` — xem [ADR-0011](./0011-bao-mat-session-va-noi-dung-khong-tin-cay.md).
 - Phải tự bảo trì công cụ sinh catalog cho admin kênh (một script Node hoặc chính app ở chế độ admin), nếu không sẽ không ai dùng spec.
+
+## Cập nhật sau khi Accepted (2026-08-25, slice Index F2)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững** ở phần khung (3 tầng, spec, fallback tên file, index tăng dần); chỉ **mục 3 (mô hình tin cậy)** có thay đổi thật, lý do bên dưới.
+
+### Mô hình tin cậy đã đổi từ nhị phân sang phân tầng — phát hiện thật khi verify bằng tài khoản thật
+
+Mục 3 gốc ngầm định hai điều: (a) luôn xác định được ai là admin qua `channels.getParticipants`, và (b) publisher không phải admin thì loại bỏ hoàn toàn. Cả hai đều vỡ khi verify thật:
+
+1. **`channels.getParticipants` (liệt kê toàn bộ) thường ném `CHAT_ADMIN_REQUIRED`** cho tài khoản không phải admin — phổ biến ở nhóm/kênh nhỏ ẩn participant list với thành viên thường. Thử fallback sang `channels.getParticipant` (tra cứu **một** người, không phải liệt kê) với giả thuyết permission model lỏng hơn cho tra cứu đơn — **giả thuyết sai với một số kênh thật**: verify trên thiết bị thật cho thấy kênh có thể chặn `CHAT_ADMIN_REQUIRED` ở cả hai, không chỉ liệt kê toàn bộ.
+2. **GramJS `Message`: kênh không bật "Sign Messages" (mặc định đa số kênh) → post không có `fromId` → `senderId` rơi về CHÍNH peer id của kênh**, không phải user id của admin đã đăng — xác nhận bằng cách đọc `telegram/tl/custom/message.js` thật, không suy đoán:
+   ```js
+   if (fromId) { senderId = utils.getPeerId(fromId); }
+   else if (peerId) { if (post || ...) { senderId = utils.getPeerId(peerId); } }
+   ```
+   So publisherId đó với danh sách admin (toàn user id) không bao giờ khớp, dù message chỉ có thể do admin đăng — Telegram chặn member thường gửi vào broadcast channel ở tầng protocol, nên đây là bằng chứng đủ dù không khớp user id. Quan sát được: kênh có document/filename hợp lệ nhưng scan luôn ra 0 item.
+3. **Loại cứng "không phải admin thì bỏ" tạo nghịch lý khi kết hợp với (1)+(2)**: kênh mà Telegram **từ chối trả lời** (không xác định được ai là admin) lại hiện item (không có gì để loại), còn kênh mà Telegram **trả lời thật** là "publisher này không phải admin" lại bị giấu tuyệt đối — cùng một mức độ không chắc chắn về nội dung, nhưng xử lý khác nhau tuỳ một chi tiết triển khai (Telegram có chịu tiết lộ list hay không), không tuỳ mức độ rủi ro thật.
+
+**Quyết định sửa (đã code, đã verify bằng tài khoản thật trên nhiều loại kênh — kênh riêng, kênh cộng đồng bị `CHAT_ADMIN_REQUIRED`, kênh cộng đồng có publisher xác nhận không phải admin):**
+
+- Bỏ mô hình nhị phân "loại bỏ hoàn toàn non-admin", thay bằng **nhãn trust phân tầng lưu cùng item**: `owner` (kênh riêng) / `channel-post` (publisherId === channel.id, mục 2 ở trên) / `verified-admin` / `not-admin` / `pending`. **Không loại bỏ item nào ở tầng index nữa** — mọi item được lưu kèm nhãn thật; ẩn/hiện theo mức độ tin cậy chuyển thành việc của tầng hiển thị (F3 Browse UI, chưa xây), không phải quyết định cứng lúc index.
+- **Lúc quét**: chỉ gán nhãn bằng tín hiệu MIỄN PHÍ đã có sẵn (owner/channel-post/admin-list đã cache tối đa 1 lần/kênh, TTL 1h) — **không bao giờ** gọi RPC theo từng publisher trong một lượt quét. Lý do: một kênh N publisher × N RPC tra cứu là con đường thẳng tới `FLOOD_WAIT` thật ([ADR-0006](./0006-download-pipeline-dc-pool-flood-wait.md)) — rủi ro này bị chính người yêu cầu slice chỉ ra trước khi kịp code sai.
+- **Lúc truy cập (on-access)**, không lúc quét: publisher còn `pending` mới được tra cứu — và chỉ tra cứu **đúng một** publisher đó (`channels.getParticipant`), cache lại theo publisherId nên các item khác cùng publisher ăn theo miễn phí. Cùng nguyên tắc "refresh `file_reference` on-demand lúc phát" đã có ở [ADR-0006](./0006-download-pipeline-dc-pool-flood-wait.md)/[ADR-0007](./0007-luu-tru-cuc-bo-indexeddb-dexie.md) §C5 — không xác thực trước, chỉ xác thực khi thật sự dùng. RPC `resolveItemTrust(sourceId, ref, msgId)` là cơ chế lâu dài; UI thật gọi nó lúc render item là việc của F3 (Browse UI, chưa xây) — slice F2 chỉ verify cơ chế bằng một nút debug tạm thời, xoá khi F3 xong.
+- **Tier catalog (T1) vẫn nghiêm ngặt hơn T2/T3**: chỉ chấp nhận khi trust publisher của catalog **dứt khoát** (owner/channel-post/verified-admin) — `pending` bị từ chối ở tier này. Lý do: T1 thay TOÀN BỘ item của nguồn trong một lần, rủi ro cao hơn nhiều so với T2/T3 chỉ cộng dồn từng item.
+- **T3 (full-scan bounded) đổi hướng quét**: bản đầu quét tăng dần từ message đầu kênh (`minId: 0, reverse: true`) — với kênh nhiều hơn giới hạn quét (2000 message), nội dung media thật (thường ở phần mới hơn) không bao giờ được quét tới trong ngân sách bounded, quan sát được kênh luôn ra 0 item dù có phim thật. Sửa: lấy N message **mới nhất** trước (bỏ qua `minId`), ưu tiên nội dung mới — phần rất cũ có thể không bao giờ được quét tới trong slice bounded này vẫn là đánh đổi đã chấp nhận ở Quyết định gốc, chỉ hướng quét là phát hiện mới.
+
+### Resolve `ref` kênh — hạn chế thật của GramJS `2.26.22` (liên quan [ADR-0003](./0003-chon-thu-vien-mtproto-gramjs.md))
+
+Phát sinh khi cho user tự thêm nguồn bằng username/invite link (không thuộc mục 3, nhưng cùng slice nên ghi ở đây):
+
+- `parseUsername()` nội bộ của GramJS chỉ nhận dạng invite link kiểu CŨ `t.me/joinchat/HASH`, không nhận `t.me/+HASH` (định dạng Telegram đã đổi sang từ lâu) — `getEntity()` ném "Cannot find any entity corresponding to...". Workaround ở tầng gọi: chuyển `+HASH` về `joinchat/HASH` trước khi gọi GramJS.
+- Link nội bộ `t.me/c/<id>` (Telegram tự sinh khi kênh không có invite link/username) nhúng thẳng channel id thô, không resolve được qua `ResolveUsername`/`CheckChatInvite`. Không vô dụng: nếu tài khoản đang đăng nhập đã là thành viên, id này nằm sẵn trong dialog list **của chính tài khoản đó** — resolve qua `getDialogs()` thay vì coi là id thô chia sẻ được, đúng tinh thần CLAUDE.md bất biến #10 (`access_hash` khác nhau theo từng tài khoản).
+- Bổ sung `listMemberChannels()` cho user **chọn thẳng** từ danh sách chat đã tham gia thay vì gõ/dán ref thủ công — loại bỏ hầu hết nguồn lỗi resolve ở trên vì entity đã có sẵn `access_hash` đúng.
