@@ -126,6 +126,7 @@ Ngoài bốn đường trên còn một **đường ingest** chạy ở phía ad
 | "IndexedDB (Local Cache lưu Metadata)" | Metadata cache **có TTL cho `file_reference`**, phải refresh trước khi phát | C5 — reference hết hạn thì link "chết giả". Xem [ADR-0007](./adr/0007-luu-tru-cuc-bo-indexeddb-dexie.md) |
 | Dead-link UX chỉ xử lý "file bị xoá" | Phân biệt **3 trạng thái**: reference hết hạn (tự sửa), mất quyền truy cập, file bị xoá thật | Gộp cả 3 thành "đã xoá" sẽ khiến user tự tay gỡ phim còn sống khỏi bộ sưu tập |
 | PRD không nói gì về việc đưa file vào kho | Thêm **Epic 5: Ingest** (CLI + bot + chế độ admin) | "Up xong không coi được" là kịch bản hỏng phổ biến nhất, và chỉ chặn được ở lúc upload. Xem [ADR-0013](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md) |
+| F3 wireframe PRD: lưới thumbnail | Slice F3 ship **list ảo 1 cột, chỉ chữ** (title/năm/thể loại), không ảnh | Pipeline tải/stream file thuộc Epic 4 (Playback), chưa xây — không có gì để làm thumbnail từ đó. Grid ảo nhiều cột (CDK `cdkVirtualFor` là 1-D) để lại cho một lượt polish UI sau, không phải việc của F3 |
 
 ## 7. Rủi ro lớn nhất — trạng thái kiểm chứng
 

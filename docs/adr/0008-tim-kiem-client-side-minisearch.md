@@ -52,3 +52,15 @@ Index 50k tài liệu chiếm hàng trăm ms CPU liên tục. Trên main thread,
 - Index chiếm RAM (ước tính 20–60 MB ở mức 50k tài liệu). Cần đo thật trong spike, không đoán.
 - Bỏ dấu làm mất khả năng phân biệt vài cặp từ tiếng Việt; đổi lại là trải nghiệm gõ không dấu. Đánh đổi đúng cho đối tượng người dùng của dự án.
 - Không có ngữ nghĩa/gợi ý thông minh. Nếu sau này muốn, hướng đi là embedding + vector search bằng WASM — đủ lớn để cần một ADR riêng.
+
+## Cập nhật sau khi Accepted (2026-08-25, slice Browse F3)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định
+> đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết
+> định gốc **vẫn đứng vững**, xem lý do bên dưới.
+
+Lúc dựng `libs/core-search` (MiniSearch chạy trong Core Worker, ADR-0009 §Vòng đời) phát hiện: **`fileName` — field được liệt trong §Cấu hình ở trên — không tồn tại trong data model thật.** `CatalogItemV1`/`MediaRecord` ([catalog-spec.md](../catalog-spec.md), [ADR-0010](./0010-catalog-spec-v1-va-chien-luoc-indexing.md), đã Accepted) không có field này — item chỉ có `title`, `originalTitle`, `cast`, `director`, `genres`, `year`. `fileName` có lẽ là sót lại từ bản nháp trước khi catalog spec chốt field list cuối cùng.
+
+**Field index thật đã triển khai** (`libs/core-search/src/search-engine.ts`): `title`, `originalTitle`, `cast`, `director`, `genres` — bỏ `fileName`. `storeFields`, `searchOptions` (`prefix: true`, `fuzzy: 0.2`, boost `title` ×3), và chuẩn hoá tiếng Việt giữ nguyên như quyết định gốc.
+
+**Điều KHÔNG đổi:** vẫn dùng MiniSearch, vẫn chạy trong Core Worker, vẫn chuẩn hoá tiếng Việt bắt buộc cả lúc index lẫn lúc query, vẫn lọc theo `sourceId` bằng `filter`. Đây chỉ là sửa một chi tiết cấu hình sai lệch với data model thật, không phải đổi hướng.
