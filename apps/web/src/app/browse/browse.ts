@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { toObservable, toSignal } from '@angular/core/rxjs-interop';
+import { Router } from '@angular/router';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -48,6 +49,7 @@ function sortRows(rows: MediaRecord[], sort: BrowseSort): MediaRecord[] {
 })
 export class Browse {
   private readonly client = createCoreWorkerClient();
+  private readonly router = inject(Router);
   protected readonly store = inject(BrowseStore);
 
   protected readonly sources = toSignal(
@@ -106,5 +108,8 @@ export class Browse {
       return;
     }
     await this.client.resolveItemTrust(row.sourceId, source.ref, row.msgId);
+    // Phát (F4) — chỉ điều hướng SAU khi trust đã resolve, cùng thứ tự với
+    // hành vi gốc (trước khi có Player, click chỉ resolve trust).
+    await this.router.navigate(['/player', row.sourceId, row.msgId]);
   }
 }

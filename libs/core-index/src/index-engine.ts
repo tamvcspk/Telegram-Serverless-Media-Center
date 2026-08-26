@@ -82,7 +82,12 @@ async function scanHistoryItems(
     // (catalog-spec.md: chỉ msgId bắt buộc, "chưa có metadata đầy đủ" không
     // phải lý do bỏ qua).
     const titleSource = message.fileName ?? message.caption ?? `Video ${message.msgId}`;
-    items.push({ ...parseFilenameFallback(message.msgId, titleSource), trust, publisherId: message.publisherId });
+    // `size` (nếu Telegram trả) — giữ lại từ T2/T3 quét lịch sử, không phải
+    // do parseFilenameFallback() suy luận. Cần cho slice Playback (F4,
+    // ADR-0005): SW đọc `size` cục bộ để trả Content-Length mà "không cần
+    // chạm mạng" — phát hiện thật lúc dựng F4: field này trước đó bị bỏ rơi
+    // ở tầng quét, dù `size` đã có sẵn trong CatalogItemV1/IndexHistoryMessage.
+    items.push({ ...parseFilenameFallback(message.msgId, titleSource), size: message.size, trust, publisherId: message.publisherId });
   }
   return { items, maxMsgId };
 }

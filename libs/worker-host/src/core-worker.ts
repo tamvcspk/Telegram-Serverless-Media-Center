@@ -3,6 +3,7 @@ import { createTelegramGateway } from '@tsmc/core-mtproto';
 import { createSyncEngine, type SyncGateway, type SyncStoragePort } from '@tsmc/core-sync';
 import { createIndexEngine, type IndexGateway, type IndexStoragePort } from '@tsmc/core-index';
 import { createSearchEngine, type SearchEngine } from '@tsmc/core-search';
+import { createDownloadEngine, type DownloadGateway } from '@tsmc/core-download';
 import {
   appendOutbox,
   countMediaBySource,
@@ -86,6 +87,37 @@ const indexStorage: IndexStoragePort = {
 // IndexGateway (core-index) mà KHÔNG import type đó — cùng quy ước với
 // SyncGateway phía trên.
 const indexEngine = createIndexEngine(gateway as unknown as IndexGateway, indexStorage);
+
+// Playback (F4) — vertical slice tối thiểu, ADR-0005/0006. `TelegramGateway`
+// (core-mtproto) khai báo trực tiếp các method khớp shape DownloadGateway
+// (core-download) mà KHÔNG import type đó — cùng quy ước với SyncGateway/
+// IndexGateway phía trên.
+const downloadEngine = createDownloadEngine(gateway as unknown as DownloadGateway);
+
+// sourceId (id nội bộ trong SyncState.sources) → channelId Telegram thật —
+// KHÔNG có trong SyncState/MediaRecord (chỉ có `ref` — username/invite link,
+// xem sync-state.ts), phải resolve qua gateway.resolveIndexChannel() như
+// scanSource() đã làm. Cache tại đây để KHÔNG resolve lại (round-trip mạng)
+// cho mỗi sub-chunk trong lúc một phim đang phát — chỉ resolve một lần cho
+// mỗi nguồn trong vòng đời Core Worker này.
+const channelIdBySource = new Map<string, string>();
+async function resolveChannelIdForSource(sourceId: string): Promise<string> {
+  const cached = channelIdBySource.get(sourceId);
+  if (cached) {
+    return cached;
+  }
+  const state = await getSyncState();
+  const source = state.sources[sourceId];
+  if (!source || source.removed) {
+    throw new Error(`Nguồn "${sourceId}" không tồn tại hoặc đã bị xoá.`);
+  }
+  const channel = await gateway.resolveIndexChannel(source.ref);
+  if (!channel) {
+    throw new Error(`Không resolve được kênh Telegram cho nguồn "${sourceId}" (ref "${source.ref}").`);
+  }
+  channelIdBySource.set(sourceId, channel.id);
+  return channel.id;
+}
 
 // Tìm kiếm (F3, ADR-0008) — nạp lười lúc RPC đầu tiên cần tới (searchMedia
 // hoặc sau scanSource() đầu tiên), không nạp lúc module load vì đọc
@@ -211,7 +243,30 @@ const api = {
   listMemberChannels: gateway.listMemberChannels.bind(gateway),
   // Chẩn đoán — không lọc gì cả, xem ChannelDiagnosticMessage (gateway-index.ts).
   // Debug UI dùng để trả lời "kênh này thật ra có gì" trước khi chỉnh filter.
-  diagnoseChannel: gateway.diagnoseChannel.bind(gateway)
+  diagnoseChannel: gateway.diagnoseChannel.bind(gateway),
+
+  // Playback (F4) — gọi từ stream-bridge.ts (apps/web), KHÔNG gọi trực tiếp
+  // từ component UI nào (SW là nơi khởi phát request qua MessageChannel, xem
+  // ADR-0004 §3). `Comlink.transfer()` bọc ArrayBuffer trả về — CLAUDE.md bắt
+  // buộc ArrayBuffer transferable (zero-copy); Comlink KHÔNG tự transfer giá
+  // trị trả về nếu không bọc tường minh (structured clone sẽ COPY thay vì
+  // transfer nếu thiếu bước này).
+  async fetchChunk(sourceId: string, msgId: number, offset: number, limit: number, correlationId: string): Promise<ArrayBuffer> {
+    const channelId = await resolveChannelIdForSource(sourceId);
+    const buffer = await downloadEngine.fetchWindow(channelId, msgId, offset, limit, correlationId);
+    return Comlink.transfer(buffer, [buffer]);
+  },
+  cancelChunk(correlationId: string): void {
+    downloadEngine.cancel(correlationId);
+  },
+  // `size`/`mimeType` THẬT từ Telegram — SW gọi trước khi trả 200/206 (xem
+  // sw/sw.ts). Phát hiện thật: catalog cục bộ (MediaRecord) không lưu
+  // mimeType gốc, hardcode 'video/mp4' làm trình duyệt từ chối phát
+  // (MEDIA_ERR_SRC_NOT_SUPPORTED) với file không phải mp4.
+  async getStreamInfo(sourceId: string, msgId: number): Promise<{ size: number; mimeType: string }> {
+    const channelId = await resolveChannelIdForSource(sourceId);
+    return downloadEngine.getInfo(channelId, msgId);
+  }
 };
 
 export type CoreWorkerApi = typeof api;

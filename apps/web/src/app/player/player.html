@@ -1,0 +1,30 @@
+<section class="player">
+  <button type="button" class="close" (click)="close()">Đóng</button>
+  @if (isReady()) {
+    <video
+      #video
+      class="video"
+      controls
+      autoplay
+      playsinline
+      webkit-playsinline="true"
+      [src]="streamUrl()"
+      (loadstart)="onLoadStart()"
+      (loadedmetadata)="onLoadedMetadata()"
+      (canplay)="onCanPlay()"
+      (playing)="onPlaying()"
+      (waiting)="onWaiting()"
+      (stalled)="onStalled()"
+      (error)="onVideoError()"
+      (timeupdate)="onTimeUpdate()"
+      (pause)="onPause()"
+      (ended)="onEnded()"
+    ></video>
+  } @else {
+    <p class="loading">Đang chuẩn bị trình phát…</p>
+  }
+
+  @if (debugEnabled) {
+    <pre class="debug-log">{{ debugLines().join('\n') }}</pre>
+  }
+</section>

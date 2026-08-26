@@ -37,3 +37,12 @@ export type { StateChannelCandidate, StateChannelChoice, StateChannelResolutionC
 // DTO cho slice Index (F2) — ADR-0010, docs/catalog-spec.md.
 export type { CatalogItemV1, CatalogEnvelopeV1 } from './catalog';
 export { catalogItemV1Schema, catalogEnvelopeV1Schema, parseCatalogEnvelope, parseCatalogItem, sanitizeUntrustedString } from './catalog';
+
+// Giao thức SW ↔ main thread ↔ Core Worker cho slice Playback (F4) — ADR-0004/0005.
+export type {
+  StreamChunkRequestMessage,
+  StreamChunkCancelMessage,
+  StreamChunkResponseMessage,
+  StreamInfoRequestMessage,
+  StreamInfoResponseMessage
+} from './playback';

@@ -211,6 +211,12 @@ importers:
 
   sw:
     dependencies:
+      '@tsmc/core-download':
+        specifier: workspace:*
+        version: link:../libs/core-download
+      '@tsmc/shared-models':
+        specifier: workspace:*
+        version: link:../libs/shared-models
       workbox-precaching:
         specifier: ^7.4.1
         version: 7.4.1

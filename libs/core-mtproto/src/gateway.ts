@@ -20,6 +20,7 @@ import {
   type PinnedCatalogDocument,
   type ResolvedIndexChannel
 } from './gateway-index';
+import { createDownloadGatewayMethods, type PlaybackDocumentRef } from './gateway-download';
 import { decryptSessionString, encryptSessionString, generateSessionKey } from './session-crypto';
 
 const { StringSession } = sessions;
@@ -58,6 +59,12 @@ export interface TelegramGateway {
   checkPublisherIsAdmin(channelId: string, publisherId: string): Promise<boolean | null>;
   /** Chẩn đoán — không lọc gì cả, xem comment ChannelDiagnosticMessage (gateway-index.ts). Chỉ debug UI gọi. */
   diagnoseChannel(ref: string, limit: number): Promise<ChannelDiagnosticMessage[]>;
+
+  // Phần dưới đây khớp shape @tsmc/core-download DownloadGateway
+  // (gateway-port.ts) — cùng lý do KHÔNG import type đó ở đây như hai nhóm
+  // Sync/Index phía trên.
+  getPlaybackDocument(channelId: string, msgId: number): Promise<PlaybackDocumentRef | null>;
+  fetchFileChunk(ref: PlaybackDocumentRef, offset: number, limit: number): Promise<ArrayBuffer>;
 }
 
 function toUserSummary(user: Api.TypeUser): TelegramUserSummary {
@@ -96,10 +103,12 @@ export function createTelegramGateway(): TelegramGateway {
 
   const syncMethods = createSyncGatewayMethods(requireClient);
   const indexMethods = createIndexGatewayMethods(requireClient);
+  const downloadMethods = createDownloadGatewayMethods(requireClient);
 
   return {
     ...syncMethods,
     ...indexMethods,
+    ...downloadMethods,
     async login(credentials, phoneNumber, callbacks) {
       const stringSession = new StringSession('');
       client = new TelegramClient(stringSession, credentials.apiId, credentials.apiHash, {

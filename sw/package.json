@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@tsmc/core-download": "workspace:*",
+    "@tsmc/shared-models": "workspace:*",
     "workbox-precaching": "^7.4.1"
   },
   "devDependencies": {
