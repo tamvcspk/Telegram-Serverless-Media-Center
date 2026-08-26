@@ -18,13 +18,15 @@ app/<feature>/
   <feature>.scss
   <feature>.store.ts    # chỉ khi thật sự cần SignalStore, xem mục 2
   <sub-widget>/          # dialog/con riêng của feature này
+app/shell/
+  <layout>.ts            # layout route component (bottom nav, sub-page header…), xem mục 6
 ```
 
 Ví dụ đã có: `browse/browse.ts` + `browse/browse.store.ts`; `sync/state-channel-resolution-dialog/` là sub-widget riêng của `sync/`.
 
 - Không suffix `.component`/`.service` — khớp Angular 22 và đã nhất quán 100% trong code hiện tại.
 - Selector `app-*`.
-- **Chưa tạo `app/shared/`.** Đợi tới khi có ≥2 feature cần cùng một widget (banner cảnh báo, empty-state…) mới tách — rule-of-three, tránh trừu tượng hoá sớm.
+- **Chưa tạo `app/shared/`.** Đợi tới khi có ≥2 feature cần cùng một widget (banner cảnh báo, empty-state…) mới tách — rule-of-three, tránh trừu tượng hoá sớm. Đây là chuyện KHÁC với `app/shell/` ở mục 6 — shell là component layout gắn với route (bottom nav, header quay lại…), không phải widget dùng chung, nên không chờ rule-of-three.
 
 ## 2. State scope — 3 tầng
 
@@ -61,19 +63,43 @@ Không viết comment mô tả WHAT (code đã tự nói), không viết comment
 - Ghi/RPC: `createCoreWorkerClient()` từ `@tsmc/worker-host`.
 - Không component/store nào import `core-mtproto`/`core-download` trực tiếp — `eslint-plugin-boundaries` chặn theo ADR-0012, nhưng đừng thử "tạm tắt rule" để lấy đường tắt; nếu cảm thấy cần import thẳng, đó là dấu hiệu logic đang thuộc về `worker-host`, không phải `apps/web`.
 
-## 6. Routing cho màn hình mới
+## 6. Routing & layout — KHÔNG có một `AppShell` chung cho mọi màn hình
 
-Hiện trạng: chỉ `/player/:sourceId/:msgId` (`app.routes.ts`) là route lazy thật. Sync/Browse/Index vẫn nhồi phẳng chung trong `login.html` case `'authenticated'` — di sản từ lúc chỉ có 1–2 slice, giờ không kham nổi thêm 4 màn hình mới trong `docs/ux-design.md` (Dashboard/Collections/Source Management/Settings).
+Hiện trạng: chỉ `/player/:sourceId/:msgId` (`app.routes.ts`) là route lazy thật. Sync/Browse/Index vẫn nhồi phẳng chung trong `login.html` case `'authenticated'` — di sản từ lúc chỉ có 1–2 slice, giờ không kham nổi thêm các màn hình mới trong `docs/ux-design.md` (Dashboard/Collections/Sources/Settings/Metadata Editor).
 
-**Luật cho màn hình mới:** mọi màn hình cấp cao mới lấy route thật + `loadComponent` lazy, đúng mẫu đã có ở F4:
+`docs/ux-design.md` (bản mobile-first) xác nhận layout khác nhau thật sự theo TỪNG NHÓM màn hình — đừng lặp lại sai lầm "bọc hết vào một `AppShell`" của bản trước. Bốn nhóm layout, ứng với 4 cách route khác nhau:
+
+| Nhóm | Màn hình | Layout | Cách route |
+|---|---|---|---|
+| **Auth** | Màn 1 (Login) | Full-bleed, cuộn dọc, không chrome | Route đơn, không cha layout |
+| **Main shell** | Màn 2/3/4 (Dashboard/Collections/Sources) | `MatBottomNav` cố định dưới cùng, 3 tab | Route cha `app/shell/main-shell.ts` có `<router-outlet>`, 3 route con lazy |
+| **Immersive** | Màn 5 (Player) | Toàn màn hình, KHÔNG chrome (không toolbar, không bottom nav) | Route đơn, không cha layout — đây là trường hợp "không cần layout wrapper", đừng tự bịa một cái |
+| **Sub-page** | Màn 6/7 (Metadata Editor, Settings) | Header `<` quay lại, có thể có sticky bottom bar (Metadata Editor) | Route đơn hoặc cha layout header dùng chung nếu ≥2 sub-page giống hệt nhau (rule-of-three như `app/shared/` ở mục 1) |
+
+**Main shell — mẫu route lồng nhau:**
 
 ```ts
 {
-  path: 'collections',
-  loadComponent: () => import('./collections/collections').then((m) => m.Collections)
+  path: '',
+  loadComponent: () => import('./shell/main-shell').then((m) => m.MainShell),
+  children: [
+    { path: '', pathMatch: 'full', redirectTo: 'browse' },
+    { path: 'browse', loadComponent: () => import('./browse/browse').then((m) => m.Browse) },
+    { path: 'collections', loadComponent: () => import('./collections/collections').then((m) => m.Collections) },
+    { path: 'sources', loadComponent: () => import('./sources/sources').then((m) => m.Sources) }
+  ]
+},
+{
+  // Settings KHÔNG nằm trong children ở trên — nó là sub-page (header quay
+  // lại), không phải tab thứ 4 của bottom nav. Chỉ 3 nhóm hành động tần suất
+  // cao (Home/BST/Nguồn) xứng đáng một tab cố định (docs/ux-design.md Màn 7).
+  path: 'settings',
+  loadComponent: () => import('./settings/settings').then((m) => m.Settings)
 }
 ```
 
-Bọc các route màn hình chính trong một `AppShell` (MatSidenav + MatToolbar, theo Màn hình 2 của `docs/ux-design.md`) làm layout route dùng chung, thay vì mỗi feature tự vẽ toolbar riêng.
+`MainShell` tự vẽ `MatBottomNav`/`<router-outlet>`, KHÔNG phải mỗi feature con tự vẽ nav riêng — đúng tinh thần "layout route dùng chung" của bản trước, chỉ khác là giờ CHỈ dùng chung cho 3 tab chính, không dùng chung cho Player/Settings/Metadata Editor.
+
+**Luật chung cho mọi màn hình cấp cao mới:** route thật + `loadComponent` lazy, đúng mẫu đã có ở F4. Trước khi thêm route, tự hỏi nó thuộc nhóm nào trong bảng trên — đừng mặc định nhét vào `MainShell` chỉ vì đó là chỗ "đã có sẵn".
 
 Không bắt buộc dọn lại Sync/Browse/Index khỏi Login ngay lập tức — migrate sang route thật khi đụng tới màn đó, không phải điều kiện tiên quyết để bắt đầu màn mới.
