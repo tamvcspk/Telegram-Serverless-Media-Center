@@ -66,3 +66,13 @@ Xử lý `CDN_REDIRECT`: dùng `upload.getCdnFile`, giải mã AES-CTR, xác min
 - Phức tạp thật sự nằm ở đây. Cần bộ test riêng cho scheduler với một `FakeTransport` mô phỏng độ trễ, FLOOD_WAIT, migrate và reference hết hạn. Không có bộ test này thì mọi bug streaming đều không tái hiện được.
 - Tốc độ không thể sánh với một trình tải chuyên dụng chạy 16 luồng — đây là đánh đổi có chủ ý.
 - Cần telemetry cục bộ (chỉ hiển thị trong `#/debug`, không gửi đi đâu — xem [ADR-0001](./0001-kien-truc-client-heavy-khong-backend.md)) để chẩn đoán khi user báo lỗi.
+
+## Cập nhật sau khi Accepted (2026-08-26, slice Playback F4 — vertical slice tối thiểu)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**.
+
+Slice F4 ship **§1 (đơn giản hoá: 1 sender/DC, không pool nhiều sender) + §4 (tôn trọng FLOOD_WAIT tuyệt đối)** của Quyết định trên, KHÔNG làm §2 (scheduler ưu tiên P0-P3), §3 (AIMD), §5 (làm mới file reference — có làm, nhưng đơn giản: refresh một lần khi gateway báo hết hạn, không phân biệt tình huống) đầy đủ, §6 (CDN redirect — ném lỗi rõ ràng "chưa hỗ trợ" thay vì implement, xem [ADR-0005 addendum](./0005-streaming-qua-service-worker-http-range.md#cập-nhật-sau-khi-accepted-2026-08-26-slice-playback-f4--vertical-slice-tối-thiểu)).
+
+**Đã verify bằng phát video thật** (tài khoản thật, Windows Chrome): tải tuần tự sub-chunk 512 KB qua `client.getSender(dcId)` + `client.invokeWithSender(upload.GetFile)` (không dùng `DirectDownloadIter` của GramJS trực tiếp — cần tự kiểm soát abort/FLOOD_WAIT) đủ nhanh cho một cửa sổ 1 MB/lần, không gặp `FLOOD_WAIT` trong quá trình test. SPIKE-04 (đo tốc độ/ngưỡng FLOOD_WAIT thật với 2/4/8 kết nối song song) **vẫn chưa chạy** — mọi tham số AIMD cho slice sau vẫn là giả thuyết, chưa có số liệu thiết bị thật.
+
+Bộ test `FakeTransport` mà mục "Tiêu cực" trên yêu cầu đã có — `libs/core-download/src/test-fakes.ts` + `download-engine.spec.ts` (6 test: windowing, FLOOD_WAIT ≤60s tự chờ, >60s ném lỗi, file reference hết hạn tự làm mới, cancel cắt vòng lặp sớm). Chưa test AIMD/multi-connection vì chưa xây.

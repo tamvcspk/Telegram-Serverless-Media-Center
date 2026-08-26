@@ -92,3 +92,17 @@ Dedicated Worker — nơi **duy nhất** được phép chạy GramJS theo [ADR-
 **Đã verify bằng kết nối MTProto thật** (dùng credential giả — không phải tài khoản người dùng thật, đúng ranh giới an toàn của CLAUDE.md): sau khi vá, kết nối đúng tới `vesta.web.telegram.org`, và nhận đúng lỗi thật từ server Telegram (`400: API_ID_INVALID`, đúng vì API_ID là giả) thay vì crash phía client. Xác nhận pipeline kết nối MTProto trong Worker chạy đúng end-to-end.
 
 **Điều thay đổi**: rủi ro "khoá cứng vào GramJS" đã ghi ở addendum trước nặng thêm một chút — không chỉ là "gói bị archive, không ai vá lỗi giao thức", mà còn là "gói còn giả định môi trường Node ở nhiều chỗ, phải tự dò và vá từng quirk khi chạm tới". Lớp bọc `TelegramGateway`/`browser-shim.ts` tiếp tục giữ chi phí này ở đúng một package — quyết định giữ GramJS **không đổi**.
+
+## Cập nhật sau khi Accepted (2026-08-26, slice Playback F4)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**, xem lý do bên dưới.
+
+Khi triển khai tải chunk thật (`upload.GetFile`, [ADR-0005](./0005-streaming-qua-service-worker-http-range.md)/[ADR-0006](./0006-download-pipeline-dc-pool-flood-wait.md)), phát video thật trên tài khoản thật ném lỗi runtime của GramJS: `CastError: Found wrong type for fileReference. expected buffer but received 2,97,19,...`.
+
+**Gốc rễ, xác nhận bằng thực nghiệm (không suy đoán):** `Api.Document.fileReference`/`InputDocumentFileLocation.fileReference` khai kiểu `bytes = Buffer`, và GramJS tự validate `Buffer.isBuffer(value)` lúc dựng TL object — một `Uint8Array` thường (dùng để né type `Buffer` không resolve được vì @types/node không nằm trong compile graph của `core-mtproto`, xem [ADR-0012 §2](./0012-trien-khai-static-pwa-va-cau-truc-workspace.md)) **không** qua được check này dù cùng byte.
+
+`libs/worker-host/build.mjs` đã bật `esbuild-plugin-polyfill-node` với `globals.buffer: true` — CHO CHÍNH GramJS dùng — nên một `Buffer` polyfill thật (đúng `isBuffer`) tồn tại trong bundle. Vấn đề là **cách lấy nó**: thử đầu tiên qua `globalThis.Buffer` (SAI, ném lỗi runtime "Global Buffer polyfill không có sẵn") — đọc thẳng source plugin (`esbuild-plugin-polyfill-node/dist/index.js`) mới xác nhận: plugin dùng cơ chế `inject` của esbuild, tự động thay identifier **tự do** `Buffer` xuất hiện literal trong bất kỳ file nào của bundle bằng `import { Buffer } from 'buffer'` — nó **không** gán `globalThis.Buffer`. Viết `Buffer.from(...)` trực tiếp trong source (khai `declare const Buffer` chỉ để qua type-check, không sinh mã runtime — xem `libs/core-mtproto/src/gateway-download.ts`) mới để esbuild inject đúng.
+
+**Đã verify bằng một bundle thử nghiệm riêng** (cùng cấu hình `polyfillNode`, ngoài repo) trước khi deploy lại: `Buffer.isBuffer(Buffer.from(new Uint8Array([1,2,3])))` trả về `true`. Sau khi sửa, phát video thật thành công trên Windows.
+
+**Điều thay đổi**: thêm một quirk build-tooling vào danh sách "phải tự dò" khi dùng GramJS trong browser (cùng nhóm với `browser-shim.ts`/`randomBytes` ở addendum trước) — bất kỳ chỗ nào cần `Buffer` thật (không chỉ đọc, mà TẠO MỚI để truyền vào GramJS) phải viết literal identifier `Buffer` (kèm `declare const Buffer` cục bộ), không được lấy qua `globalThis`. Quyết định giữ GramJS **không đổi**.
