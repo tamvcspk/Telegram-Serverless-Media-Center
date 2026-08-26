@@ -2,7 +2,61 @@
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  max-width: 24rem;
+
+  // Chỉ canh giữa + giới hạn bề rộng cho WIZARD đăng nhập (auth-wrap bọc
+  // riêng nhánh @default) — KHÔNG đặt max-width lên .login nói chung nữa,
+  // vì trước đó nó vô tình bóp luôn nhánh 'authenticated' (Sync/Browse/Index)
+  // xuống còn vài trăm px, thấy rõ lưới phim bị lệch/chật khi test thật.
+  .auth-wrap {
+    display: flex;
+    justify-content: center;
+    padding-top: 2rem;
+  }
+
+  .auth-card {
+    width: 100%;
+    // 28rem (không phải 24rem lúc đầu) — header ngang của MatStepper cần đủ
+    // chỗ cho 2-3 nhãn tiếng Việt trên 1 hàng, thấy lệch/cắt chữ thật ở
+    // 24rem khi test trên staging.
+    max-width: 28rem;
+  }
+
+  .brand {
+    margin: 0 0 0.75rem;
+    font-size: 1.15rem;
+    text-align: center;
+  }
+
+  .risk-banner {
+    display: block;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    border: 1px solid var(--mat-sys-error, #b3261e);
+    border-radius: 0.5rem;
+    background: color-mix(in srgb, var(--mat-sys-error, #b3261e) 8%, transparent);
+    font-size: 0.85rem;
+    line-height: 1.4;
+
+    code {
+      font-size: 0.85em;
+    }
+  }
+
+  mat-stepper {
+    background: transparent;
+    padding: 0;
+
+    // MatStepHeader render ở ViewEncapsulation.None (global, không nhận
+    // _ngcontent scope của Login) nên phải ::ng-deep mới chạm được — CSS mặc
+    // định của Material là text-overflow:ellipsis, cắt cụt nhãn tiếng Việt
+    // ("Xác thực Telegram") trong header ngang hẹp. Cho xuống dòng thay vì
+    // cắt, thay vì đoán một max-width "đủ rộng" rồi vẫn có thể vỡ ở nhãn dài.
+    ::ng-deep .mat-step-text-label {
+      white-space: normal;
+      overflow: visible;
+      text-overflow: clip;
+    }
+  }
 
   form {
     display: flex;

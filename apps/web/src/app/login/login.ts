@@ -1,8 +1,10 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
+import { MatCardModule } from '@angular/material/card';
 import { MatDialog } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
+import { MatStepperModule } from '@angular/material/stepper';
 import * as Comlink from 'comlink';
 import { firstValueFrom } from 'rxjs';
 import { createCoreWorkerClient } from '@tsmc/worker-host';
@@ -16,14 +18,17 @@ import { Browse } from '../browse/browse';
 type LoginStatus = 'checking' | 'phone' | 'code' | 'password' | 'authenticated';
 
 /**
- * Màn đăng nhập tối thiểu (F1.1). Wizard 3 bước: API_ID/API_HASH + số điện
- * thoại → mã xác nhận → mật khẩu 2FA (nếu có). Mỗi bước chờ user nhập qua
- * một callback Comlink-proxy được TelegramGateway.login gọi ngược lại từ
- * Core Worker (ADR-0003/0004) — xem libs/core-mtproto/src/gateway.ts.
+ * Màn đăng nhập (F1.1, Màn hình 1 docs/ux-design.md). Wizard 3 bước: API_ID/
+ * API_HASH + số điện thoại → mã xác nhận → mật khẩu 2FA (nếu có). Mỗi bước
+ * chờ user nhập qua một callback Comlink-proxy được TelegramGateway.login gọi
+ * ngược lại từ Core Worker (ADR-0003/0004) — xem libs/core-mtproto/src/gateway.ts.
+ * `stepIndex` chỉ ánh xạ MỘT CHIỀU từ `status` sang chỉ số MatStepper — luồng
+ * hoàn toàn do Core Worker dẫn dắt (không cho bấm lùi qua header), nên
+ * KHÔNG bind `(selectedIndexChange)` ngược lại status.
  */
 @Component({
   selector: 'app-login',
-  imports: [MatButtonModule, MatFormFieldModule, MatInputModule, SyncStatus, ChannelIndex, Browse],
+  imports: [MatButtonModule, MatCardModule, MatFormFieldModule, MatInputModule, MatStepperModule, SyncStatus, ChannelIndex, Browse],
   templateUrl: './login.html',
   styleUrl: './login.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -44,6 +49,17 @@ export class Login {
   readonly passwordHint = signal<string | undefined>(undefined);
   readonly codeViaApp = signal(false);
   readonly submitting = signal(false);
+
+  protected readonly stepIndex = computed(() => {
+    switch (this.status()) {
+      case 'code':
+        return 1;
+      case 'password':
+        return 2;
+      default:
+        return 0;
+    }
+  });
 
   constructor() {
     void this.restore();
