@@ -14,6 +14,8 @@ Bản vẽ trước dùng bố cục desktop (Sidenav, Dialog giữa màn hình,
 - **Thay `MatDialog` (popup giữa màn hình) bằng `MatBottomSheet`** (bảng trượt từ dưới lên) cho mọi hành động cần xác nhận hoặc nhập liệu ngắn — dễ thao tác một tay bằng ngón cái hơn popup giữa màn hình trên thiết bị cầm tay.
 - **Tối ưu chiều dọc:** Stepper ngang → **Vertical `MatStepper`** (Màn hình 1); bộ lọc chip → **cuộn ngang** (`MatChipListbox` trong container `overflow-x`) thay vì xuống dòng, tiết kiệm chiều cao màn hình vốn đã hạn chế trên điện thoại.
 
+**"Bottom Navigation Bar" không phải một component Material có sẵn.** Đã kiểm tra thật (`ls node_modules/@angular/material`): Angular Material có `bottom-sheet` nhưng **không có** `bottom-nav`/bottom-navigation nào cả (khác Flutter/Ionic). Phải tự ghép từ `MatTabNav`+`MatTabLink` (restyle theo chiều dọc, mỗi tab là `routerLink`) hoặc đơn giản hơn: một hàng `button`/`a routerLink` + `MatIconButton` tự CSS `position:fixed;bottom:0`. Đừng đi tìm `MatBottomNavModule` — không tồn tại. Xem thêm [ui-conventions §6](../.claude/skills/ui-conventions/SKILL.md).
+
 **Không có một layout component chung cho cả 7 màn hình** — Auth (full-bleed, không chrome) khác Dashboard/Collections/Sources (khung Bottom Nav) khác Player (full-screen immersive, không nav) khác Metadata Editor/Settings (sub-page có header `<` quay lại, một số có sticky bottom bar). Quy ước layout route/component tương ứng nằm ở [`.claude/skills/ui-conventions/SKILL.md` §6](../.claude/skills/ui-conventions/SKILL.md) — đọc trước khi dựng route cho bất kỳ màn nào dưới đây, đừng bọc tất cả trong một `AppShell` duy nhất.
 
 ## User Journey
@@ -110,13 +112,13 @@ Trên điện thoại, Stepper ngang hoặc form dài bị ép lại rất khó 
 
 Để tránh sập trình duyệt khi load 20.000 phim, dùng **`cdkVirtualScrollViewport`** toàn màn hình — **tuyệt đối không dùng `MatGridList`**.
 
-* **Component sử dụng:** Thanh tìm kiếm `MatFormField`/`MatInput` cố định (sticky) trên cùng, `MatChipListbox` cuộn ngang cho bộ lọc nguồn (Tất cả/Cá nhân/Cộng đồng) thay vì `MatButtonToggleGroup` xuống dòng, `cdkVirtualFor` (render danh sách), **Bottom Navigation Bar** (Home/BST/Nguồn).
+* **Component sử dụng:** Thanh tìm kiếm `MatFormField`/`MatInput` cố định (sticky) trên cùng kèm icon avatar/⚙️ ở góc phải mở Settings (xem "Ghi chú đối chiếu" bên dưới), `MatChipListbox` cuộn ngang cho bộ lọc nguồn (Tất cả/Cá nhân/Cộng đồng) thay vì `MatButtonToggleGroup` xuống dòng, `cdkVirtualFor` (render danh sách), Bottom Navigation Bar (Home/BST/Nguồn — tự ghép, xem nguyên tắc mobile-first phía trên).
 * **Phản biện UX:** Việc không có ảnh Thumbnail (Poster) ở phiên bản đầu tiên sẽ làm UI trông "kém hấp dẫn", nhưng đó là đánh đổi sống còn — tải ảnh qua MTProto ngay lúc duyệt sẽ dính `FLOOD_WAIT` ngay lập tức. Tính năng vượt trội ở đây là tìm kiếm MiniSearch tức thời, hãy làm nổi bật thanh tìm kiếm — đặc biệt hiệu quả trên mobile vì zero-latency mạng.
-* **Ghi chú đối chiếu:** bộ lọc "Tất cả / Cá nhân / Cộng đồng" giả định trường phân loại kênh cá nhân-cộng đồng trên mỗi nguồn — đúng theo bảng store `sources` ở [ADR-0007](./adr/0007-luu-tru-cuc-bo-indexeddb-dexie.md), nhưng field này **chưa có** trong model `SourceRef` hiện tại của code; đây là việc cần làm ở tầng dữ liệu trước khi UI này khớp được, không phải lỗi của bản vẽ.
+* **Ghi chú đối chiếu:** bộ lọc "Tất cả / Cá nhân / Cộng đồng" giả định trường phân loại kênh cá nhân-cộng đồng trên mỗi nguồn — đúng theo bảng store `sources` ở [ADR-0007](./adr/0007-luu-tru-cuc-bo-indexeddb-dexie.md), nhưng field này **chưa có** trong model `SourceRef` hiện tại của code; đây là việc cần làm ở tầng dữ liệu trước khi UI này khớp được, không phải lỗi của bản vẽ. Icon ⚙️ ở góc thanh tìm kiếm là entry point DUY NHẤT vào Settings (Màn hình 7) — bản vẽ trước của tài liệu này nói "vào qua menu/góc màn hình Dashboard" nhưng quên vẽ icon đó ra, gây khó implement đúng; đã bổ sung vào mockup dưới đây.
 
 ```text
 ┌───────────────────────────┐
-│ 🔍 [ Tìm phim, diễn viên ]│
+│ 🔍 [ Tìm phim... ]     ⚙️ │
 │ ───────────────────────── │
 │ [Cuộn ngang: MatChip]     │
 │ (Tất cả) (Cá nhân) (Cộng..│
@@ -139,12 +141,15 @@ Trên điện thoại, Stepper ngang hoặc form dài bị ép lại rất khó 
 
 Bộ sưu tập lưu danh sách tham chiếu ID dưới dạng state riêng tư. Nút thêm mới chuyển thành **FAB** (Floating Action Button) góc phải dưới; kéo thả (`cdkDrag`) dùng icon tay cầm lớn bên phải để dễ thao tác bằng ngón cái.
 
-* **Component sử dụng:** `MatList`, `@angular/cdk/drag-drop` (`cdkDropList`, `cdkDrag`), FAB (`mat-fab` hoặc `mat-mini-fab`), **Bottom Navigation Bar**.
+* **Component sử dụng:** `MatList`, `@angular/cdk/drag-drop` (`cdkDropList`, `cdkDrag`), FAB (`mat-fab` hoặc `mat-mini-fab`), Bottom Navigation Bar (tự ghép).
 * **Phản biện UX:** Phim có thể chết link vì **hai lý do khác nhau**, và [ADR-0007](./adr/0007-luu-tru-cuc-bo-indexeddb-dexie.md) yêu cầu UI phân biệt rõ, không được gộp về một nút "Gỡ" chung (xem [Đã sửa] ở Giai đoạn 5 phía trên):
   - **Mất quyền truy cập** (`NO_ACCESS` — bị kick khỏi kênh): dòng mờ (`opacity: 0.5`), text "Bạn đã mất quyền truy cập", hành động là **"Tham gia lại"** — phim có thể vẫn còn, xoá khỏi bộ sưu tập ở bước này là mất dữ liệu oan.
   - **Đã bị xoá** (`DELETED` — admin xoá file thật): dòng mờ, text "Nguồn chia sẻ đã xoá tệp tin này", hành động là **"Gỡ khỏi bộ sưu tập"** — phim thật sự không còn, gỡ là đúng.
 
   Cả hai đều tắt khả năng kéo-thả (`cdkDragDisabled`) vì reorder một item chết không có ý nghĩa.
+* **Cạm bẫy cần tránh khi implement (2 điểm):**
+  1. **FAB phải nổi CAO HƠN Bottom Nav**, không phải `position:fixed;bottom:16px` theo nghĩa đen — nav bar chiếm ~56-64px dưới cùng, FAB đặt sát đáy màn hình sẽ bị nav che nửa dưới. `bottom` của FAB = chiều cao nav + khoảng đệm (vd `calc(56px + 16px)`), cộng thêm safe-area-inset-bottom cho điện thoại có thanh cử chỉ.
+  2. **Icon tay cầm kéo-thả (⣿) và dấu "+" trên FAB không được dùng `<mat-icon>drag_indicator</mat-icon>`/`<mat-icon>add</mat-icon>`** — dự án không nhúng font ligature Material Symbols (bất biến #8), sẽ vỡ y hệt bug đã gặp ở `MatStepper` ([ADR-0016 addendum](./adr/0016-angular-material-va-cdk.md#cập-nhật-sau-khi-accepted-2026-08-27-slice-ui-login)). Dùng SVG inline.
 
 ```text
 ┌───────────────────────────┐
@@ -176,8 +181,9 @@ Bộ sưu tập lưu danh sách tham chiếu ID dưới dạng state riêng tư.
 
 Nơi thêm kho phim. Hệ thống phải phân biệt rõ tốc độ index từ nguồn xài `catalog.json` và nguồn quét lịch sử thô. Thêm nguồn mới dùng **`MatBottomSheet`** thay vì popup giữa màn hình.
 
-* **Component sử dụng:** `MatBottomSheet` (nhập link/username nguồn), `MatCard`, `MatProgressBar` (ngay dưới mỗi card, thể hiện tiến trình quét), FAB, **Bottom Navigation Bar**.
+* **Component sử dụng:** `MatBottomSheet` (nhập link/username nguồn), `MatCard`, `MatProgressBar` (ngay dưới mỗi card, thể hiện tiến trình quét), FAB (nổi cao hơn Bottom Nav — xem cạm bẫy ở Màn hình 3), Bottom Navigation Bar (tự ghép).
 * **Phản biện UX:** Quá trình quét một kênh Telegram thô mất rất nhiều thời gian. Không được block UI bằng cái Spinner tròn quay vô tận. Phải dùng `MatProgressBar` kết hợp hiển thị số liệu cụ thể (ví dụ: "Đang nạp 1500/5000 tin nhắn") để user không có cảm giác máy bị treo.
+* **Validate tại form, không chỉ ở prose:** ô nhập trong `MatBottomSheet` nên tự chặn nếu user dán một chuỗi toàn số (id thô) — chỉ chấp nhận username (`@tên` hoặc link `t.me/tên`). [ADR-0014 §1](./adr/0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md) cấm dùng id thô vì `access_hash` khác nhau theo tài khoản; tới giờ tài liệu này chỉ nhắc bằng lời, chưa có validation cụ thể trong đặc tả form.
 
 ```text
 ┌───────────────────────────┐
@@ -258,7 +264,9 @@ Trên mobile, Cài đặt **không** nên chiếm một tab dưới Bottom Nav �
 * **Component sử dụng:** `MatListItem` (avatar + tên + số điện thoại), nút Đăng xuất (`mat-stroked-button color="warn"`), `MatExpansionPanel` hoặc khối phẳng cho từng nhóm (Lưu trữ/Mạng/Chẩn đoán), `MatSlider` (song song tải), `MatSlideToggle` (log debug), `MatBottomSheet` (xác nhận đăng xuất).
 * **Phản biện UX (Mạng & băng thông):** Trao cho user quyền chỉnh số kết nối song song để tải nhanh hơn, nhưng đừng giấu rủi ro — dòng text màu đỏ gắt (`mat-error`) báo rõ nguy cơ. Trần 4/8 đến thẳng từ [ADR-0006 §3](./adr/0006-download-pipeline-dc-pool-flood-wait.md), không phải số tuỳ chọn.
 * **Phản biện UX (Đăng xuất) — quan trọng nhất màn này:** Vì không có backend giữ hộ phiên, và rào cản đăng nhập lại (nhập lại `API_ID`/`API_HASH`/OTP, xem Màn hình 1) rất lớn, **tuyệt đối không cho phép đăng xuất ngay khi bấm nút.** Bắt buộc `MatBottomSheet` xác nhận lần 2, ghi rõ hậu quả bằng ngôn ngữ thường (không thuật ngữ kỹ thuật) — đây là hàng rào chống thao tác nhầm trên màn cảm ứng, không phải bước rườm rà.
-* **Chi tiết kỹ thuật (Đăng xuất):** Không gọi API backend (không có) — UI gửi RPC xuống Core Worker để gọi `auth.LogOut` qua GramJS **trước**, rồi mới xoá session cục bộ (thứ tự này đã đúng trong `libs/core-mtproto/src/gateway.ts` — xoá local trước sẽ để lại session sống trong danh sách thiết bị mà app không còn cách thu hồi, xem ADR-0011). **Khoảng cách với code hiện tại:** `logout()` hôm nay dừng sync engine + gọi `auth.LogOut` + xoá bản ghi session — **chưa** xoá các bảng dữ liệu khác trong IndexedDB (media cache, chunk cache, collections...) như bản vẽ này mô tả ("toàn bộ phim trong kho cache cục bộ sẽ bị xoá"). Việc dọn toàn bộ IndexedDB khi đăng xuất là phần **chưa implement**, cần làm trước khi đưa flow logout này vào production.
+* **Nguy cơ mất dữ liệu thật nếu bỏ qua outbox — phải kiểm tra TRƯỚC khi xoá IndexedDB:** mutation (đổi bộ sưu tập, tiến độ xem…) ghi optimistic cục bộ trước, chỉ thật sự lên kênh state Telegram (nguồn sự thật, ADR-0009) sau khi `forceFlush()` outbox thành công — và flush có thể fail giữa chừng vì `FLOOD_WAIT` (xem `libs/core-sync/src/outbox.spec.ts`). Nếu luồng đăng xuất xoá IndexedDB khi outbox còn event chưa gửi, thay đổi đó **mất vĩnh viễn**. `sync-status.ts` đã có sẵn `countOutbox()`/`forceFlush()` — luồng logout ở Màn hình 7 BẮT BUỘC gọi flush trước khi xoá, xem bước 3 trong Logout Journey bên dưới.
+* **Chưa có nhánh xử lý khi đăng xuất thất bại:** code `onLogout()` hiện tại (`apps/web/src/app/login/login.ts`) gọi thẳng `await this.client.logout()` không có try/catch — nếu `auth.LogOut` lỗi (mất mạng, Telegram lỗi), promise reject không ai bắt, UI đứng im không phản hồi gì. Bottom sheet xác nhận trong bản vẽ này phải có một trạng thái lỗi rõ ràng (xem bước 4 Logout Journey), không chỉ hai nút Huỷ/Xác nhận.
+* **Chi tiết kỹ thuật (Đăng xuất):** Không gọi API backend (không có) — UI gửi RPC xuống Core Worker để gọi `auth.LogOut` qua GramJS **trước**, rồi mới xoá session cục bộ (thứ tự này đã đúng trong `libs/core-mtproto/src/gateway.ts` — xoá local trước sẽ để lại session sống trong danh sách thiết bị mà app không còn cách thu hồi, xem ADR-0011). **Khoảng cách với code hiện tại:** `logout()` hôm nay dừng sync engine + gọi `auth.LogOut` + xoá bản ghi session — **chưa** flush outbox trước khi xoá, **chưa** xoá các bảng dữ liệu khác trong IndexedDB (media cache, chunk cache, collections...), và `onLogout()` phía UI **chưa** có try/catch. Cả ba là phần **chưa implement**, cần làm trước khi đưa flow logout này vào production — thứ tự đúng nằm ở Logout Journey bên dưới.
 
 ```text
 ┌───────────────────────────┐
@@ -288,8 +296,18 @@ Trên mobile, Cài đặt **không** nên chiếm một tab dưới Bottom Nav �
 └───────────────────────────┘
 ```
 
-**Luồng hành vi khi bấm Đăng xuất (Logout Journey):**
+**Luồng hành vi khi bấm Đăng xuất (Logout Journey) — có nhánh outbox + nhánh lỗi:**
 
 1. User chạm vào nút "Đăng xuất khỏi app".
-2. Một `MatBottomSheet` trượt từ dưới lên cảnh báo: *"Toàn bộ phim trong kho cache cục bộ sẽ bị xoá. Dữ liệu trên Telegram vẫn an toàn. Bạn có chắc chắn muốn thoát?"* kèm 2 nút: **[ Huỷ ]** và **[ Xác nhận thoát ]**. Nút "Xác nhận thoát" dùng `color="warn"`, nút "Huỷ" là hành động mặc định/nổi bật hơn về mặt thị giác (giảm khả năng chạm nhầm — ngón cái quen chạm vào nút bên phải/nổi bật trước).
-3. Nếu xác nhận: Core Worker gọi `auth.LogOut` → xoá session cục bộ → dọn toàn bộ IndexedDB (**chưa implement**, xem "Khoảng cách với code hiện tại" ở trên) → đóng kết nối MTProto → điều hướng user về lại Màn hình 1 (Onboarding).
+2. UI đọc `pendingOutboxCount()` (đã có sẵn ở `sync-status.ts`). Nội dung `MatBottomSheet` xác nhận **khác nhau tuỳ có event chưa đồng bộ hay không**:
+   - **Không có gì chờ đồng bộ:** *"Toàn bộ phim trong kho cache cục bộ sẽ bị xoá. Dữ liệu trên Telegram vẫn an toàn. Bạn có chắc chắn muốn thoát?"* — 2 nút **[ Huỷ ]** / **[ Xác nhận thoát ]**.
+   - **Còn N event chưa đồng bộ:** *"Bạn có N thay đổi chưa kịp lưu lên Telegram (vd: sắp xếp bộ sưu tập). Đăng xuất ngay sẽ MẤT các thay đổi này."* — 2 nút **[ Huỷ ]** / **[ Đồng bộ rồi thoát ]** (KHÔNG có lựa chọn "thoát luôn, bỏ qua đồng bộ" ở bước này — chặn mất dữ liệu bằng thiết kế, không chỉ bằng cảnh báo).
+   Nút thoát luôn dùng `color="warn"`, nút Huỷ là hành động mặc định/nổi bật hơn về mặt thị giác (giảm khả năng chạm nhầm — ngón cái quen chạm vào nút bên phải/nổi bật trước).
+3. Nếu xác nhận và còn outbox: gọi `forceFlush()` trước. Sheet chuyển sang trạng thái đang xử lý (progress indicator, không đóng được).
+   - Flush **thành công** → tiếp tục bước 4.
+   - Flush **thất bại** (mất mạng, `FLOOD_WAIT`) → sheet hiện lỗi rõ ràng (*"Không thể đồng bộ lúc này: [lý do]. Thử lại hoặc Huỷ."*) — **không** tự động xoá dữ liệu, không tự động thoát; user chọn Thử lại hoặc Huỷ, quay về màn Cài đặt nguyên trạng.
+4. Core Worker gọi `auth.LogOut` qua GramJS.
+   - **Thành công** → xoá session cục bộ → dọn toàn bộ IndexedDB (media cache, chunk cache, collections…) → đóng kết nối MTProto → điều hướng user về lại Màn hình 1 (Onboarding).
+   - **Thất bại** (mất mạng, lỗi Telegram) → sheet hiện lỗi tương tự bước 3, **không** xoá bất kỳ dữ liệu cục bộ nào cho tới khi `auth.LogOut` xác nhận thành công — tránh trạng thái nửa vời (đã mất session cục bộ nhưng server vẫn còn phiên sống, hoặc ngược lại).
+
+Bước 3/4 hiện **chưa implement** — `onLogout()` ở `apps/web/src/app/login/login.ts` hôm nay không có try/catch và không kiểm tra outbox (xem "Chưa có nhánh xử lý khi đăng xuất thất bại" phía trên).
