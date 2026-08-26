@@ -9,7 +9,7 @@ Quy tắc: **một spike chỉ đóng khi có số liệu từ thiết bị th�
 | [SPIKE-01](#spike-01) | Media element có đi qua Service Worker không, đặc biệt trên Safari/iOS? | [0005](../adr/0005-streaming-qua-service-worker-http-range.md), [0004](../adr/0004-mo-hinh-da-luong.md) | 🟢 **ĐẠT trên iPad thật (WebKit)** và Chrome desktop; rủi ro chính đã gỡ |
 | [SPIKE-02](#spike-02) | GramJS xử lý `CDN_REDIRECT` tới đâu? | [0003](../adr/0003-chon-thu-vien-mtproto-gramjs.md), [0006](../adr/0006-download-pipeline-dc-pool-flood-wait.md) | 🟡 **Đã đóng (chấp nhận)** — 250/250 chunk thành công qua đường tải không-CDN; CDN_REDIRECT chưa từng xảy ra trong test, chấp nhận rủi ro thấp cho use-case chính, xử lý khi gặp thật |
 | [SPIKE-03](#spike-03) | Bundle GramJS nặng bao nhiêu, TTI ra sao? | [0003](../adr/0003-chon-thu-vien-mtproto-gramjs.md) | 🟢 Đạt (236 KB brotli, ~110 ms) — 🔴 nhưng phát hiện `telegram` đã bị archive, cần bạn quyết hướng đi |
-| [SPIKE-04](#spike-04) | Tốc độ tải thực tế và ngưỡng `FLOOD_WAIT` | [0006](../adr/0006-download-pipeline-dc-pool-flood-wait.md) | ⏳ Chưa dựng |
+| [SPIKE-04](#spike-04) | Tốc độ tải thực tế và ngưỡng `FLOOD_WAIT` | [0006](../adr/0006-download-pipeline-dc-pool-flood-wait.md) | 🟡 **Đã đóng (chấp nhận)** — ~1.1 GB tải liên tục ở mức 4/8 request đồng thời, 0 lần gặp `FLOOD_WAIT`; trần thật chưa lộ ra nhưng đủ bằng chứng cho use-case phát phim thật |
 | [SPIKE-05](#spike-05) | Angular Material + CDK ăn bao nhiêu ngân sách app shell? | [0016](../adr/0016-angular-material-va-cdk.md) | ⏳ Chưa dựng — chạy ngay sau khi scaffold |
 
 ---
@@ -255,9 +255,91 @@ Lỗi crash của teleproto tới từ xung đột giữa cách nó dùng biến
 
 ## SPIKE-04
 
-**Câu hỏi:** Với 2/4/8 kết nối song song, tốc độ tải thực tế là bao nhiêu và `FLOOD_WAIT` bắt đầu xuất hiện ở đâu?
+**Trạng thái:** 🟡 **Đã đóng, chấp nhận rủi ro (2026-08-26)** — chạy bằng `tools/spike-04/` (đăng nhập MTProto không được Claude chạy hộ, xem "Vì sao Claude không tự chạy spike này" ở [SPIKE-02](#spike-02) — cùng lý do áp dụng ở đây). ~1.1 GB tải liên tục ở mức 4 và 8 request đồng thời, 0 lần gặp `FLOOD_WAIT`. Xem "Kết quả" và "Đã chốt" bên dưới.
 
-**Lưu ý đạo đức:** chạy trên tài khoản test dùng một lần, không chạy trên tài khoản chính. Mục tiêu là **tìm trần an toàn**, không phải tìm tốc độ tối đa ([ADR-0006](../adr/0006-download-pipeline-dc-pool-flood-wait.md)).
+**Câu hỏi:** Với 2/4/8 request `upload.getFile` bay đồng thời, tốc độ tải thực tế là bao nhiêu và `FLOOD_WAIT` bắt đầu xuất hiện ở đâu?
+
+**Vì sao quan trọng:** [ADR-0006 § Cập nhật sau khi Accepted](../adr/0006-download-pipeline-dc-pool-flood-wait.md#cập-nhật-sau-khi-accepted-2026-08-26-slice-playback-f4--vertical-slice-tối-thiểu) ghi rõ slice F4 ship 1 sender/DC tuần tự, **chưa** làm AIMD (§3 của Quyết định) — mọi tham số (độ song song khởi đầu, trần mặc định 4/trần nâng cấp 8) hiện là giả thuyết chưa có số liệu thiết bị thật. Không có số liệu này thì slice hardening sau F4 sẽ chọn tham số bằng đoán, đúng thứ nguyên tắc spike ở đây cấm.
+
+**Lưu ý đạo đức:** chạy trên **tài khoản test dùng một lần**, không chạy trên tài khoản chính — mục tiêu là **tìm trần an toàn**, không phải tìm tốc độ tối đa. `bench.mjs` cố ý dừng leo thang lên mức song song cao hơn ngay khi gặp `FLOOD_WAIT` đầu tiên, và tôn trọng thời gian chờ tuyệt đối như [ADR-0006 §4](../adr/0006-download-pipeline-dc-pool-flood-wait.md).
+
+> **Mã nguồn đã xoá (2026-08-26)** sau khi spike đóng và số liệu đã ghi lại đầy đủ bên dưới — không còn cần chạy lại. Lịch sử mã nguồn vẫn còn trong git log. Phần "Cách chạy" dưới đây mô tả cách spike ĐÃ chạy, không còn thực thi được nữa.
+
+### Bàn thử nghiệm
+
+`tools/spike-04/` — script Node độc lập, gọi thẳng `upload.getFile` tầng thấp qua GramJS (không qua `libs/core-mtproto`/`libs/core-download`, cùng lý do tách với SPIKE-02: nếu spike hỏng, biết chắc là hành vi giao thức/tài khoản chứ không phải bug ở code pipeline thật).
+
+**Phát hiện đã lộ ra khi viết tool, trước khi chạy (đáng ghi lại ngay):** `client.getSender(dcId)` của GramJS (`telegram@2.26.22`) cache **đúng một** exported sender cho mỗi `dcId` (`_exportedSenderPromises` trong `telegramBaseClient.js`) — không có API công khai để mở nhiều `MTProtoSender` song song tới cùng DC. Vì vậy spike này (và cả pipeline thật ở F4) đo **N request bay đồng thời trên cùng một sender/kết nối MTProto** (multiplex nhiều RPC trên một transport), **không phải** N kết nối TCP/MTProto vật lý tách biệt như cách đọc "connection pool" theo nghĩa đen ở [ADR-0006 §1](../adr/0006-download-pipeline-dc-pool-flood-wait.md). Đây vẫn là phép đo đúng cho câu hỏi cốt lõi — `FLOOD_WAIT` giới hạn theo tần suất gọi method phía Telegram, không theo số kết nối vật lý — nhưng nếu muốn pool nhiều sender thật như Quyết định gốc mô tả, sẽ cần tự khởi tạo `MTProtoSender` thủ công, bỏ qua lớp cache của client — việc chưa xây ở F4 lẫn ở spike này.
+
+### Cách chạy (lịch sử — mã nguồn đã xoá)
+
+```bash
+cd tools/spike-04
+npm install
+
+# Bước 1 — đăng nhập MỘT LẦN bằng tài khoản TEST (không phải tài khoản chính).
+# Session chỉ ghi vào .session.local (đã gitignore), không bao giờ dán vào chat.
+TSMC_API_ID=xxxxx TSMC_API_HASH=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx npm run login
+
+# Bước 2 — đo. Gọi "node bench.mjs" trực tiếp, KHÔNG dùng "npm run bench -- ...".
+# (PowerShell/nhiều shell Windows nuốt mất --flag khi đi qua "npm run").
+TSMC_API_ID=xxxxx TSMC_API_HASH=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
+  node bench.mjs --peer <username_kenh_hoac_id> --minSizeMb 80
+```
+
+Kết quả ghi ra `docs/spikes/spike-04-result.local.json` (đã gitignore) — **chỉ chứa số liệu tổng hợp** (throughput, số chunk, giây `FLOOD_WAIT`), không chứa session, không chứa số điện thoại. An toàn để dán vào chat cho Claude đọc và viết lại phần Kết quả dưới đây.
+
+### Tiêu chí đạt/không đạt
+
+| Mã | Kiểm tra | Đạt khi |
+|---|---|---|
+| A | Mức 2 request đồng thời chạy hết `chunksPerLevel` không lỗi | throughput đo được > tốc độ 1 sender tuần tự của F4 (baseline: xem log verify F4, chưa có số cụ thể) |
+| B | Mức 4 và 8 chạy được ít nhất một phần trước khi (nếu có) gặp `FLOOD_WAIT` | có số throughput ở từng mức đạt tới, dù mức cao nhất có thể dừng giữa chừng |
+| **C** | Ghi nhận được mức song song đầu tiên gây `FLOOD_WAIT`, và số giây chờ | **Đây là câu trả lời chính của spike** — không cần "đạt" theo nghĩa không gặp `FLOOD_WAIT`, gặp được và đo được mới là mục tiêu |
+| D | Không cần retry `FILE_MIGRATE`/`file_reference` thủ công ngoài script | script tự xử lý cả hai qua `errors.FileMigrateError` (đổi sender) — nếu vẫn phải sửa tay, ghi lại là phát hiện |
+
+### Ma trận thiết bị cần phủ
+
+Không áp dụng — kết quả phụ thuộc **tài khoản/DC/thời điểm** (theo đúng lý do chọn AIMD ở [ADR-0006](../adr/0006-download-pipeline-dc-pool-flood-wait.md#quyết-định): "dung lượng đường truyền và ngưỡng chịu đựng của Telegram khác nhau theo tài khoản, theo DC và theo thời điểm"), không phụ thuộc trình duyệt/hệ điều hành như SPIKE-01. Một lần chạy trên một tài khoản test là đủ để có **một điểm dữ liệu thật**, không phải để phủ ma trận thiết bị.
+
+### Kết quả
+
+Tài khoản test, kênh "Group học tập" (private, nhỏ), file 1384 MB, DC 5, `chunkSizeBytes` 512 KB. Hai lần chạy, cùng ngày:
+
+#### Lần 1 · 2026-08-26 15:17 UTC · burst ngắn — 40 chunk (20 MB) / mức
+
+| Mức đồng thời | Chunk OK | Thời gian | Throughput | Lỗi | `FLOOD_WAIT` |
+|---|---|---|---|---|---|
+| 2 | 40/40 | 3670 ms | 5.71 MB/s | 0 | không |
+| 4 | 40/40 | 1471 ms | 14.26 MB/s | 0 | không |
+| 8 | 40/40 | 631 ms | 33.25 MB/s | 0 | không |
+
+#### Lần 2 · 2026-08-26 15:24 UTC · sustained — 1000 chunk (500 MB) / mức, chỉ mức 4 và 8
+
+| Mức đồng thời | Chunk OK | Thời gian | Throughput | Lỗi | `FLOOD_WAIT` |
+|---|---|---|---|---|---|
+| 4 | 1000/1000 | 26106 ms | 20.08 MB/s | 0 | không |
+| 8 | 1000/1000 | 16761 ms | 31.28 MB/s | 0 | không |
+
+**Đọc kết quả này cho đúng — cùng cách đọc đã áp dụng cho SPIKE-02:**
+
+- Đây là kết quả **0/2000+ chunk gặp `FLOOD_WAIT`, không phải "đạt trần 8 an toàn tuyệt đối"**. Ngưỡng thật của Telegram **chưa từng lộ ra** trong hai lần chạy này, nên spike **chưa kiểm chứng được** con số ngưỡng cụ thể — vì tình huống đó chưa từng xảy ra.
+- Lý do rất có thể giống hệt SPIKE-02: "Group học tập" là kênh riêng tư/nhỏ, và tổng khối lượng thử (~1.1 GB gộp cả hai lần) vẫn có thể chưa đủ để kích hoạt cơ chế giới hạn của Telegram trên tài khoản/DC/thời điểm này.
+- **Điều spike này CÓ chứng minh được, và có giá trị thật:** ở đúng hai mức mà sản phẩm thật sự dùng (mặc định 4, trần nâng cấp tối đa 8 — [ADR-0006 §3](../adr/0006-download-pipeline-dc-pool-flood-wait.md)), tải **liên tục 500 MB** (đủ cho phần lớn phiên xem phim mở đầu, không chỉ một burst vài giây) không gây lỗi, không gây `FLOOD_WAIT`, và throughput không suy giảm theo thời gian (20–31 MB/s duy trì suốt 17–26 giây, không có dấu hiệu bị điều tiết dần).
+- **Quan sát phụ, đáng ghi lại:** throughput ở mức 4 tăng từ burst (14.26 MB/s) lên sustained (20.08 MB/s), còn mức 8 lại giảm nhẹ (33.25 → 31.28 MB/s). Chênh lệch này nằm trong biên độ nhiễu mạng bình thường (mẫu burst chỉ 40 chunk, quá ít để kết luận), không phải dấu hiệu suy giảm hệ thống — nhưng có nghĩa là **không nên coi số throughput ở đây là một benchmark chính xác**, chỉ là bằng chứng "đủ nhanh, không lỗi" ở đúng hai mức sản phẩm dùng.
+- **Phát hiện thiết kế quan trọng hơn cả số liệu** (ghi ở "Bàn thử nghiệm" trên): độ song song đo được ở đây là N request multiplex trên **một** sender GramJS/DC, không phải N kết nối vật lý — nên kết luận "mức 8 an toàn" áp dụng đúng cho kiến trúc mà F4 **thực tế đang dùng** (và sẽ tiếp tục dùng trừ khi ai đó tự xây pool `MTProtoSender` thủ công), không phải cho một pool nhiều kết nối TCP như cách đọc nghĩa đen ở Quyết định gốc §1.
+
+**Đã chốt (2026-08-26):** chấp nhận kết quả hiện tại, đóng spike ở đây theo nhánh đầu tiên của bảng "Ta sẽ làm gì với từng kết quả" bên dưới — không dò tiếp lên khối lượng lớn hơn (nhiều GB / nhiều phút liên tục). Lý do: mục tiêu đạo đức của spike này là "tìm trần an toàn, không phải tốc độ tối đa" — cố tình dò tới khi tài khoản test bị `FLOOD_WAIT` chỉ để có một con số ngưỡng chính xác không mang lại giá trị thiết kế tương xứng, vì sản phẩm đã tự giới hạn cứng ở mức 8 ([ADR-0006 §3](../adr/0006-download-pipeline-dc-pool-flood-wait.md)) bất kể ngưỡng thật của Telegram cao hơn bao nhiêu. AIMD (bắt đầu thấp, lùi khi gặp `FLOOD_WAIT`) vẫn là cơ chế đúng cần giữ nguyên — số liệu ở đây không đổi Quyết định gốc, chỉ xác nhận trần 4/8 không gây rắc rối ngay lập tức cho use-case phát phim thật. Xem addendum ở [ADR-0006](../adr/0006-download-pipeline-dc-pool-flood-wait.md#cập-nhật-sau-khi-accepted-2026-08-26-spike-04).
+
+### Ta sẽ làm gì với từng kết quả
+
+| Kết quả | Hành động |
+|---|---|
+| Không mức nào gặp `FLOOD_WAIT` (kể cả mức 8) | Trần mặc định 4 / trần nâng cấp 8 ở [ADR-0006 §3](../adr/0006-download-pipeline-dc-pool-flood-wait.md) coi như an toàn cho tài khoản test — vẫn giữ AIMD (không cố định) vì Quyết định gốc đã nói rõ ngưỡng khác nhau theo tài khoản/DC/thời điểm, một lần chạy không chứng minh mọi tài khoản đều an toàn |
+| Gặp `FLOOD_WAIT` ở mức 4 | Trần mặc định 4 hiện tại đã ở ngay biên — cân nhắc hạ trần mặc định xuống 2-3, giữ AIMD để tự lùi khi chạm |
+| Gặp `FLOOD_WAIT` ở mức 2 | Phát hiện nghiêm trọng — một kết nối tuần tự (F4 hiện tại) có thể đã gần chạm trần; viết addendum [ADR-0006](../adr/0006-download-pipeline-dc-pool-flood-wait.md) đánh giá lại có nên tăng song song chút nào không trước khi làm AIMD đầy đủ |
+| `FLOOD_WAIT` > 60s ở bất kỳ mức nào | Xác nhận đúng nhánh "dừng hẳn pipeline, báo UI" ở [ADR-0006 §4](../adr/0006-download-pipeline-dc-pool-flood-wait.md) là bắt buộc, không phải phòng xa thừa — ưu tiên cao cho UI báo lỗi rõ ràng ở slice hardening sau F4 |
+| Script phải sửa tay giữa chừng (lỗi tool, không phải hành vi Telegram) | Ghi lại là phát hiện về công cụ, không tính là số liệu FLOOD_WAIT — sửa tool rồi chạy lại trước khi đóng spike |
 
 ---
 

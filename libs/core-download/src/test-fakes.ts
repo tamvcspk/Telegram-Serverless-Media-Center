@@ -38,15 +38,35 @@ export interface FakeGatewayScript {
  * tự trong file, để test dễ assert nội dung ghép đúng thứ tự), trừ chunk
  * cuối cùng (gần `ref.size`) trả NGẮN HƠN để báo hết file — đúng ngữ nghĩa
  * `upload.getFile` thật (xem gateway-download.ts).
+ *
+ * `fetchFileChunk` nhường đúng MỘT nhịp microtask (`await Promise.resolve()`)
+ * trước khi trả kết quả — KHÔNG phải độ trễ thời gian thật (test không cần
+ * chờ), mà là điều kiện cần để `download-engine.ts`'s worker pool có thể
+ * thật sự CHẠY SONG SONG được quan sát: nếu `fetchFileChunk` chạy đồng bộ
+ * hoàn toàn (không await bên trong), lệnh gọi thứ 2 chỉ bắt đầu SAU khi lệnh
+ * gọi thứ nhất đã resolve xong (single-threaded JS, worker chỉ nhường quyền
+ * điều khiển ở `await gateway.fetchFileChunk(...)` của CHÍNH NÓ) — `peakConcurrency`
+ * sẽ luôn đọc được 1 dù pool lớn bao nhiêu. Thêm một nhịp microtask ở TRONG
+ * fetchFileChunk khiến lệnh gọi thứ 2 (do worker khác) kịp bắt đầu (và tăng
+ * `inFlight`) trước khi lệnh gọi thứ nhất kết thúc.
  */
-export function createFakeDownloadGateway(script: Partial<FakeGatewayScript> = {}): DownloadGateway & { calls: Array<{ offset: number; limit: number }>; setRef(next: PlaybackDocumentRef): void } {
+export function createFakeDownloadGateway(script: Partial<FakeGatewayScript> = {}): DownloadGateway & {
+  calls: Array<{ offset: number; limit: number }>;
+  setRef(next: PlaybackDocumentRef): void;
+  readonly peakConcurrency: number;
+} {
   let ref = script.ref ?? makeRef();
   const errorAtCall = script.errorAtCall ?? new Map<number, () => Error>();
   const calls: Array<{ offset: number; limit: number }> = [];
   let callIndex = 0;
+  let inFlight = 0;
+  let peak = 0;
 
   return {
     calls,
+    get peakConcurrency() {
+      return peak;
+    },
     setRef(next: PlaybackDocumentRef) {
       ref = next;
     },
@@ -56,6 +76,11 @@ export function createFakeDownloadGateway(script: Partial<FakeGatewayScript> = {
     async fetchFileChunk(currentRef: PlaybackDocumentRef, offset: number, limit: number): Promise<ArrayBuffer> {
       const index = callIndex++;
       calls.push({ offset, limit });
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await Promise.resolve();
+      inFlight--;
+
       const makeError = errorAtCall.get(index);
       if (makeError) {
         throw makeError();

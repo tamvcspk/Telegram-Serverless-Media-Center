@@ -31,11 +31,15 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-// Slice Playback (F4) — vertical slice tối thiểu, ADR-0005. Cửa sổ mặc định
-// 1 MB (= 2 × SUB_CHUNK_SIZE), NHỎ HƠN 4 MB đề xuất trong ADR-0005: 1 kết
-// nối tuần tự (chưa AIMD, chờ SPIKE-04) thì cửa sổ nhỏ hơn giảm độ trễ
-// byte-đầu-tiên. Tham số cần đo lại khi có multi-connection.
-const WINDOW_SIZE = 2 * SUB_CHUNK_SIZE;
+// ADR-0005. Cửa sổ 4 MB (= 8 × SUB_CHUNK_SIZE) — bằng đề xuất gốc của
+// ADR-0005, tăng từ 1 MB của slice F4 tối thiểu (1 kết nối tuần tự, cửa sổ
+// nhỏ hơn giảm độ trễ byte-đầu-tiên khi không có gì để song song hoá). Từ
+// slice hardening (ADR-0006 §3, AIMD): trần độ song song mặc định là 4, có
+// thể nâng tới 8 (libs/core-download/src/download-engine.ts) — cửa sổ 1 MB
+// cũ chỉ đủ 2 sub-chunk, AIMD ramp lên 4 sẽ không còn gì để tận dụng. 4 MB
+// cho đủ chỗ (8 sub-chunk) để độ song song thật sự phát huy tác dụng ở cả
+// trần mặc định lẫn trần nâng cấp.
+const WINDOW_SIZE = 8 * SUB_CHUNK_SIZE;
 const CHUNK_CACHE_NAME = 'tsmc-chunks-v1';
 const BRIDGE_TIMEOUT_MS = 20_000;
 

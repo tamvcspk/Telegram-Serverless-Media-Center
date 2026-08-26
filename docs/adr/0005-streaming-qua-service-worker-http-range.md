@@ -86,3 +86,13 @@ Sau khi vá cả ba, phát video thật thành công trên Windows Chrome (file 
 - Cache chunk (Cache Storage) không có LRU chủ động — dựa vào eviction tự nhiên của trình duyệt.
 - Cache key rút gọn `{sourceId}:{msgId}/{offset}` thay vì hash `access_hash` như bảng trên đề xuất — đủ ổn định cho slice này (id/access_hash không đổi dù `file_reference` hết hạn).
 - Chưa verify trên iOS/Safari thật với code thật của slice này (SPIKE-01 xác nhận cơ chế SW-passthrough hoạt động trên iPadOS, nhưng bằng code spike đã xoá — không phải code này).
+
+## Cập nhật sau khi Accepted (2026-08-26, slice hardening — AIMD)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**.
+
+Đóng lại flag "cần đo lại khi có AIMD" ở addendum slice F4 phía trên: `WINDOW_SIZE` ở `sw/sw.ts` đổi từ `2 × SUB_CHUNK_SIZE` (1 MB) lên `8 × SUB_CHUNK_SIZE` (4 MB) — đúng bằng đề xuất gốc của Quyết định trên ("mặc định 4 MB").
+
+Lý do: [ADR-0006 addendum "slice hardening"](./0006-download-pipeline-dc-pool-flood-wait.md#cập-nhật-sau-khi-accepted-2026-08-26-slice-hardening--aimd--circuit-breaker--cdn-redirect) vừa ship AIMD — cửa sổ 1 MB cũ chỉ đủ 2 sub-chunk 512 KB, trong khi AIMD ramp tới trần mặc định 4 (hay trần nâng cấp 8) sẽ không còn gì để tận dụng nếu cửa sổ không đủ lớn. 4 MB (8 sub-chunk) cho đủ chỗ để độ song song thật sự phát huy tác dụng ở cả hai trần.
+
+Chưa đo lại độ trễ byte-đầu-tiên với cửa sổ 4 MB + AIMD trên thiết bị thật (cùng giới hạn "chưa verify trên iOS/Safari thật với code thật của slice này" đã ghi ở trên) — số liệu duy nhất có được là `npm run build:web`/`test:libs` pass, không phải benchmark thời gian mở phim thật.

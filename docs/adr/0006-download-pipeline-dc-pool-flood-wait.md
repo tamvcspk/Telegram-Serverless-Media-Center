@@ -76,3 +76,76 @@ Slice F4 ship **§1 (đơn giản hoá: 1 sender/DC, không pool nhiều sender)
 **Đã verify bằng phát video thật** (tài khoản thật, Windows Chrome): tải tuần tự sub-chunk 512 KB qua `client.getSender(dcId)` + `client.invokeWithSender(upload.GetFile)` (không dùng `DirectDownloadIter` của GramJS trực tiếp — cần tự kiểm soát abort/FLOOD_WAIT) đủ nhanh cho một cửa sổ 1 MB/lần, không gặp `FLOOD_WAIT` trong quá trình test. SPIKE-04 (đo tốc độ/ngưỡng FLOOD_WAIT thật với 2/4/8 kết nối song song) **vẫn chưa chạy** — mọi tham số AIMD cho slice sau vẫn là giả thuyết, chưa có số liệu thiết bị thật.
 
 Bộ test `FakeTransport` mà mục "Tiêu cực" trên yêu cầu đã có — `libs/core-download/src/test-fakes.ts` + `download-engine.spec.ts` (6 test: windowing, FLOOD_WAIT ≤60s tự chờ, >60s ném lỗi, file reference hết hạn tự làm mới, cancel cắt vòng lặp sớm). Chưa test AIMD/multi-connection vì chưa xây.
+
+## Cập nhật sau khi Accepted (2026-08-26, SPIKE-04)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**, xem lý do bên dưới.
+
+[SPIKE-04](../spikes/README.md#spike-04) đã đóng — 🟡 **chấp nhận rủi ro**, không phải 🟢 đã gỡ. `tools/spike-04/bench.mjs` đo tải thật qua `upload.getFile` ở đúng hai mức sản phẩm dùng (§3 Quyết định gốc: mặc định 4, trần nâng cấp 8), trên một tài khoản test, kênh "Group học tập", file 1384 MB, DC 5, chunk 512 KB:
+
+| Lần chạy | Mức | Chunk OK | Thời gian | Throughput | `FLOOD_WAIT` |
+|---|---|---|---|---|---|
+| Burst (20 MB/mức) | 2 | 40/40 | 3670 ms | 5.71 MB/s | không |
+| Burst (20 MB/mức) | 4 | 40/40 | 1471 ms | 14.26 MB/s | không |
+| Burst (20 MB/mức) | 8 | 40/40 | 631 ms | 33.25 MB/s | không |
+| Sustained (500 MB/mức) | 4 | 1000/1000 | 26106 ms | 20.08 MB/s | không |
+| Sustained (500 MB/mức) | 8 | 1000/1000 | 16761 ms | 31.28 MB/s | không |
+
+Tổng ~1.1 GB, 0 lỗi, 0 `FLOOD_WAIT`, throughput không suy giảm theo thời gian ở tải sustained (20–31 MB/s duy trì suốt 17–26 giây).
+
+**Đọc đúng bản chất — cùng cách SPIKE-02 đã tự sửa lưng chính nó:** đây là kết quả "chưa từng gặp `FLOOD_WAIT`", **không phải** "đã xác nhận trần 8 an toàn tuyệt đối". Ngưỡng thật của Telegram chưa lộ ra trong lần chạy này — có thể do kênh test nhỏ/riêng tư, hoặc do ~1.1 GB vẫn chưa đủ khối lượng để kích hoạt giới hạn trên tài khoản/DC/thời điểm này. Quyết định đóng spike ở đây (không dò tiếp lên nhiều GB) vì mục tiêu đạo đức đã nêu ở SPIKE-04 là "tìm trần an toàn, không phải tốc độ tối đa", và sản phẩm đã tự giới hạn cứng ở mức 8 bất kể ngưỡng thật của Telegram cao hơn bao nhiêu — cố dò tới khi tài khoản test bị `FLOOD_WAIT` chỉ để có thêm một con số chính xác hơn không đổi được thiết kế.
+
+**Điều gì THAY ĐỔI:** không gì trong Quyết định gốc — AIMD (bắt đầu thấp, giảm một nửa khi gặp `FLOOD_WAIT`) vẫn là cơ chế đúng cần xây ở slice hardening sau F4, chưa có lý do hạ trần mặc định 4 hay bỏ trần nâng cấp 8.
+
+**Điều gì KHÔNG thay đổi nhưng cần nói rõ hơn — một phát hiện thiết kế phát sinh khi viết `bench.mjs`, quan trọng hơn số throughput ở trên:** `client.getSender(dcId)` của GramJS (`telegram@2.26.22`, xem `node_modules/telegram/client/telegramBaseClient.js`) cache **đúng một** exported sender cho mỗi `dcId` (`_exportedSenderPromises`) — không có API công khai để mở nhiều `MTProtoSender` song song tới cùng DC. §1 của Quyết định gốc ("pool riêng, mặc định 4 sender tải/DC") đọc theo nghĩa đen là 4 kết nối MTProto vật lý tách biệt; cái F4 **thực tế đang dùng** (`libs/core-mtproto/src/gateway-download.ts`, `client.getSender(ref.dcId)`) và cái SPIKE-04 vừa đo được đều là **N request `upload.getFile` multiplex đồng thời trên MỘT sender/kết nối MTProto**, không phải N kết nối vật lý. Hai mô hình này có thể có đặc tính giới hạn tốc độ khác nhau ở phía Telegram (multiplex trên 1 kết nối vs. N kết nối TCP riêng) — số liệu ở trên chỉ xác nhận an toàn cho mô hình multiplex-trên-1-sender đang chạy thật, **không tự động suy rộng** sang một pool nhiều sender thật nếu sau này có ai xây nó (sẽ cần tự khởi tạo `MTProtoSender` thủ công, bỏ qua lớp cache của client — chưa được xây ở đâu cả, kể cả ở spike này).
+
+## Cập nhật sau khi Accepted (2026-08-26, slice hardening — AIMD + circuit breaker + CDN redirect)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**, xem lý do bên dưới.
+
+Slice này ship **§3 (AIMD)**, **§4 (circuit breaker theo DC)**, và **§6 (CDN redirect + AES-CTR + xác minh hash)** của Quyết định gốc — phần còn lại (§2, scheduler ưu tiên P0-P3) để lại: cần một tính năng prefetch đa video mà app chưa có UI nào dùng tới, xây trước sẽ là hạ tầng không người tiêu thụ.
+
+### AIMD (§3) — `libs/core-download/src/download-engine.ts`
+
+Mỗi DC giữ một state `{ concurrency, consecutiveOk, consecutiveFloods, restUntil, nextBackoffMs }`, sống trong `Map` theo `dcId`, tồn tại xuyên suốt vòng đời `createDownloadEngine()` (không reset mỗi `fetchWindow()` — đây chính là phần "thích ứng"). Bắt đầu 2 request song song/DC (đúng §3), +1 sau mỗi `concurrency` lần sub-chunk thành công LIÊN TIẾP, trần mặc định 4 (`opts.maxConcurrency`, chưa có Settings UI để user tự nâng lên 8 — known gap, để lại cho slice sau), trần cứng tuyệt đối 8 (`HARD_CEILING_CONCURRENCY`, clamp bất kể `opts` truyền gì lớn hơn). `fetchWindow()` giờ chạy một worker pool (N = `dcState.concurrency` worker, cùng kéo từ một cursor chung trên danh sách offset cần tải cho cửa sổ đó) thay cho vòng lặp tuần tự cũ.
+
+**Phát hiện quan trọng làm lệch cách hiểu "phản ứng với FLOOD_WAIT" so với văn bản gốc §3 ("giảm một nửa NGAY KHI gặp FLOOD_WAIT")** — không phải một lựa chọn thiết kế, mà là một ràng buộc thật lộ ra khi đọc thẳng mã nguồn `telegram@2.26.22`: `gateway.ts` khởi tạo `TelegramClient` với `floodSleepThreshold: 60`. `client/users.js`'s `invoke()` (mà `invokeWithSender()` — thứ `gateway-download.ts` dùng — gọi chung xuống) bọc sẵn:
+
+```js
+if (e.seconds <= client.floodSleepThreshold) {
+  await sleep(e.seconds * 1000);
+  // retry cùng request, KHÔNG ném lỗi
+} else {
+  throw e;
+}
+```
+
+Nghĩa là GramJS **tự chờ và retry trong suốt MỌI `FloodWaitError` có `seconds` ≤ 60** trước khi lỗi có cơ hội ném ra tới `gateway-download.ts` — tầng này (và `download-engine.ts` phía trên nó) **không bao giờ quan sát được** một FLOOD_WAIT ≤ 60s; tín hiệu flood duy nhất từng thấy được là loại đã VƯỢT ngưỡng 60s, đúng lúc §4 ("dừng pipeline, báo UI") cũng đã kích hoạt. `floodSleepThreshold` là cấu hình **cấp client**, dùng chung cho cả sync/index/download — hạ nó xuống 0 chỉ để download quan sát được flood nhỏ sẽ khiến MỌI RPC khác (gửi event sync, quét index...) mất luôn hành vi tự-chờ-trong-suốt đang hoạt động tốt, ngoài phạm vi slice này.
+
+Vì vậy: AIMD triển khai thật phản ứng với **"flood nghiêm trọng"** (đã vượt 60s — luôn dừng cả cửa sổ ngay lập tức VÀ giảm một nửa `concurrency` cho DC đó), không phải với "mọi FLOOD_WAIT" theo nghĩa đen của §3. Quyết định gốc §3 **vẫn đứng** — AIMD với trần thấp, tăng dần/giảm mạnh vẫn là cơ chế đúng — addendum này chỉ làm rõ tín hiệu đầu vào thực tế hẹp hơn cách đọc theo nghĩa đen.
+
+Hệ quả trực tiếp: nhánh tự `helpers.sleep()` cũ trong `gateway-download.ts` (cho FLOOD_WAIT ≤ ngưỡng) là **dead code** — không bao giờ chạy tới, vì GramJS đã lọc sẵn — nên đã **xoá**. `fetchFileChunk()` giờ luôn ném `FloodWaitTooLongError` ngay khi bắt được `errors.FloodWaitError`.
+
+### Circuit breaker (§4)
+
+3 lần flood-nghiêm-trọng (>60s) **liên tiếp** trên cùng DC → DC đó "nghỉ" theo backoff luỹ thừa (bắt đầu 2s, nhân đôi mỗi lần trip tiếp theo, trần 60s — cùng ngưỡng "phải hiện cho user" ở §4). Trong lúc nghỉ, request mới tới DC đó bị chặn **ngay ở đầu** `fetchWindow()` (ném `FloodWaitTooLongError` với số giây còn lại) — không tốn round-trip mạng nào, đúng tinh thần "không âm thầm treo".
+
+### CDN redirect (§6) — `libs/core-mtproto/src/gateway-download.ts`
+
+Thay `CdnNotSupportedError` cũ. Trên `Api.upload.FileCdnRedirect`: gọi `upload.GetCdnFile` trên sender của **DC CDN** (`redirect.dcId`, không phải DC gốc) → giải mã bằng `crypto.subtle.decrypt({ name: 'AES-CTR', counter, length: 32 }, key, ciphertext)` — WebCrypto **native** của Worker global scope, không dùng crypto nội bộ của GramJS. Counter = `encryptionIv` cộng `offset / 16` (số khối AES 16-byte) vào 4 byte CUỐI, big-endian, tràn số mod 2³² (`offset` luôn bội số 16 nên phép chia luôn tròn, không có phần dư cần xử lý); `length: 32` báo cho WebCrypto biết chỉ 4 byte cuối là bộ đếm tăng dần, 12 byte đầu là nonce cố định — khớp đúng ngữ nghĩa counter mà giao thức CDN của Telegram mô tả.
+
+Xác minh bằng SHA-256 (`crypto.subtle.digest`) so với `FileCdnRedirect.fileHashes` (dùng trực tiếp nếu đã phủ hết `[offset, offset+limit)` yêu cầu — trường hợp thường gặp vì đây chính là redirect cho ĐÚNG request đó; fallback gọi riêng `upload.GetCdnFileHashes` nếu chưa đủ). Có khoảng trống không đoạn hash nào phủ tới, hoặc một đoạn không khớp, đều ném `CdnHashMismatchError` — **không trả bytes chưa xác minh được**, đúng mandate "không được bỏ qua bước xác minh hash" của §6 gốc.
+
+`Api.upload.CdnFileReuploadNeeded` → gọi `upload.ReuploadCdnFile` trên sender **DC gốc** (không phải DC CDN) rồi thử lại `GetCdnFile` đúng một lần.
+
+**Đơn giản hoá có chủ đích:** không cache trạng thái redirect giữa các sub-chunk khác nhau — mỗi sub-chunk tự xin lại redirect từ DC gốc (một round-trip dư mỗi sub-chunk CDN so với một client "nhớ" fileToken/key/iv giữa các lần gọi). Chấp nhận được: [SPIKE-02](../spikes/README.md#spike-02) ghi nhận 0/250 lần gặp `CDN_REDIRECT` thật trên use-case chính của TSMC — đường này gần như không bao giờ chạy tới, một cache phiên CDN đúng nghĩa là đầu tư không tương xứng ở slice này.
+
+**Ràng buộc độ tin cậy cần nói rõ, không phải trình bày như đã kiểm chứng:** implementation CDN redirect viết theo đặc tả TL schema (`upload.GetCdnFile`/`GetCdnFileHashes`/`ReuploadCdnFile`, `upload.FileCdnRedirect`) và hiểu biết về ngữ nghĩa AES-CTR-counter-theo-offset của giao thức Telegram cho CDN — **chưa từng được kiểm chứng bằng traffic CDN thật**. [SPIKE-02](../spikes/README.md#spike-02) đã đóng ở 0/250 lần gặp `CDN_REDIRECT` thật (kênh test quá nhỏ để kích hoạt cơ chế đó), và không có cách nào chủ động kích hoạt `CDN_REDIRECT` để test thêm mà không cố tình tạo tải giả lên hạ tầng Telegram — ngoài phạm vi, cùng lý do đạo đức SPIKE-02 đã nêu khi đóng. Đây là code phòng thủ viết đúng đặc tả, cùng mức độ tin cậy "spec-only, chưa traffic-verified" như các phần khác của dự án chưa có bằng chứng thiết bị/traffic thật — không phải một khẳng định đã hoạt động đúng trên CDN thật.
+
+### Test
+
+`libs/core-download/src/download-engine.spec.ts`: thêm 3 test (AIMD ramp-up chạm trần mặc định 4; flood giảm một nửa + circuit breaker 3-lần-liên-tiếp chặn round-trip kế tiếp không tốn mạng; dedup file-reference-refresh khi nhiều worker cùng gặp lỗi gần như đồng thời) — 9 test trong file, tất cả pass.
+
+`libs/core-mtproto/src/gateway-download.spec.ts` (file mới): 5 test cho CDN — happy path giải mã + xác minh khớp; hash không khớp → `CdnHashMismatchError`; hash không phủ hết dữ liệu → `CdnHashMismatchError`; `CdnFileReuploadNeeded` → reupload trên DC gốc rồi retry thành công; FLOOD_WAIT bắt được luôn ném thẳng (xác nhận phát hiện #floodSleepThreshold ở trên).
+
+`npm run test:libs` (204 test, toàn repo), `npm run lint`, `npx tsc --noEmit` cho từng package đụng tới, `npm run build:worker`/`build:sw`/`build:web` đều pass sau khi triển khai.
