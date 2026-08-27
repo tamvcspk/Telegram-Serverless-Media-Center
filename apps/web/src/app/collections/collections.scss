@@ -1,0 +1,132 @@
+.collections {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 0.75rem 0.75rem 5rem;
+}
+
+.hint {
+  padding: 0.75rem;
+  color: var(--mat-sys-on-surface-variant, #666);
+}
+
+.collection-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.collection-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+
+  h3 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .count {
+    font-weight: 400;
+    color: var(--mat-sys-on-surface-variant, #666);
+  }
+
+  .collection-actions {
+    display: flex;
+    flex: none;
+    gap: 0.1rem;
+  }
+}
+
+.empty-hint {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  color: var(--mat-sys-on-surface-variant, #666);
+}
+
+.item-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--mat-sys-outline-variant, #eee);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.item-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.25rem 0.5rem 0.75rem;
+  min-height: 48px;
+  box-sizing: border-box;
+  background: var(--mat-sys-surface, #fff);
+  border-bottom: 1px solid var(--mat-sys-outline-variant, #eee);
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  .index {
+    flex: none;
+    width: 1.5rem;
+    color: var(--mat-sys-on-surface-variant, #666);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .title {
+    flex: auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .drag-handle {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    color: var(--mat-sys-on-surface-variant, #999);
+    cursor: grab;
+    touch-action: none;
+  }
+}
+
+// Bản xem trước khi kéo — CDK tạo bản sao rời khỏi flow bình thường, cần tự
+// vẽ lại nền/viền vì nó không còn nằm trong .item-list (mất border-bottom
+// kế thừa từ ngữ cảnh cũ).
+.cdk-drag-preview {
+  box-sizing: border-box;
+  border-radius: 0.25rem;
+  box-shadow:
+    0 5px 5px -3px rgba(0, 0, 0, 0.2),
+    0 8px 10px 1px rgba(0, 0, 0, 0.14),
+    0 3px 14px 2px rgba(0, 0, 0, 0.12);
+  background: var(--mat-sys-surface-container, #fff);
+}
+
+.cdk-drag-placeholder {
+  opacity: 0.3;
+}
+
+.cdk-drop-list-dragging .item-row:not(.cdk-drag-placeholder) {
+  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+// FAB nổi cao hơn Bottom Nav — dùng --tsmc-bottom-nav-height do MainShell
+// khai báo (main-shell.scss), KHÔNG hardcode "bottom: 16px" (cạm bẫy đã ghi
+// trong mockup Màn hình 3, docs/ux-design.md: nav che nửa dưới FAB).
+.create-fab {
+  position: fixed;
+  right: 1rem;
+  bottom: calc(var(--tsmc-bottom-nav-height, 4rem) + 1rem);
+  z-index: 1;
+}

@@ -216,6 +216,7 @@ const api = {
   deleteCollection: (id: string) => syncEngine.mutate({ op: 'collection.delete', id }),
   addToCollection: (id: string, item: string) => syncEngine.mutate({ op: 'collection.add', id, item }),
   removeFromCollection: (id: string, item: string) => syncEngine.mutate({ op: 'collection.remove', id, item }),
+  reorderCollection: (id: string, items: string[]) => syncEngine.mutate({ op: 'collection.reorder', id, items }),
   addSource: (id: string, ref: string) => syncEngine.mutate({ op: 'source.add', id, ref }),
   removeSource: (id: string) => syncEngine.mutate({ op: 'source.remove', id }),
   configureSource: (id: string, patch: Record<string, unknown>) => syncEngine.mutate({ op: 'source.configure', id, patch }),

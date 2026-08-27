@@ -1,0 +1,17 @@
+<h2 mat-dialog-title>{{ isRename ? 'Đổi tên bộ sưu tập' : 'Tạo bộ sưu tập mới' }}</h2>
+
+<mat-dialog-content>
+  <form class="name-form" (submit)="onSubmit($event, nameInput.value)">
+    <mat-form-field appearance="outline">
+      <mat-label>Tên bộ sưu tập</mat-label>
+      <input matInput #nameInput [value]="data.existingName ?? ''" />
+    </mat-form-field>
+    @if (error(); as err) {
+      <p class="error">{{ err }}</p>
+    }
+    <div class="actions">
+      <button mat-flat-button color="primary" type="submit">{{ isRename ? 'Lưu' : 'Tạo' }}</button>
+      <button mat-stroked-button type="button" mat-dialog-close>Huỷ</button>
+    </div>
+  </form>
+</mat-dialog-content>

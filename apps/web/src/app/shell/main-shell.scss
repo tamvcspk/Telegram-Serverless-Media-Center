@@ -5,6 +5,14 @@
   // duyệt mobile, khiến nav bar bị đẩy khuất dưới fold trên Safari/Chrome
   // Android khi thanh địa chỉ đang hiện.
   height: 100dvh;
+
+  // Custom property (KHÔNG bị chặn bởi ViewEncapsulation — kế thừa xuyên
+  // component xuống mọi route con của MainShell) — nơi DUY NHẤT biết chiều
+  // cao thật của bottom nav. FAB ở Màn hình 3/4 (docs/ux-design.md) phải
+  // dùng `bottom: calc(var(--tsmc-bottom-nav-height) + <đệm>)` thay vì đoán
+  // số — cạm bẫy đã ghi rõ trong mockup Màn hình 3: FAB `position:fixed;
+  // bottom:16px` theo nghĩa đen sẽ bị nav che nửa dưới.
+  --tsmc-bottom-nav-height: calc(3.25rem + env(safe-area-inset-bottom));
 }
 
 .content {

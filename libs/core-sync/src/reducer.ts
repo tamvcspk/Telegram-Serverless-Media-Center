@@ -112,6 +112,13 @@ export function applyEvent(state: SyncState, event: SyncEvent): SyncState {
       next.collections[event.id] = { ...existing, items: existing.items.filter((item) => item !== event.item) };
       return next;
     }
+    case 'collection.reorder': {
+      const existing = getOrCreateCollection(next, event.id, event.ts, event.dev);
+      if (isNewer(event.ts, event.dev, existing.ts, existing.dev) || !next.collections[event.id]) {
+        next.collections[event.id] = { ...existing, items: event.items, ts: event.ts, dev: event.dev };
+      }
+      return next;
+    }
     case 'source.add': {
       const existing = next.sources[event.id];
       if (!existing || isNewer(event.ts, event.dev, existing.ts, existing.dev)) {
@@ -171,7 +178,9 @@ function mergeRecordsLww<T extends { ts: number; dev: string }>(a: Record<string
  * kênh có message_id riêng), nên không thể replay lại — thay vào đó so
  * sánh field-wise, dùng lại đúng luật LWW của applyEvent. Với thành viên
  * collection: hợp nhất bảo thủ (union) vì không có ts theo từng item để so
- * — thà giữ dư một mục còn hơn làm mất bộ sưu tập user đã thêm.
+ * — thà giữ dư một mục còn hơn làm mất bộ sưu tập user đã thêm. Thứ tự lấy
+ * theo bên thắng LWW (structural, phản ánh collection.reorder gần nhất nếu
+ * có) rồi mới nối thêm item riêng của bên thua vào cuối.
  */
 export function mergeStates(a: SyncState, b: SyncState): SyncState {
   const progress = mergeRecordsLww(a.progress, b.progress);
@@ -189,7 +198,8 @@ export function mergeStates(a: SyncState, b: SyncState): SyncState {
       collections[id] = fromB;
     } else if (fromA && fromB) {
       const structural = isNewer(fromB.ts, fromB.dev, fromA.ts, fromA.dev) ? fromB : fromA;
-      const items = Array.from(new Set([...fromA.items, ...fromB.items]));
+      const other = structural === fromA ? fromB : fromA;
+      const items = [...structural.items, ...other.items.filter((item) => !structural.items.includes(item))];
       collections[id] = { ...structural, items };
     }
   }

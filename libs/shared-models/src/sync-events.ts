@@ -48,6 +48,18 @@ export interface CollectionRemoveEvent extends SyncEventBase {
   item: string;
 }
 
+/**
+ * Ghi lại toàn bộ thứ tự items sau khi user kéo-thả (Màn hình 3,
+ * docs/ux-design.md). LWW theo ts/dev giống collection.rename — KHÁC
+ * collection.add/remove vốn add-wins bất kể ts (xem reducer.ts). Client tự
+ * gửi mảng ID đầy đủ theo thứ tự mới, không phải một phép hoán vị tương đối.
+ */
+export interface CollectionReorderEvent extends SyncEventBase {
+  op: 'collection.reorder';
+  id: string;
+  items: string[];
+}
+
 export interface SourceAddEvent extends SyncEventBase {
   op: 'source.add';
   id: string;
@@ -79,6 +91,7 @@ export type SyncEvent =
   | CollectionDeleteEvent
   | CollectionAddEvent
   | CollectionRemoveEvent
+  | CollectionReorderEvent
   | SourceAddEvent
   | SourceRemoveEvent
   | SourceConfigureEvent
@@ -102,6 +115,7 @@ const SYNC_EVENT_OPS: ReadonlySet<SyncEvent['op']> = new Set([
   'collection.delete',
   'collection.add',
   'collection.remove',
+  'collection.reorder',
   'source.add',
   'source.remove',
   'source.configure',

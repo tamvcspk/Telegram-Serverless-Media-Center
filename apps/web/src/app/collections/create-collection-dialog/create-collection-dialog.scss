@@ -1,0 +1,33 @@
+.name-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  // Material tự bỏ hẳn padding-top của <mat-dialog-content> khi nó đứng
+  // ngay sau <h2 mat-dialog-title> (CSS nội bộ:
+  // ".mat-mdc-dialog-title + .mat-mdc-dialog-content { padding-top: 0; }"),
+  // trong khi <mat-dialog-content> vẫn overflow:auto — nhãn nổi của
+  // mat-form-field outline cần trồi lên trên mép trên của ô nhập một chút,
+  // hết chỗ đệm nên bị overflow của chính dialog-content cắt mất. Phát hiện
+  // thật: label "Tên bộ sưu tập" bị cắt khi form là phần tử đầu tiên ngay
+  // dưới title. state-channel-resolution-dialog.scss không dính lỗi này chỉ
+  // vì .link-form ở đó tình cờ đã có margin-top: 1rem đủ để bù.
+  margin-top: 1rem;
+
+  mat-form-field {
+    width: 100%;
+    min-width: 20rem;
+  }
+
+  .error {
+    color: var(--mat-sys-error, #b3261e);
+    font-size: 0.85rem;
+    margin: 0;
+  }
+
+  .actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+    margin-top: 0.5rem;
+  }
+}

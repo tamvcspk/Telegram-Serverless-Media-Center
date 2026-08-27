@@ -103,6 +103,30 @@ describe('@tsmc/core-sync reducer — convergence (property-style, seeded shuffl
     assertConvergesRegardlessOfOrder(events);
   });
 
+  it('collection.reorder LWW theo ts trong đúng thứ tự log (giống add/remove, KHÔNG hội tụ nếu shuffle trước create)', () => {
+    // Không gọi assertConvergesRegardlessOfOrder ở đây — giống lý do
+    // collection.add-wins phía trên: reorder dùng getOrCreateCollection để
+    // "khởi tạo" bản ghi nếu chưa có (như add/rename/delete), nhưng KHÔNG
+    // set name như rename. Nếu một reorder có ts cao hơn bị shuffle tới
+    // TRƯỚC collection.create trong replay, nó sẽ "founding" bản ghi với
+    // name rỗng và khoá create ra khỏi việc set name (create thua LWW vì
+    // ts thấp hơn) — không sao trong thực tế vì message_id của kênh state
+    // luôn đảm bảo create đến trước reorder thật (chỉ test bằng đúng thứ tự
+    // log, không phải bất biến order-independent như rename).
+    const events: SyncEvent[] = [
+      { v: 1, op: 'collection.create', ts: 10, dev: 'a', id: 'c1', name: 'Marvel' },
+      { v: 1, op: 'collection.add', ts: 11, dev: 'a', id: 'c1', item: 'movie-1' },
+      { v: 1, op: 'collection.add', ts: 12, dev: 'a', id: 'c1', item: 'movie-2' },
+      { v: 1, op: 'collection.reorder', ts: 30, dev: 'b', id: 'c1', items: ['movie-2', 'movie-1'] },
+      { v: 1, op: 'collection.reorder', ts: 20, dev: 'a', id: 'c1', items: ['movie-1', 'movie-2', 'movie-3'] }
+    ];
+    const state = replay(createEmptySyncState(), events);
+    // ts=30 thắng dù items của nó "thiếu" movie-3 so với ts=20 — reorder thay
+    // hẳn mảng items (LWW toàn phần), không hợp nhất từng phần tử.
+    expect(state.collections['c1']?.items).toEqual(['movie-2', 'movie-1']);
+    expect(state.collections['c1']?.name).toBe('Marvel');
+  });
+
   it('settings.set LWW theo ts, hội tụ bất kể thứ tự replay', () => {
     const events: SyncEvent[] = [
       { v: 1, op: 'settings.set', ts: 10, dev: 'a', k: 'theme', val: 'light' },
@@ -158,6 +182,23 @@ describe('@tsmc/core-sync reducer — mergeStates (ADR-0014 gộp nhiều kênh 
     expect(merged.collections['c1']?.name).toBe('Tên A');
     expect(merged.collections['c1']?.items.sort()).toEqual(['m1', 'm2', 'm3']);
     expect(mergeStates(b, a).collections['c1']?.items.sort()).toEqual(['m1', 'm2', 'm3']);
+  });
+
+  it('hợp nhất collection: thứ tự items lấy theo bên thắng LWW (phản ánh reorder), item riêng của bên thua nối vào cuối', () => {
+    const a: SyncState = {
+      ...createEmptySyncState(),
+      collections: { c1: { id: 'c1', name: 'Marvel', ts: 100, dev: 'a', items: ['m2', 'm1'] } }
+    };
+    const b: SyncState = {
+      ...createEmptySyncState(),
+      collections: { c1: { id: 'c1', name: 'Marvel', ts: 50, dev: 'b', items: ['m1', 'm3'] } }
+    };
+
+    // a thắng LWW (ts=100) — thứ tự phải giữ nguyên ['m2','m1'] rồi mới nối
+    // thêm 'm3' (chỉ có ở b) vào cuối, không được sort lại hay để b lấn thứ
+    // tự của a.
+    expect(mergeStates(a, b).collections['c1']?.items).toEqual(['m2', 'm1', 'm3']);
+    expect(mergeStates(b, a).collections['c1']?.items).toEqual(['m2', 'm1', 'm3']);
   });
 
   it('mergeStates giao hoán (commutative) trên dữ liệu ngẫu nhiên', () => {
