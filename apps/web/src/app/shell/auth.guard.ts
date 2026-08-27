@@ -43,7 +43,13 @@ function ensureSync(client: ReturnType<typeof createCoreWorkerClient>, dialog: M
  */
 export const authGuard: CanActivateFn = async () => {
   const client = createCoreWorkerClient();
+  // BẮT BUỘC inject() cả hai TRƯỚC await đầu tiên — Angular chỉ cho gọi
+  // inject() trong lúc hàm guard còn chạy đồng bộ (injection context), gọi
+  // sau một `await` (như MatDialog ở dòng cuối bản trước) ném NG0203, guard
+  // reject âm thầm → điều hướng sang 'home' đứng lại không rõ lỗi (bug thật
+  // gặp lúc submit xong bước 1).
   const router = inject(Router);
+  const dialog = inject(MatDialog);
 
   let session;
   try {
@@ -58,6 +64,6 @@ export const authGuard: CanActivateFn = async () => {
     return router.parseUrl('/login');
   }
 
-  await ensureSync(client, inject(MatDialog));
+  await ensureSync(client, dialog);
   return true;
 };
