@@ -1,28 +1,28 @@
-<section class="browse">
-  <h2>Duyệt phim</h2>
+<section class="browse" aria-label="Trang chủ — duyệt phim">
+  <header class="search-bar">
+    <mat-form-field appearance="outline" class="search">
+      <mat-label>Tìm theo tên phim, đạo diễn, diễn viên…</mat-label>
+      <input matInput #queryInput [value]="store.query()" (input)="onQueryInput(queryInput.value)" />
+    </mat-form-field>
 
-  <mat-form-field appearance="outline" class="search">
-    <mat-label>Tìm theo tên phim, đạo diễn, diễn viên…</mat-label>
-    <input matInput #queryInput [value]="store.query()" (input)="onQueryInput(queryInput.value)" />
-  </mat-form-field>
-
-  @if (sources().length > 0) {
-    <mat-chip-set aria-label="Lọc theo nguồn" class="source-filter">
-      <mat-chip [class.active]="store.sourceId() === null" (click)="onSourceChipChange(null)">Tất cả nguồn</mat-chip>
-      @for (source of sources(); track source.id) {
-        <mat-chip [class.active]="store.sourceId() === source.id" (click)="onSourceChipChange(source.id)">
-          {{ sourceLabel(source) }}
-        </mat-chip>
-      }
-    </mat-chip-set>
-  }
+    @if (sources().length > 0) {
+      <mat-chip-set aria-label="Lọc theo nguồn" class="source-filter">
+        <mat-chip [class.active]="store.sourceId() === null" (click)="onSourceChipChange(null)">Tất cả nguồn</mat-chip>
+        @for (source of sources(); track source.id) {
+          <mat-chip [class.active]="store.sourceId() === source.id" (click)="onSourceChipChange(source.id)">
+            {{ sourceLabel(source) }}
+          </mat-chip>
+        }
+      </mat-chip-set>
+    }
+  </header>
 
   @if (rows().length === 0) {
     <p class="hint">
       @if (store.query()) {
         Không tìm thấy phim nào khớp "{{ store.query() }}".
       } @else {
-        Chưa có phim nào — quét một nguồn ở phần Index bên trên trước.
+        Chưa có phim nào — quét một nguồn ở tab "Nguồn" trước.
       }
     </p>
   } @else {
@@ -61,7 +61,33 @@
             {{ row.trust === 'pending' ? 'chưa xác minh' : 'không rõ nguồn' }}
           </span>
         }
+        <button
+          mat-icon-button
+          type="button"
+          class="collection-btn"
+          aria-label="Thêm vào bộ sưu tập"
+          title="Thêm vào bộ sưu tập"
+          [matMenuTriggerFor]="collectionMenu"
+          (click)="$event.stopPropagation(); onOpenCollectionMenu(row)"
+          (keydown)="$event.stopPropagation()"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 3.5h12a.5.5 0 0 1 .5.5v17l-6.5-4-6.5 4v-17a.5.5 0 0 1 .5-.5Z" />
+          </svg>
+        </button>
       </div>
     </cdk-virtual-scroll-viewport>
   }
+
+  <mat-menu #collectionMenu="matMenu">
+    @if (collections().length === 0) {
+      <button mat-menu-item disabled>Chưa có bộ sưu tập — tạo ở tab "BST" trước.</button>
+    } @else {
+      @for (collection of collections(); track collection.id) {
+        <button mat-menu-item (click)="onToggleCollection(collection)">
+          {{ isTargetInCollection(collection) ? '✓ ' : '' }}{{ collection.name }}
+        </button>
+      }
+    }
+  </mat-menu>
 </section>

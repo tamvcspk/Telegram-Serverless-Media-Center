@@ -1,17 +1,57 @@
+// Layout lấp đầy .content của MainShell (main-shell.scss) — .search-bar
+// không tự cuộn nên luôn "cố định trên cùng" theo đúng mockup Màn hình 2
+// (docs/ux-design.md), còn cdk-virtual-scroll-viewport tự cuộn bên trong
+// phần không gian còn lại. Không cần position: sticky vì .browse không có
+// scrollbar riêng để phải "dính" vào.
+//
+// :host bắt buộc phải có height: 100% — custom element <app-browse> mặc
+// định display: inline (không có global reset nào set display: block cho
+// component host trong repo này), nên height: 100% trên .browse bên trong
+// không có chiều cao tham chiếu hợp lệ, resolve về auto. Hệ quả thật gặp:
+// cdk-virtual-scroll-viewport không được cấp chiều cao xác định → vừa tràn
+// ra ngoài (.content hiện scrollbar riêng) vừa tự cuộn bên trong (viewport
+// tự set overflow: auto) = 2 thanh cuộn cùng lúc.
+:host {
+  display: block;
+  height: 100%;
+}
+
 .browse {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  height: 100%;
+}
+
+.search-bar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 0.75rem 0.5rem;
+  border-bottom: 1px solid var(--mat-sys-outline-variant, #eee);
 }
 
 .search {
   width: 100%;
-  max-width: 32rem;
 }
 
 .source-filter {
-  display: flex;
-  flex-wrap: wrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+
+  // Flex container thật của chip không phải host <mat-chip-set> mà là
+  // .mdc-evolution-chip-set__chips do MatChipSet tự render nội bộ với
+  // ViewEncapsulation.None (CSS mặc định flex-flow: wrap) — selector
+  // thường từ đây không chạm tới, phải ::ng-deep mới ép được nowrap. Cùng
+  // lý do với ::ng-deep .mat-step-text-label ở login.scss.
+  ::ng-deep .mdc-evolution-chip-set__chips {
+    flex-wrap: nowrap;
+    min-width: max-content;
+  }
+
+  mat-chip {
+    flex: none;
+  }
 
   mat-chip.active {
     --mdc-chip-elevated-container-color: var(--mat-sys-secondary-container, #d6e3ff);
@@ -19,14 +59,14 @@
 }
 
 .hint {
+  padding: 0.75rem;
   color: var(--mat-sys-on-surface-variant, #666);
 }
 
 .viewport {
-  height: min(70vh, 42rem);
+  flex: 1 1 auto;
+  min-height: 0;
   width: 100%;
-  border: 1px solid var(--mat-sys-outline-variant, #ddd);
-  border-radius: 4px;
 }
 
 .row {
@@ -77,6 +117,11 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+}
+
+.collection-btn {
+  flex: none;
+  color: var(--mat-sys-on-surface-variant, #666);
 }
 
 .trust-badge {

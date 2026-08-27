@@ -1,13 +1,15 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { ScrollingModule } from '@angular/cdk/scrolling';
+import { MatButtonModule } from '@angular/material/button';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
+import { MatMenuModule } from '@angular/material/menu';
 import { getMediaItem, getSyncState, liveQuery, listAllMedia, type MediaRecord } from '@tsmc/core-storage';
 import { createCoreWorkerClient } from '@tsmc/worker-host';
-import type { SourceRef } from '@tsmc/shared-models';
+import type { Collection, SourceRef } from '@tsmc/shared-models';
 import { from, switchMap } from 'rxjs';
 import { BrowseStore, type BrowseSort } from './browse.store';
 
@@ -41,7 +43,7 @@ function sortRows(rows: MediaRecord[], sort: BrowseSort): MediaRecord[] {
  */
 @Component({
   selector: 'app-browse',
-  imports: [ScrollingModule, MatChipsModule, MatFormFieldModule, MatInputModule],
+  imports: [ScrollingModule, MatButtonModule, MatChipsModule, MatFormFieldModule, MatInputModule, MatMenuModule],
   providers: [BrowseStore],
   templateUrl: './browse.html',
   styleUrl: './browse.scss',
@@ -55,6 +57,17 @@ export class Browse {
   protected readonly sources = toSignal(
     from(liveQuery(async (): Promise<SourceRef[]> => Object.values((await getSyncState()).sources).filter((s) => !s.removed))),
     { initialValue: [] as SourceRef[] }
+  );
+
+  // Menu "Thêm vào bộ sưu tập" (entry point duy nhất hiện có để đưa phim vào
+  // Collections, Màn hình 3 — không có nó thì BST mới xây sẽ luôn trống).
+  // Dùng CHUNG một <mat-menu> cho mọi row thay vì một menu/row — virtual
+  // scroll chỉ render ~10-15 row cùng lúc nên chi phí không lớn, nhưng dùng
+  // chung vẫn đơn giản hơn: menuTargetRow giữ row nào vừa mở menu.
+  protected readonly menuTargetRow = signal<MediaRecord | null>(null);
+  protected readonly collections = toSignal(
+    from(liveQuery(async (): Promise<Collection[]> => Object.values((await getSyncState()).collections).filter((c) => !c.deleted))),
+    { initialValue: [] as Collection[] }
   );
 
   private readonly params = computed<BrowseParams>(() => ({
@@ -100,6 +113,38 @@ export class Browse {
 
   onQueryInput(value: string): void {
     this.store.setQuery(value);
+  }
+
+  // "src:<sourceId>/msg:<msgId>" — cùng quy ước khoá ProgressEntry.k (ADR-0009,
+  // xem player.ts progressKey) và collections.ts parseItemKey().
+  itemKeyOf(row: MediaRecord): string {
+    return `src:${row.sourceId}/msg:${row.msgId}`;
+  }
+
+  isInCollection(collection: Collection, row: MediaRecord): boolean {
+    return collection.items.includes(this.itemKeyOf(row));
+  }
+
+  isTargetInCollection(collection: Collection): boolean {
+    const row = this.menuTargetRow();
+    return row !== null && this.isInCollection(collection, row);
+  }
+
+  onOpenCollectionMenu(row: MediaRecord): void {
+    this.menuTargetRow.set(row);
+  }
+
+  async onToggleCollection(collection: Collection): Promise<void> {
+    const row = this.menuTargetRow();
+    if (!row) {
+      return;
+    }
+    const key = this.itemKeyOf(row);
+    if (collection.items.includes(key)) {
+      await this.client.removeFromCollection(collection.id, key);
+    } else {
+      await this.client.addToCollection(collection.id, key);
+    }
   }
 
   async onItemClick(row: MediaRecord): Promise<void> {
