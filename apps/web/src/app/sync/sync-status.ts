@@ -25,7 +25,6 @@ export class SyncStatus {
   readonly meta = toSignal(from(liveQuery(() => getSyncMeta())), { initialValue: undefined });
   readonly pendingOutboxCount = toSignal(from(liveQuery(() => countOutbox())), { initialValue: 0 });
   readonly flushing = signal(false);
-  readonly writingTest = signal(false);
   readonly actionError = signal<string | null>(null);
 
   async onForceFlush(): Promise<void> {
@@ -40,25 +39,6 @@ export class SyncStatus {
       this.actionError.set(err instanceof Error ? err.message : String(err));
     } finally {
       this.flushing.set(false);
-    }
-  }
-
-  /**
-   * Chưa có UI nào của Epic 3/4 (progress/collection/settings thật) gọi
-   * mutate() — không có gì để đẩy vào outbox thì "Đồng bộ ngay" luôn no-op,
-   * không tự nói lên được đường ghi có chạy đúng hay không. Nút này ghi
-   * MỘT sự kiện settings.set thật (khoá `syncTest`, giá trị = thời điểm
-   * bấm) để tự kiểm — xoá khi Epic 3/4 có sự kiện thật để dùng thay thế.
-   */
-  async onWriteTestEvent(): Promise<void> {
-    this.writingTest.set(true);
-    this.actionError.set(null);
-    try {
-      await this.client.setSetting('syncTest', new Date().toISOString());
-    } catch (err) {
-      this.actionError.set(err instanceof Error ? err.message : String(err));
-    } finally {
-      this.writingTest.set(false);
     }
   }
 }
