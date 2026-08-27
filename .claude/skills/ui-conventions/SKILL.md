@@ -20,6 +20,7 @@ app/<feature>/
   <sub-widget>/          # dialog/con riêng của feature này
 app/shell/
   <layout>.ts            # layout route component (bottom nav, sub-page header…), xem mục 6
+  <name>.guard.ts         # route guard, cùng chỗ với layout vì gắn chặt vào routing
 ```
 
 Ví dụ đã có: `browse/browse.ts` + `browse/browse.store.ts`; `sync/state-channel-resolution-dialog/` là sub-widget riêng của `sync/`.
@@ -47,6 +48,7 @@ Ghi (mutation) dữ liệu **đã persist** luôn qua `createCoreWorkerClient()`
 - **Trước khi dùng một component Material có icon mặc định** (`MatStepper`, và bất kỳ component nào khác sau này): kiểm tra nó có gọi `<mat-icon>ligature-name</mat-icon>` hay không — dự án không nhúng font Material Symbols/Icons (bất biến #8), ligature sẽ render ra CHỮ THÔ bị cắt cụt, không phải icon vỡ mà là icon KHÔNG CÓ FONT. Override qua cơ chế chính thức của component (vd `<ng-template matStepperIcon="done">` + SVG inline), không cố nhúng font. Phát hiện thật + chi tiết: [ADR-0016 addendum 2026-08-27](../../../docs/adr/0016-angular-material-va-cdk.md#cập-nhật-sau-khi-accepted-2026-08-27-slice-ui-login).
 - **`MatStepper [linear]="true"` không hợp với việc lái `selectedIndex`/`completed` bằng binding qua signal** (không `stepControl`) — có race điều kiện thật (Angular set input của `<mat-stepper>` cha trước `<mat-step>` con trong cùng một lượt CD, gate đọc `completed` cũ). Dùng `stepControl` thật (Reactive Forms) nếu cần `linear`, hoặc tắt `linear` và tự chặn điều hướng ngược bằng `[editable]="false"` (không phụ thuộc `linear`). Chi tiết: ADR-0016 addendum ở trên.
 - DI qua `inject()`, không dùng constructor param.
+- **`inject()` chỉ hợp lệ khi hàm còn chạy ĐỒNG BỘ trong injection context** — gọi SAU một `await` (kể cả trong guard/resolver/effect async) ném `NG0203`. Triệu chứng dễ gây lạc hướng: không phải lỗi rõ ràng trên UI, mà là "điều hướng/thao tác đứng im" nếu không có try/catch bọc ngoài bắt được reject. Gọi HẾT mọi `inject()` cần dùng ngay đầu hàm, trước `await` đầu tiên, kể cả khi giá trị đó chỉ dùng ở nhánh code phía sau. Bug thật gặp ở `shell/auth.guard.ts` (`inject(MatDialog)` từng đặt sau `await client.restoreSession()` — sửa 2026-08-27).
 - Field visibility: `protected readonly` nếu template chạm tới, `private readonly` nếu chỉ nội bộ dùng — cả `browse.ts`, `player.ts`, `sync-status.ts` đều theo đúng mẫu này.
 - Ưu tiên `toSignal`/`toObservable` hơn `.subscribe()` thủ công. Nếu bắt buộc subscribe tay → `takeUntilDestroyed()`.
 - `@for` bắt buộc có `track`; `@defer` cho khối nặng (player, ffmpeg.wasm).
@@ -65,41 +67,19 @@ Không viết comment mô tả WHAT (code đã tự nói), không viết comment
 
 ## 6. Routing & layout — KHÔNG có một `AppShell` chung cho mọi màn hình
 
-Hiện trạng: chỉ `/player/:sourceId/:msgId` (`app.routes.ts`) là route lazy thật. Sync/Browse/Index vẫn nhồi phẳng chung trong `login.html` case `'authenticated'` — di sản từ lúc chỉ có 1–2 slice, giờ không kham nổi thêm các màn hình mới trong `docs/ux-design.md` (Dashboard/Collections/Sources/Settings/Metadata Editor).
-
-`docs/ux-design.md` (bản mobile-first) xác nhận layout khác nhau thật sự theo TỪNG NHÓM màn hình — đừng lặp lại sai lầm "bọc hết vào một `AppShell`" của bản trước. Bốn nhóm layout, ứng với 4 cách route khác nhau:
+Đã implement (2026-08-27, xem `app.routes.ts`): `login` (Auth, full-bleed) → `home` (gate bằng `authGuard`, `MainShell` + 3 route con `browse`/`collections`/`sources`) → `player/:sourceId/:msgId` (immersive, không đổi từ F4). `docs/ux-design.md` (bản mobile-first) xác nhận layout khác nhau thật sự theo TỪNG NHÓM màn hình — đừng quay lại sai lầm "bọc hết vào một `AppShell`" của bản trước đó. Bốn nhóm layout, ứng với 4 cách route khác nhau:
 
 | Nhóm | Màn hình | Layout | Cách route |
 |---|---|---|---|
-| **Auth** | Màn 1 (Login) | Full-bleed, cuộn dọc, không chrome | Route đơn, không cha layout |
-| **Main shell** | Màn 2/3/4 (Dashboard/Collections/Sources) | `MatBottomNav` cố định dưới cùng, 3 tab | Route cha `app/shell/main-shell.ts` có `<router-outlet>`, 3 route con lazy |
-| **Immersive** | Màn 5 (Player) | Toàn màn hình, KHÔNG chrome (không toolbar, không bottom nav) | Route đơn, không cha layout — đây là trường hợp "không cần layout wrapper", đừng tự bịa một cái |
-| **Sub-page** | Màn 6/7 (Metadata Editor, Settings) | Header `<` quay lại, có thể có sticky bottom bar (Metadata Editor) | Route đơn hoặc cha layout header dùng chung nếu ≥2 sub-page giống hệt nhau (rule-of-three như `app/shared/` ở mục 1) |
+| **Auth** | Màn 1 (Login) | Full-bleed, cuộn dọc, không chrome | Route đơn `login`, không cha layout |
+| **Main shell** | Màn 2/3/4 (Dashboard/Collections/Sources) | Bottom nav cố định dưới cùng, 3 tab | Route cha `home` (`shell/main-shell.ts`, `canActivate: [authGuard]`) có `<router-outlet>`, 3 route con lazy |
+| **Immersive** | Màn 5 (Player) | Toàn màn hình, KHÔNG chrome (không toolbar, không bottom nav) | Route đơn `player/:sourceId/:msgId`, không cha layout — "không cần layout wrapper" là một lựa chọn hợp lệ, đừng tự bịa một cái |
+| **Sub-page** | Màn 6/7 (Metadata Editor, Settings) | Header `<` quay lại, có thể có sticky bottom bar (Metadata Editor) | **Chưa route** — chưa có UI thật, xem CLAUDE.md. Khi thêm: route đơn hoặc cha layout header dùng chung nếu ≥2 sub-page giống hệt nhau (rule-of-three như `app/shared/` ở mục 1) |
 
-**Main shell — mẫu route lồng nhau:**
+**Bottom nav của `MainShell` tự ghép bằng `routerLink`/`routerLinkActive` thường** (`shell/main-shell.html`) — KHÔNG phải `MatBottomNav`, component đó không tồn tại trong Angular Material (đã xác nhận bằng cách liệt kê thư mục cài đặt thật). Đừng đi tìm module Material nào cho việc này.
 
-```ts
-{
-  path: '',
-  loadComponent: () => import('./shell/main-shell').then((m) => m.MainShell),
-  children: [
-    { path: '', pathMatch: 'full', redirectTo: 'browse' },
-    { path: 'browse', loadComponent: () => import('./browse/browse').then((m) => m.Browse) },
-    { path: 'collections', loadComponent: () => import('./collections/collections').then((m) => m.Collections) },
-    { path: 'sources', loadComponent: () => import('./sources/sources').then((m) => m.Sources) }
-  ]
-},
-{
-  // Settings KHÔNG nằm trong children ở trên — nó là sub-page (header quay
-  // lại), không phải tab thứ 4 của bottom nav. Chỉ 3 nhóm hành động tần suất
-  // cao (Home/BST/Nguồn) xứng đáng một tab cố định (docs/ux-design.md Màn 7).
-  path: 'settings',
-  loadComponent: () => import('./settings/settings').then((m) => m.Settings)
-}
-```
+**`authGuard` (`shell/auth.guard.ts`) là nơi DUY NHẤT gọi `initSync()`** trong toàn app — guard chạy lại MỖI LẦN điều hướng tới `home` (kể cả quay lại từ `/player`), mà `initSync()` không an toàn gọi hai lần (đăng ký thêm leader-change listener, hydrate lại từ đầu — xem `libs/core-sync/src/sync-engine.ts`), nên guard cache kết quả bằng một `Promise` cấp module. Nếu thêm logic "phải chạy đúng một lần mỗi trang" tương tự, dùng lại đúng pattern này, đừng rải ra nhiều component.
 
-`MainShell` tự vẽ `MatBottomNav`/`<router-outlet>`, KHÔNG phải mỗi feature con tự vẽ nav riêng — đúng tinh thần "layout route dùng chung" của bản trước, chỉ khác là giờ CHỈ dùng chung cho 3 tab chính, không dùng chung cho Player/Settings/Metadata Editor.
+**Sync/Browse/Index đã dọn khỏi `login.html`** (khác hiện trạng ghi trong bản skill trước) — `Browse` chạy thật trong tab `home/browse`; `SyncStatus`/`ChannelIndex` (công cụ debug) tạm host trong tab `home/sources` (`sources/sources.ts` — có comment đầu file ghi rõ đây là chỗ tạm, xoá khi Màn hình 4 thật được build); `Collections` là placeholder trống chờ Màn hình 3.
 
 **Luật chung cho mọi màn hình cấp cao mới:** route thật + `loadComponent` lazy, đúng mẫu đã có ở F4. Trước khi thêm route, tự hỏi nó thuộc nhóm nào trong bảng trên — đừng mặc định nhét vào `MainShell` chỉ vì đó là chỗ "đã có sẵn".
-
-Không bắt buộc dọn lại Sync/Browse/Index khỏi Login ngay lập tức — migrate sang route thật khi đụng tới màn đó, không phải điều kiện tiên quyết để bắt đầu màn mới.
