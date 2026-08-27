@@ -1,13 +1,81 @@
-<section class="sources">
-  <div class="logout-block">
-    <button mat-stroked-button color="warn" [disabled]="loggingOut()" (click)="onLogout()">
-      🚪 Đăng xuất (tạm — xem Màn hình 7)
-    </button>
-    @if (logoutError(); as message) {
-      <p class="error">{{ message }}</p>
-    }
-  </div>
+<section class="sources" aria-label="Nguồn phát của bạn">
+  <h2 class="title">📂 Nguồn phát của bạn</h2>
 
-  <app-sync-status />
-  <app-channel-index />
+  @if (rows().length === 0) {
+    <p class="hint">Chưa có nguồn nào — bấm nút "+" góc dưới để thêm kênh cá nhân hoặc cộng đồng.</p>
+  }
+
+  @for (row of rows(); track row.source.id) {
+    <div class="source-card">
+      <p class="ref">{{ sourceLabel(row.source) }}</p>
+
+      @if (scanningIds().has(row.source.id)) {
+        <mat-progress-bar mode="indeterminate" />
+        <p class="status">Đang quét…</p>
+      } @else {
+        <p class="status">
+          {{ statusLabel(row.meta) }} · {{ row.itemCount }} phim
+          @if (row.meta.lastScanAt) {
+            · lần cuối {{ row.meta.lastScanAt | date: 'short' }}
+          }
+        </p>
+      }
+
+      @if (row.meta.lastError) {
+        <p class="error">{{ row.meta.lastError }}</p>
+      }
+
+      <div class="actions">
+        <button mat-stroked-button [disabled]="scanningIds().has(row.source.id)" (click)="onScan(row.source.id, row.source.ref)">
+          Quét
+        </button>
+        @if (needsFullScanIds().has(row.source.id)) {
+          <button
+            mat-stroked-button
+            color="warn"
+            [disabled]="scanningIds().has(row.source.id)"
+            (click)="onScan(row.source.id, row.source.ref, { tier: 'full' })"
+          >
+            Quét toàn bộ (có thể chậm)
+          </button>
+        } @else if (row.meta.tier) {
+          <button mat-stroked-button [disabled]="scanningIds().has(row.source.id)" (click)="onScan(row.source.id, row.source.ref, { tier: 'full' })">
+            Buộc quét toàn bộ lại
+          </button>
+        }
+        <button
+          mat-stroked-button
+          color="warn"
+          class="remove-btn"
+          [disabled]="removingIds().has(row.source.id)"
+          (click)="onRemoveSource(row.source.id)"
+        >
+          Gỡ nguồn
+        </button>
+      </div>
+    </div>
+  }
+
+  @if (actionError(); as err) {
+    <p class="error">{{ err }}</p>
+  }
+
+  <button mat-fab class="add-fab" type="button" aria-label="Thêm nguồn mới" [disabled]="addingSource()" (click)="onOpenAddSource()">
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  </button>
+
+  <div class="debug-block">
+    <app-sync-status />
+
+    <div class="logout-block">
+      <button mat-stroked-button color="warn" [disabled]="loggingOut()" (click)="onLogout()">
+        🚪 Đăng xuất (tạm — xem Màn hình 7)
+      </button>
+      @if (logoutError(); as message) {
+        <p class="error">{{ message }}</p>
+      }
+    </div>
+  </div>
 </section>

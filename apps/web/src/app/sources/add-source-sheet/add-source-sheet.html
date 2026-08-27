@@ -1,0 +1,38 @@
+<div class="add-source-sheet">
+  <h2>Thêm nguồn mới</h2>
+
+  <form class="ref-form" (submit)="onSubmitRef($event, refInput)">
+    <mat-form-field appearance="outline">
+      <mat-label>Username/invite link kênh</mat-label>
+      <input matInput #refInput placeholder="@ten_kenh hoặc t.me/..." required />
+    </mat-form-field>
+    @if (refError(); as err) {
+      <p class="error">{{ err }}</p>
+    }
+    <button mat-flat-button color="primary" type="submit">Thêm nguồn</button>
+  </form>
+
+  <button mat-stroked-button type="button" class="picker-toggle" (click)="onTogglePicker()">
+    {{ showPicker() ? 'Ẩn danh sách chat của tôi' : 'Hoặc chọn từ danh sách chat của tôi' }}
+  </button>
+
+  @if (showPicker()) {
+    <div class="picker">
+      @if (loadingChannels()) {
+        <p class="hint">Đang tải danh sách…</p>
+      } @else if (pickerError(); as err) {
+        <p class="error">{{ err }}</p>
+      } @else if (channels().length === 0) {
+        <p class="hint">Không tìm thấy channel/nhóm nào.</p>
+      } @else {
+        @for (channel of channels(); track channel.id) {
+          <button mat-stroked-button type="button" class="picker-item" (click)="onPickChannel(channel)">
+            {{ channel.title }} ({{ channel.isBroadcast ? 'kênh' : 'nhóm' }})
+          </button>
+        }
+      }
+    </div>
+  }
+
+  <button mat-button type="button" class="cancel" (click)="onCancel()">Huỷ</button>
+</div>
