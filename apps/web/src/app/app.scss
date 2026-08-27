@@ -1,3 +1,4 @@
-.shell {
-  padding: 2rem;
-}
+// Không còn padding toàn cục ở đây — mỗi route tự quyết layout của mình
+// (Login full-bleed, MainShell tự padding nội dung + bottom nav sát đáy
+// màn hình). Padding cấp app-root sẽ đẩy bottom nav ra khỏi mép màn hình
+// thật, phá thiết kế mobile-first (docs/ux-design.md).

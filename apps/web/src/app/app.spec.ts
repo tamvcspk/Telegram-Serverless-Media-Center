@@ -14,10 +14,8 @@ describe('App', () => {
     expect(app).toBeTruthy();
   });
 
-  it('should render title', async () => {
-    const fixture = TestBed.createComponent(App);
-    await fixture.whenStable();
-    const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('h1')?.textContent).toContain('TSMC');
-  });
+  // App không còn tự vẽ tiêu đề/nội dung nào — chỉ là <router-outlet />
+  // (skeleton routing, xem app.routes.ts). Tiêu đề "TSMC" giờ sống trong
+  // Login (route 'login'), không test được ở đây vì TestBed này không cấu
+  // hình router thật.
 });

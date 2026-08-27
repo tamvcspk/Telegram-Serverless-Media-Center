@@ -1,0 +1,20 @@
+<div class="shell">
+  <div class="content">
+    <router-outlet />
+  </div>
+
+  <nav class="bottom-nav">
+    <a routerLink="/home/browse" routerLinkActive="active">
+      <span class="icon" aria-hidden="true">🏠</span>
+      <span class="label">Home</span>
+    </a>
+    <a routerLink="/home/collections" routerLinkActive="active">
+      <span class="icon" aria-hidden="true">📚</span>
+      <span class="label">BST</span>
+    </a>
+    <a routerLink="/home/sources" routerLinkActive="active">
+      <span class="icon" aria-hidden="true">📂</span>
+      <span class="label">Nguồn</span>
+    </a>
+  </nav>
+</div>

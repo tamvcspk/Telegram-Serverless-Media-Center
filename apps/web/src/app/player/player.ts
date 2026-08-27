@@ -155,6 +155,8 @@ export class Player {
   }
 
   close(): void {
-    void this.router.navigate(['/']);
+    // '/' giờ redirect thẳng tới 'login' (app.routes.ts) — về '/home' mới
+    // đúng route MainShell, tránh vòng qua lại login khi đã đăng nhập.
+    void this.router.navigate(['/home']);
   }
 }

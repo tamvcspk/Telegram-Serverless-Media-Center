@@ -1,41 +1,47 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
-import { MatCardModule } from '@angular/material/card';
-import { MatDialog } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatStepperModule } from '@angular/material/stepper';
 import * as Comlink from 'comlink';
-import { firstValueFrom } from 'rxjs';
 import { createCoreWorkerClient } from '@tsmc/worker-host';
-import type { StateChannelCandidate, StateChannelChoice, TelegramUserSummary } from '@tsmc/shared-models';
 import { COUNTRY_DIAL_CODES, toE164 } from './country-codes';
-import { SyncStatus } from '../sync/sync-status';
-import { StateChannelResolutionDialog } from '../sync/state-channel-resolution-dialog/state-channel-resolution-dialog';
-import { ChannelIndex } from '../index/channel-index';
-import { Browse } from '../browse/browse';
 
-type LoginStatus = 'checking' | 'phone' | 'code' | 'password' | 'authenticated';
+type LoginStatus = 'checking' | 'phone' | 'code' | 'password';
+
+const API_ID_PATTERN = /^\d+$/;
+const API_HASH_PATTERN = /^[0-9a-fA-F]{32}$/;
 
 /**
- * Màn đăng nhập (F1.1, Màn hình 1 docs/ux-design.md). Wizard 3 bước: API_ID/
- * API_HASH + số điện thoại → mã xác nhận → mật khẩu 2FA (nếu có). Mỗi bước
- * chờ user nhập qua một callback Comlink-proxy được TelegramGateway.login gọi
- * ngược lại từ Core Worker (ADR-0003/0004) — xem libs/core-mtproto/src/gateway.ts.
- * `stepIndex` chỉ ánh xạ MỘT CHIỀU từ `status` sang chỉ số MatStepper — luồng
- * hoàn toàn do Core Worker dẫn dắt (không cho bấm lùi qua header), nên
- * KHÔNG bind `(selectedIndexChange)` ngược lại status.
+ * Màn đăng nhập (F1.1, Màn hình 1 mobile-first — docs/ux-design.md). Vertical
+ * `MatStepper` 2-3 bước: API_ID/API_HASH + số điện thoại → mã xác nhận →
+ * mật khẩu 2FA (nếu có). Mỗi bước chờ user nhập qua một callback
+ * Comlink-proxy được TelegramGateway.login gọi ngược lại từ Core Worker
+ * (ADR-0003/0004) — xem libs/core-mtproto/src/gateway.ts.
+ *
+ * KHÔNG còn nhánh 'authenticated' render tại chỗ (khác bản trước) — sau khi
+ * xác thực xong (dù bằng session cũ hay đăng nhập mới), component điều
+ * hướng sang `/home` (MainShell, xem shell/auth.guard.ts) thay vì tự vẽ
+ * Sync/Browse/Index. Login vì vậy không còn gọi `initSync()` — guard là nơi
+ * DUY NHẤT gọi, tránh gọi trùng khi user quay lại 'home' từ route khác.
+ *
+ * `stepIndex` ánh xạ MỘT CHIỀU từ `status` sang chỉ số MatStepper — luồng
+ * hoàn toàn do Core Worker dẫn dắt. `[linear]="false"` (không phải gate
+ * linear gốc của CdkStepper) — race điều kiện thật khi lái selectedIndex/
+ * completed bằng binding qua signal, chi tiết ở ADR-0016 addendum
+ * 2026-08-27.
  */
 @Component({
   selector: 'app-login',
-  imports: [MatButtonModule, MatCardModule, MatFormFieldModule, MatInputModule, MatStepperModule, SyncStatus, ChannelIndex, Browse],
+  imports: [MatButtonModule, MatFormFieldModule, MatInputModule, MatStepperModule],
   templateUrl: './login.html',
   styleUrl: './login.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class Login {
   private readonly client = createCoreWorkerClient();
-  private readonly dialog = inject(MatDialog);
+  private readonly router = inject(Router);
 
   private pendingCode: ((code: string) => void) | null = null;
   private pendingPassword: ((password: string) => void) | null = null;
@@ -44,11 +50,19 @@ export class Login {
   readonly defaultDialCode = COUNTRY_DIAL_CODES[0].dialCode;
 
   readonly status = signal<LoginStatus>('checking');
-  readonly user = signal<TelegramUserSummary | null>(null);
   readonly errorMessage = signal<string | null>(null);
   readonly passwordHint = signal<string | undefined>(undefined);
   readonly codeViaApp = signal(false);
   readonly submitting = signal(false);
+
+  // Giá trị sống của API_ID/API_HASH — CHỈ để tính formatValid (khoá/mở nhãn
+  // Bước 2 trong mockup, xem docs/ux-design.md "Bị khoá, sẽ mở sau B1"),
+  // KHÔNG dùng để submit (submit vẫn đọc thẳng từ template ref như cũ).
+  private readonly apiIdLive = signal('');
+  private readonly apiHashLive = signal('');
+  protected readonly credentialsValid = computed(
+    () => API_ID_PATTERN.test(this.apiIdLive().trim()) && API_HASH_PATTERN.test(this.apiHashLive().trim())
+  );
 
   protected readonly stepIndex = computed(() => {
     switch (this.status()) {
@@ -69,9 +83,7 @@ export class Login {
     try {
       const summary = await this.client.restoreSession();
       if (summary) {
-        this.user.set(summary);
-        this.status.set('authenticated');
-        void this.initSync();
+        await this.router.navigateByUrl('/home');
         return;
       }
     } catch (err) {
@@ -82,34 +94,12 @@ export class Login {
     this.status.set('phone');
   }
 
-  /**
-   * Dò/tạo kênh state + hydrate (ADR-0009/0014) — gọi sau khi đã xác thực,
-   * tách khỏi login()/restoreSession() để hai mối quan tâm không lẫn vào
-   * nhau. Không chặn UI: lỗi (mất mạng, v.v.) chỉ log, sync-status tự hiện
-   * lastError qua liveQuery khi retry ở lần forceFlush() kế tiếp.
-   */
-  private async initSync(): Promise<void> {
-    try {
-      await this.client.initSync(
-        Comlink.proxy({
-          chooseCandidate: (candidates: StateChannelCandidate[]) => this.chooseStateChannel(candidates)
-        })
-      );
-    } catch (err) {
-      console.warn('[login] initSync lỗi:', err);
-    }
+  onApiIdInput(value: string): void {
+    this.apiIdLive.set(value);
   }
 
-  private async chooseStateChannel(candidates: StateChannelCandidate[]): Promise<StateChannelChoice> {
-    const ref = this.dialog.open(StateChannelResolutionDialog, {
-      data: { candidates },
-      disableClose: true
-    });
-    const choice = await firstValueFrom(ref.afterClosed());
-    // disableClose:true + dialog chỉ close(choice) qua các nút thật —
-    // undefined về lý thuyết không xảy ra, nhưng vẫn cần trả một giá trị
-    // hợp lệ để không treo resolveStateChannel() phía Core Worker mãi mãi.
-    return choice ?? { kind: 'use', channelId: candidates[0].id };
+  onApiHashInput(value: string): void {
+    this.apiHashLive.set(value);
   }
 
   async onSubmitPhone(
@@ -122,11 +112,15 @@ export class Login {
     event.preventDefault();
     this.errorMessage.set(null);
 
-    const apiId = Number(apiIdRaw);
-    if (!apiId || !apiHash.trim() || !nationalNumber.trim()) {
-      this.errorMessage.set('Điền đầy đủ API_ID, API_HASH và số điện thoại.');
+    if (!this.credentialsValid()) {
+      this.errorMessage.set('API_ID phải là số, API_HASH phải là chuỗi hexa 32 ký tự.');
       return;
     }
+    if (!nationalNumber.trim()) {
+      this.errorMessage.set('Nhập số điện thoại.');
+      return;
+    }
+    const apiId = Number(apiIdRaw);
     const phoneNumber = toE164(dialCode, nationalNumber);
 
     this.submitting.set(true);
@@ -139,7 +133,7 @@ export class Login {
       // object chứa (vì bản thân object đó không có marker) → lỗi
       // "could not be cloned" (Chrome) / "the object cannot be cloned"
       // (Safari/iOS) — đã tái hiện thật trên cả hai nền tảng.
-      const summary = await this.client.login(
+      await this.client.login(
         { apiId, apiHash },
         phoneNumber,
         Comlink.proxy({
@@ -163,9 +157,7 @@ export class Login {
           }
         })
       );
-      this.user.set(summary);
-      this.status.set('authenticated');
-      void this.initSync();
+      await this.router.navigateByUrl('/home');
     } catch (err) {
       this.errorMessage.set(err instanceof Error ? err.message : 'Đăng nhập thất bại.');
       this.status.set('phone');
@@ -186,12 +178,5 @@ export class Login {
     this.errorMessage.set(null);
     this.pendingPassword?.(password);
     this.pendingPassword = null;
-  }
-
-  async onLogout(): Promise<void> {
-    await this.client.logout();
-    this.user.set(null);
-    this.errorMessage.set(null);
-    this.status.set('phone');
   }
 }
