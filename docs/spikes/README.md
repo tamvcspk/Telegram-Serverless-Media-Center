@@ -380,9 +380,9 @@ Tài khoản test, kênh "Group học tập" (private, nhỏ), file 1384 MB, DC 
 
 **Điểm an toàn cốt lõi:** script tự **tạo một kênh test mới** (`channels.CreateChannel`) cho mỗi lần chạy, không bao giờ đụng tới kênh có sẵn nào của bạn — khác SPIKE-02/04 (cần `--peer` trỏ vào kênh thật có sẵn để có đủ dữ liệu/tải mô phỏng). Ở đây không cần dữ liệu thật, chỉ cần MỘT kênh mà chính tài khoản test là creator (đúng điều kiện `isOwn` mà [ADR-0014 §4](../adr/0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md) yêu cầu) — tạo mới đảm bảo sạch tuyệt đối, không rủi ro pin/xoá nhầm nội dung đang dùng thật. Script mặc định tự xoá kênh test khi xong (`channels.DeleteChannel`); cờ `--keep` giữ lại để tự kiểm tra bằng mắt trong app Telegram trước khi xoá tay.
 
-> Spike đã đóng và số liệu đã ghi lại đầy đủ bên dưới — không còn cần chạy lại. Theo quy ước đã dùng cho SPIKE-01/02/03/04, mã nguồn `tools/spike-06/` sẽ được xoá SAU KHI được commit ít nhất một lần (để lịch sử còn trong git log) — chưa xoá ngay ở đây vì thư mục này chưa từng được commit lần nào.
+> **Mã nguồn đã xoá (2026-08-28)** sau khi spike đóng và số liệu đã ghi lại đầy đủ bên dưới — không còn cần chạy lại. Lịch sử mã nguồn vẫn còn trong git log (commit đã ghi ở lần đóng slice Ingest Editor). Phần "Cách chạy" dưới đây mô tả cách spike ĐÃ chạy, không còn thực thi được nữa.
 
-### Cách chạy
+### Cách chạy (lịch sử — mã nguồn đã xoá)
 
 ```bash
 cd tools/spike-06
