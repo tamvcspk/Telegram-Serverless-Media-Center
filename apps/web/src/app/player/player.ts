@@ -1,12 +1,32 @@
-import { ChangeDetectionStrategy, Component, computed, ElementRef, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, ElementRef, inject, signal, viewChild } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
-import { map } from 'rxjs';
+import { MatBottomSheet } from '@angular/material/bottom-sheet';
+import { MatSnackBar } from '@angular/material/snack-bar';
+import { firstValueFrom, from, map } from 'rxjs';
 import { createEmptySyncState } from '@tsmc/shared-models';
-import { getSyncState, liveQuery } from '@tsmc/core-storage';
+import { getMediaItem, getSyncState, liveQuery } from '@tsmc/core-storage';
 import { createCoreWorkerClient } from '@tsmc/worker-host';
-import { from } from 'rxjs';
 import { debugLog, debugLogLines, isDebugEnabled } from '../debug/debug-log';
+import { CompatWarningSheet, type CompatWarningSheetData } from './compat-warning-sheet/compat-warning-sheet';
+import { floodWaitNotice } from './flood-wait-notice';
+
+/**
+ * `ref` (username/invite link, `SourceRef.ref`) → link mở thẳng đúng tin
+ * nhắn đó trên Telegram — nút "Mở trên Telegram" ở `CompatWarningSheet`
+ * (Màn hình 5). Xử lý đồng nhất cả ba dạng `ref` đang tồn tại trong repo:
+ * `@username`, `t.me/username` (kênh cộng đồng), và `https://t.me/c/<id>`
+ * (kênh riêng tự sinh lúc chọn từ picker, xem `sources/sources.ts`).
+ */
+function buildTelegramDeepLink(ref: string, msgId: number): string {
+  const path = ref
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/^t\.me\//i, '')
+    .replace(/^@/, '')
+    .replace(/\/+$/, '');
+  return `https://t.me/${path}/${msgId}`;
+}
 
 /** Chỉ ghi lại vị trí xem dở tối đa mỗi khoảng này — timeupdate bắn ~4 lần/giây, ghi mỗi lần là quá nhiều event vào outbox (ADR-0009). */
 const PROGRESS_SAVE_INTERVAL_MS = 5000;
@@ -38,6 +58,8 @@ const SERVICE_WORKER_READY_TIMEOUT_MS = 5000;
 export class Player {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly bottomSheet = inject(MatBottomSheet);
+  private readonly snackBar = inject(MatSnackBar);
   private readonly client = createCoreWorkerClient();
   private readonly videoRef = viewChild<ElementRef<HTMLVideoElement>>('video');
 
@@ -45,6 +67,18 @@ export class Player {
 
   private readonly streamerReady = signal(false);
   protected readonly isReady = this.streamerReady.asReadonly();
+
+  // Cổng cảnh báo tương thích (Màn hình 5) — video chỉ thật sự gắn `src` khi
+  // CẢ SW đã sẵn sàng LẪN cổng này đã qua (compat undefined/full → qua ngay;
+  // partial/unplayable → chờ user chọn "Vẫn thử phát" ở CompatWarningSheet).
+  private readonly compatConfirmed = signal(false);
+  protected readonly isPlayable = computed(() => this.isReady() && this.compatConfirmed());
+
+  // Baseline chụp lúc component khởi tạo — effect() dưới đây chỉ show
+  // snackbar cho notice MỚI xuất hiện SAU thời điểm này, không phải notice
+  // còn sót lại từ một phiên phát trước đó (stream-bridge.ts sống xuyên suốt
+  // trang, floodWaitNotice không tự reset khi chuyển sang video khác).
+  private readonly initialFloodNotice = floodWaitNotice();
 
   protected readonly debugEnabled = isDebugEnabled();
   protected readonly debugLines = debugLogLines;
@@ -72,6 +106,41 @@ export class Player {
       debugLog(`Player mở: sourceId=${this.sourceId()} msgId=${this.msgId()} url=${this.streamUrl()}`);
     }
     void this.waitForServiceWorker();
+    void this.checkCompat();
+
+    effect(() => {
+      const notice = floodWaitNotice();
+      if (notice && notice !== this.initialFloodNotice) {
+        this.snackBar.open(notice.message, 'Đóng', { duration: 6000, verticalPosition: 'top' });
+      }
+    });
+  }
+
+  private async checkCompat(): Promise<void> {
+    const item = await getMediaItem(this.sourceId(), this.msgId());
+    const compat = item?.compat;
+    if (compat !== 'partial' && compat !== 'unplayable') {
+      this.compatConfirmed.set(true);
+      return;
+    }
+
+    const state = await getSyncState();
+    const source = state.sources[this.sourceId()];
+    const deepLink = source ? buildTelegramDeepLink(source.ref, this.msgId()) : null;
+
+    const sheetRef = this.bottomSheet.open<CompatWarningSheet, CompatWarningSheetData, 'play' | 'telegram'>(CompatWarningSheet, {
+      disableClose: true,
+      data: { compat, deepLink }
+    });
+    const result = await firstValueFrom(sheetRef.afterDismissed());
+    if (result === 'play') {
+      this.compatConfirmed.set(true);
+      return;
+    }
+    if (result === 'telegram' && deepLink) {
+      window.open(deepLink, '_blank', 'noopener');
+    }
+    this.close();
   }
 
   private async waitForServiceWorker(): Promise<void> {

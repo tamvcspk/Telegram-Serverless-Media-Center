@@ -8,6 +8,7 @@ import type {
 } from '@tsmc/shared-models';
 import { debugLog, isDebugEnabled } from '../debug/debug-log';
 import { describeTopLevelBoxes } from '../debug/mp4-sniff';
+import { reportFloodWait } from './flood-wait-notice';
 
 function isStreamChunkRequest(data: unknown): data is StreamChunkRequestMessage {
   return typeof data === 'object' && data !== null && (data as { type?: unknown }).type === 'tsmc-stream-chunk-request';
@@ -91,6 +92,13 @@ export function initStreamBridge(): void {
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : 'Lỗi không xác định khi tải chunk.';
         debugLog(`fetchChunk ERROR msgId=${data.msgId} offset=${data.offset} corr=${data.correlationId.slice(0, 8)}: ${message}`);
+        // `.name` sống sót qua Comlink (transferHandler throw của comlink@4
+        // copy message/name/stack, xem node_modules/comlink) — `.seconds`
+        // riêng của FloodWaitTooLongError thì KHÔNG, nhưng message đã là câu
+        // hoàn chỉnh cho user (download-engine.ts), không cần số giây riêng.
+        if (err instanceof Error && err.name === 'FloodWaitTooLongError') {
+          reportFloodWait(message);
+        }
         const response: StreamChunkResponseMessage = { ok: false, error: message };
         port.postMessage(response);
       });

@@ -1,6 +1,6 @@
 <section class="player">
   <button type="button" class="close" (click)="close()">Đóng</button>
-  @if (isReady()) {
+  @if (isPlayable()) {
     <video
       #video
       class="video"

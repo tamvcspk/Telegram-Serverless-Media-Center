@@ -1,0 +1,11 @@
+<div class="compat-sheet">
+  <h2>⚠️ Cảnh báo tương thích</h2>
+  <p>{{ warningText }}</p>
+
+  <div class="actions">
+    @if (data.deepLink) {
+      <button mat-stroked-button type="button" (click)="onOpenTelegram()">Mở trên Telegram</button>
+    }
+    <button mat-flat-button type="button" (click)="onPlayAnyway()">Vẫn thử phát</button>
+  </div>
+</div>
