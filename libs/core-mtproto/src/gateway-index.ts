@@ -6,7 +6,7 @@
 // IndexGateway (libs/core-index/src/gateway-port.ts), không import type đó
 // ở đây (cùng quy ước với gateway-sync.ts).
 import bigInt from 'big-integer';
-import { Api, type TelegramClient } from 'telegram';
+import { Api, client as gramjsClientNs, type TelegramClient } from 'telegram';
 
 // Tên file catalog theo catalog-spec.md §"Đặt ở đâu": `catalog.v1.json`,
 // hoặc mảnh `catalog.v1.part1.json`/`catalog.v1.index.json` — MVP slice này
@@ -417,6 +417,35 @@ export function createIndexGatewayMethods(getClient: () => TelegramClient) {
         return false;
       }
       return result.participant instanceof Api.ChannelParticipantAdmin || result.participant instanceof Api.ChannelParticipantCreator;
+    },
+
+    /**
+     * Ingest Editor (Màn hình 6) — kiểm tra quyền ghi (`isOwn`) đã làm ở tầng
+     * trên (`publish-catalog.ts`), hàm này chỉ lo upload/ghim/dọn. Tên file
+     * PHẢI khớp `CATALOG_FILENAME_RE` phía trên để lần đọc kế tiếp
+     * (`getPinnedCatalogDocument`) nhận ra đây là catalog, không phải file
+     * ghim ngẫu nhiên nào khác. Cùng khuôn `sendFile → pinMessage →
+     * deleteMessages` với `publishSnapshot()` (gateway-sync.ts, ADR-0009) —
+     * ghim TRƯỚC, xoá catalog CŨ (nếu có) SAU, không để kênh media thiếu
+     * catalog dù chỉ một khoảnh khắc giữa hai bước.
+     */
+    async publishCatalogDocument(channelId: string, json: string, previousMsgId?: number): Promise<{ msgId: number }> {
+      const client = getClient();
+      const channel = await resolveChannelEntity(channelId);
+      const bytes = new TextEncoder().encode(json);
+
+      const message = await client.sendFile(channel, {
+        // CustomFile đọc `.length`/index như mảng byte — Uint8Array tương
+        // thích runtime dù type khai báo Buffer (cùng ép kiểu như
+        // publishSnapshot(), xem comment ở gateway-sync.ts).
+        file: new gramjsClientNs.uploads.CustomFile('catalog.v1.json', bytes.length, '', bytes as never),
+        forceDocument: true
+      });
+      await client.pinMessage(channel, message.id, { notify: false });
+      if (previousMsgId) {
+        await client.deleteMessages(channel, [previousMsgId], { revoke: true });
+      }
+      return { msgId: message.id };
     }
   };
 }

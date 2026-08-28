@@ -16,8 +16,12 @@ import { authGuard } from './shell/auth.guard';
 //                       onConcurrencyChange) không ném "gọi trước init()"
 //                       nếu user vào thẳng /settings bằng URL mà chưa từng
 //                       qua /home trong tab này.
-// Route Metadata Editor (sub-page, Màn hình 6) chưa thêm — chưa có UI thật
-// để route tới (xem CLAUDE.md).
+//   - 'metadata/...'  : Sub-page (Màn hình 6, Ingest Editor), cùng nhóm với
+//                       'settings' — header quay lại, KHÔNG Bottom Nav, vào
+//                       qua nút "✏️" trên mỗi row của Browse. authGuard cùng
+//                       lý do: cần session, và saveMediaMetadata() gọi
+//                       gateway.resolveIndexChannel() qua Core Worker chứ
+//                       không qua syncEngine, nhưng vẫn cần session hợp lệ.
 export const routes: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'login' },
   {
@@ -39,6 +43,11 @@ export const routes: Routes = [
     path: 'settings',
     canActivate: [authGuard],
     loadComponent: () => import('./settings/settings').then((m) => m.Settings)
+  },
+  {
+    path: 'metadata/:sourceId/:msgId',
+    canActivate: [authGuard],
+    loadComponent: () => import('./metadata-editor/metadata-editor').then((m) => m.MetadataEditor)
   },
   {
     path: 'player/:sourceId/:msgId',

@@ -56,6 +56,8 @@ export interface IndexStoragePort {
   /** Tier delta/full — cộng dồn theo msgId. */
   upsertMediaItems(sourceId: string, items: StoredMediaItem[]): Promise<void>;
   deleteMediaBySource(sourceId: string): Promise<void>;
+  /** Toàn bộ item hiện có của nguồn — dùng để đóng gói lại catalog.json khi publish (Ingest Editor, Màn hình 6, xem publish-catalog.ts). */
+  listMediaItems(sourceId: string): Promise<StoredMediaItem[]>;
   /** Tổng số item THẬT của nguồn (nguồn sự thật cho `itemCount` — không tự cộng dồn thủ công, tránh lệch khi quét lại/chồng lấn). */
   countMediaItems(sourceId: string): Promise<number>;
 

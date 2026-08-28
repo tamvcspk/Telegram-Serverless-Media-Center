@@ -15,3 +15,5 @@ export { tryCatalogTier } from './catalog-tier';
 export type { CatalogTierResult } from './catalog-tier';
 export { parseFilenameFallback } from './filename-parser';
 export { classifyFromCache, ensureChannelAdminListCached, resolvePublisherTrust } from './trust';
+export { NotChannelOwnerError } from './publish-catalog';
+export type { CatalogMetadataPatch } from './publish-catalog';

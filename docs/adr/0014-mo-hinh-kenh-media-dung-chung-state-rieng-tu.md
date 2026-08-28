@@ -95,3 +95,33 @@ Bảng đầy đủ về hai tầng dữ liệu (kèm ví dụ cụ thể từng
 > Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**.
 
 Bước 5 của quy trình dò/tạo kênh (`channels.CreateChannel` với `broadcast:true`, `about` bắt đầu `tsmc-state/1`) đã kiểm chứng thành công trên tài khoản Telegram thật lúc đăng nhập lần đầu trên staging — kênh `TSMC State` tạo đúng, dò lại được qua `about` prefix. Chưa có dịp kiểm chứng thật nhánh "tìm thấy nhiều hơn một" (cần dàn dựng ≥2 kênh state thủ công) hay nhánh dán link (`t.me/c/<id>`) — cả hai vẫn chỉ được phủ bởi test có mock, xem `libs/core-sync/src/hydrate.spec.ts`.
+
+## Cập nhật sau khi Accepted (2026-08-28, slice Ingest Editor — Metadata Editor, Màn hình 6)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**.
+
+Mục 4 ("Kho Cá Nhân... chỉ khác cờ `writable: true`") mô tả một cờ, nhưng tới trước slice này chưa có dòng code nào đọc/ghi theo nó — `docs/ux-design.md` Màn hình 6 là UI THẬT đầu tiên **ghi** vào kênh media qua MTProto của chính user (đúng path 3 "Chế độ Admin trong web app" của [ADR-0013](./0013-bot-dong-hanh-va-pipeline-ingest.md) — không đụng upload/probe/remux, chỉ sửa metadata của item đã có sẵn).
+
+**"writable" hoá ra không cần một field lưu trữ riêng.** `ResolvedIndexChannel.isOwn` (đã có từ slice Index F2 — `channel.creator === true`, `libs/core-mtproto/src/gateway-index.ts`) chính là cờ đó. RPC `checkSourceWritable(sourceId)` (`libs/worker-host/src/core-worker.ts`) resolve LẠI mỗi lần UI cần biết, không persist vào `IndexMetaRecord`/`SourceRef` — trạng thái admin luôn phản ánh đúng hiện tại, không có nguy cơ lệch/stale mà một cờ cache sẽ mang theo.
+
+**Đường ghi mới** — `libs/core-mtproto/src/gateway-index.ts` thêm `publishCatalogDocument(channelId, json, previousMsgId?)`: `sendFile → pinMessage → deleteMessages` (xoá catalog CŨ), cùng khuôn `publishSnapshot()` của `gateway-sync.ts` ([ADR-0009](./0009-dong-bo-state-event-log-va-snapshot.md)) nhưng ghi lên **kênh media**, không phải kênh state — đúng ranh giới §3 của ADR này. `libs/core-index/src/publish-catalog.ts` (mới) chặn NGAY bằng `NotChannelOwnerError` nếu `!channel.isOwn`, trước khi đụng gateway; đóng gói lại **TOÀN BỘ** item hiện có của nguồn (không phải diff — catalog luôn là ảnh chụp đầy đủ, đúng ngữ nghĩa `replaceMediaItems` ở tier đọc), sanitize lại qua `parseCatalogItem` (Valibot) trước khi ghi.
+
+**Không ghi kép.** RPC `saveMediaMetadata()` publish xong tự gọi lại `scanSourceAndReindex()` — catalog vừa ghi được ĐỌC LẠI qua đúng T1 `catalog-tier.ts` đã có sẵn, không có code nào ghi tắt vào Dexie song song với ghi Telegram. Telegram luôn là nguồn sự thật duy nhất; local chỉ là cache được làm mới bằng cách đọc lại, không phải ghi trực tiếp.
+
+**Chưa kiểm chứng bằng thiết bị/kênh thật.** Đây là lần đầu tiên `sendFile`/`pinMessage`/`deleteMessages` được gọi cho **kênh media** — trước đó ba hàm này chỉ có test đơn vị với fake gateway (`libs/core-mtproto/src/gateway-index.spec.ts`, `libs/core-index/src/publish-catalog.spec.ts`), và ngay cả `publishSnapshot()` (kênh state, cùng khuôn) cũng **chưa** được xác nhận trên thiết bị thật (xem addendum 2026-08-24 ở [ADR-0009](./0009-dong-bo-state-event-log-va-snapshot.md)). Rủi ro được đánh giá thấp vì cùng code path đã kiểm chứng cho phần đọc (`getMessages`/`getEntity`/`downloadMedia`), nhưng "cùng code path" không phải là "đã test".
+
+**Giới hạn chưa xử lý:** nguồn có catalog rất lớn có thể khiến `JSON.stringify(envelope)` vượt giới hạn dung lượng file Telegram cho phép — chưa phân mảnh (`catalog-spec.md` có nhắc `catalog.v1.partN.json` cho trường hợp này, nhưng slice này chỉ ghi một file đơn, đúng giới hạn "MVP chỉ đọc/ghi file đơn" đã ghi ở đầu `gateway-index.ts`).
+
+## Cập nhật sau khi Accepted (2026-08-28, SPIKE-06)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**.
+
+[SPIKE-06](../spikes/README.md#spike-06) đã đóng **ĐẠT** trên tài khoản Telegram thật (2026-08-28) — gỡ đúng caveat "chưa kiểm chứng bằng thiết bị/kênh thật" mà addendum "slice Ingest Editor" ở trên đã ghi cho `publishCatalogDocument()`. Kênh test tự sinh, đã tự xoá sau khi chạy. Cả 5 tiêu chí đạt: tạo kênh (`creator=true`); `sendFile`+`pinMessage` catalog A rồi đọc lại khớp byte-chính-xác; `sendFile`+`pinMessage` catalog B + `deleteMessages(A)` rồi đọc lại khớp B (pin chuyển đúng sang bản mới); message A xác nhận bị xoá thật (không phải chỉ unpin); toàn bộ chuỗi chạy tự động, không cần can thiệp tay.
+
+**Không đổi:** quyết định gốc của ADR này (mô hình kênh, cờ `writable`/`isOwn`) vẫn đứng nguyên — SPIKE-06 chỉ xác nhận cơ chế ghi thực thi đúng thiết kế, không phát sinh thay đổi kiến trúc nào.
+
+**Phạm vi bằng chứng — đọc cho đúng, đừng suy rộng quá mức:** một lần chạy, một tài khoản, một kênh test mới tạo/nhỏ/đơn publisher. Đủ mạnh cho câu hỏi **đúng/sai của một chuỗi API call xác định** (khác câu hỏi ngưỡng phụ thuộc tài khoản/thời điểm như `FLOOD_WAIT` ở SPIKE-04, nơi một lần chạy sạch không chứng minh được gì về ngưỡng) — nếu chuỗi `sendFile → pinMessage → deleteMessages` có lỗi thiết kế, nó sẽ lộ ra ở MỌI lần chạy bình thường, không phải hiện tượng cần nhiều mẫu mới thấy.
+
+**Chưa phủ, và là giới hạn thật đã biết:** catalog rất lớn nhiều item; kênh nhiều publisher; và quan trọng nhất — **`FLOOD_WAIT` xảy ra GIỮA CHỪNG chuỗi 3 RPC ghi liên tiếp**. Nếu `FLOOD_WAIT` (hoặc mất mạng) xảy ra sau `sendFile` nhưng trước `pinMessage`, hoặc sau `pinMessage` nhưng trước `deleteMessages`, kênh media có thể rơi vào trạng thái dở dang (catalog mới đã gửi nhưng chưa ghim, hoặc đã ghim nhưng bản catalog cũ chưa bị xoá — tồn đọng như rác). `publishCatalogDocument()`/`publishCatalogMetadata()` hiện **không có** logic retry/rollback cho tình huống này — lỗi giữa chừng sẽ ném ra ngoài (người dùng thấy Lưu thất bại) nhưng không tự dọn phần đã làm được. Đây là giới hạn chưa xử lý, không phải điều SPIKE-06 đặt ra để kiểm chứng; để dành cho slice sau nếu thực tế cho thấy cần.
+
+Đã gỡ dòng rủi ro tương ứng ở [architecture.md §7](../architecture.md#7-rủi-ro-lớn-nhất--trạng-thái-kiểm-chứng) (đánh dấu gạch ngang, 🟢).

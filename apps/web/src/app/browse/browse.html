@@ -81,6 +81,20 @@
             <path d="M6 3.5h12a.5.5 0 0 1 .5.5v17l-6.5-4-6.5 4v-17a.5.5 0 0 1 .5-.5Z" />
           </svg>
         </button>
+        <button
+          mat-icon-button
+          type="button"
+          class="edit-btn"
+          aria-label="Sửa metadata"
+          title="Sửa metadata"
+          [routerLink]="['/metadata', row.sourceId, row.msgId]"
+          (click)="$event.stopPropagation()"
+          (keydown)="$event.stopPropagation()"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 20.5l1-4L16.5 5l3 3L8 19.5l-4 1Z" />
+          </svg>
+        </button>
       </div>
     </cdk-virtual-scroll-viewport>
   }

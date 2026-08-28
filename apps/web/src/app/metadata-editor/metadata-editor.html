@@ -1,0 +1,49 @@
+<section class="metadata-editor" aria-label="Sửa metadata">
+  <header class="topbar">
+    <button mat-icon-button type="button" aria-label="Quay lại" (click)="close()">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 18l-6-6 6-6" />
+      </svg>
+    </button>
+    <h1>⚙️ Sửa metadata</h1>
+  </header>
+
+  @if (writable() === null) {
+    <p class="hint">Đang kiểm tra quyền chỉnh sửa…</p>
+  } @else if (writable() === false) {
+    <p class="error">
+      Bạn không phải chủ kênh media này — chỉ Kho Cá Nhân (kênh do chính bạn tạo) mới sửa được metadata.
+    </p>
+  } @else if (!item()) {
+    <p class="hint">Không tìm thấy phim này trong dữ liệu đã quét — thử quét lại nguồn ở tab "Nguồn".</p>
+  } @else {
+    <form class="form" (submit)="$event.preventDefault(); onSave()">
+      <mat-form-field appearance="outline">
+        <mat-label>Tiêu đề</mat-label>
+        <input matInput #titleInput [value]="title()" (input)="onTitleInput(titleInput.value)" />
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Năm</mat-label>
+        <input matInput #yearInput type="number" [value]="year()" (input)="onYearInput(yearInput.value)" />
+      </mat-form-field>
+
+      <fieldset class="compat-group">
+        <legend>Khả năng phát Web (Compat)</legend>
+        <mat-radio-group [value]="compat()" (change)="onCompatChange($event.value)">
+          <mat-radio-button value="full">Full (MP4/H.264)</mat-radio-button>
+          <mat-radio-button value="partial">Partial (HEVC/AV1)</mat-radio-button>
+          <mat-radio-button value="unplayable">Unplayable (MKV)</mat-radio-button>
+        </mat-radio-group>
+      </fieldset>
+
+      @if (saveError(); as err) {
+        <p class="error">{{ err }}</p>
+      }
+
+      <div class="bottom-bar">
+        <button mat-flat-button color="primary" type="submit" [disabled]="saving()">💾 Lưu catalog.json</button>
+      </div>
+    </form>
+  }
+</section>

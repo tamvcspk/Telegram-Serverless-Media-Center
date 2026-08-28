@@ -7,7 +7,10 @@ const mocks = vi.hoisted(() => ({
   getDialogs: vi.fn(),
   invoke: vi.fn(),
   getMessages: vi.fn(),
-  downloadMedia: vi.fn()
+  downloadMedia: vi.fn(),
+  sendFile: vi.fn(),
+  pinMessage: vi.fn(),
+  deleteMessages: vi.fn()
 }));
 
 vi.mock('big-integer', () => ({
@@ -111,14 +114,26 @@ vi.mock('telegram', () => {
   class FakeChannelParticipantAdmin {}
   class FakeChannelParticipantCreator {}
   class FakeChannelParticipantPlain {}
+  class FakeCustomFile {
+    constructor(
+      public name: string,
+      public size: number,
+      public path: string,
+      public buffer: unknown
+    ) {}
+  }
   class FakeTelegramClient {
     getEntity = mocks.getEntity;
     getDialogs = mocks.getDialogs;
     invoke = mocks.invoke;
     getMessages = mocks.getMessages;
     downloadMedia = mocks.downloadMedia;
+    sendFile = mocks.sendFile;
+    pinMessage = mocks.pinMessage;
+    deleteMessages = mocks.deleteMessages;
   }
   return {
+    client: { uploads: { CustomFile: FakeCustomFile } },
     Api: {
       Channel: FakeChannel,
       User: FakeUser,
@@ -456,5 +471,54 @@ describe('@tsmc/core-mtproto createIndexGatewayMethods', () => {
 
     await expect(methods.diagnoseChannel('@a_user', 100)).rejects.toThrow(/không phải kênh/);
     expect(mocks.getMessages).not.toHaveBeenCalled();
+  });
+
+  it('publishCatalogDocument(): sendFile → pinMessage → deleteMessages, ĐÚNG THỨ TỰ (ghim trước, xoá catalog cũ sau) — cùng khuôn publishSnapshot()', async () => {
+    const client = await makeClient();
+    const methods = createIndexGatewayMethods(() => client);
+    mocks.getEntity.mockResolvedValueOnce(makeChannel({ id: 1 }));
+
+    const order: string[] = [];
+    mocks.sendFile.mockImplementationOnce(async () => {
+      order.push('sendFile');
+      return { id: 55 };
+    });
+    mocks.pinMessage.mockImplementationOnce(async () => {
+      order.push('pinMessage');
+    });
+    mocks.deleteMessages.mockImplementationOnce(async () => {
+      order.push('deleteMessages');
+    });
+
+    const result = await methods.publishCatalogDocument('1', '{"spec":"tsmc-catalog/1"}', 42);
+
+    expect(result).toEqual({ msgId: 55 });
+    expect(order).toEqual(['sendFile', 'pinMessage', 'deleteMessages']);
+    expect(mocks.pinMessage).toHaveBeenCalledWith(expect.anything(), 55, { notify: false });
+    expect(mocks.deleteMessages).toHaveBeenCalledWith(expect.anything(), [42], { revoke: true });
+  });
+
+  it('publishCatalogDocument(): previousMsgId rỗng (nguồn chưa từng có catalog) → KHÔNG gọi deleteMessages', async () => {
+    const client = await makeClient();
+    const methods = createIndexGatewayMethods(() => client);
+    mocks.getEntity.mockResolvedValueOnce(makeChannel({ id: 1 }));
+    mocks.sendFile.mockResolvedValueOnce({ id: 1 });
+
+    await methods.publishCatalogDocument('1', '{}');
+
+    expect(mocks.deleteMessages).not.toHaveBeenCalled();
+  });
+
+  it('publishCatalogDocument(): tên file khớp CATALOG_FILENAME_RE (catalog.v1.json) — để lượt đọc kế tiếp nhận ra đây là catalog', async () => {
+    const client = await makeClient();
+    const methods = createIndexGatewayMethods(() => client);
+    mocks.getEntity.mockResolvedValueOnce(makeChannel({ id: 1 }));
+    mocks.sendFile.mockResolvedValueOnce({ id: 1 });
+
+    await methods.publishCatalogDocument('1', '{}');
+
+    const call = mocks.sendFile.mock.calls[0][1] as { file: { name: string }; forceDocument: boolean };
+    expect(call.file.name).toBe('catalog.v1.json');
+    expect(call.forceDocument).toBe(true);
   });
 });

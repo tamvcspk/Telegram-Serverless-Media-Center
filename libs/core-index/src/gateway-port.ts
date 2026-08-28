@@ -67,4 +67,14 @@ export interface IndexGateway {
    * thành viên — USER_NOT_PARTICIPANT).
    */
   checkPublisherIsAdmin(channelId: string, publisherId: string): Promise<boolean | null>;
+  /**
+   * Ghi/ghim `catalog.json` mới lên kênh media — Ingest Editor (Màn hình 6,
+   * ADR-0013 §3 "Chế độ Admin trong web app"). Gọi tầng trên (publish-
+   * catalog.ts) đã tự chặn khi `!channel.isOwn` (ADR-0014 §4 "Kho Cá Nhân"),
+   * hàm này KHÔNG tự kiểm tra lại quyền — chỉ lo phần upload/ghim/dọn.
+   * Ghim message MỚI TRƯỚC, xoá `previousMsgId` (catalog cũ, nếu có) SAU —
+   * cùng thứ tự "không để trạng thái trung gian thiếu dữ liệu" của
+   * `publishSnapshot()` (core-sync, ADR-0009).
+   */
+  publishCatalogDocument(channelId: string, json: string, previousMsgId?: number): Promise<{ msgId: number }>;
 }

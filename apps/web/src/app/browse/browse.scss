@@ -130,7 +130,8 @@
   }
 }
 
-.collection-btn {
+.collection-btn,
+.edit-btn {
   flex: none;
   color: var(--mat-sys-on-surface-variant, #666);
 }

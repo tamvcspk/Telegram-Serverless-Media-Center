@@ -59,6 +59,8 @@ export interface TelegramGateway {
   checkPublisherIsAdmin(channelId: string, publisherId: string): Promise<boolean | null>;
   /** Chẩn đoán — không lọc gì cả, xem comment ChannelDiagnosticMessage (gateway-index.ts). Chỉ debug UI gọi. */
   diagnoseChannel(ref: string, limit: number): Promise<ChannelDiagnosticMessage[]>;
+  /** Ingest Editor (Màn hình 6) — xem comment đầy đủ ở gateway-index.ts. */
+  publishCatalogDocument(channelId: string, json: string, previousMsgId?: number): Promise<{ msgId: number }>;
 
   // Phần dưới đây khớp shape @tsmc/core-download DownloadGateway
   // (gateway-port.ts) — cùng lý do KHÔNG import type đó ở đây như hai nhóm

@@ -1,7 +1,7 @@
 import * as Comlink from 'comlink';
 import { createTelegramGateway } from '@tsmc/core-mtproto';
 import { createSyncEngine, type SyncGateway, type SyncStoragePort } from '@tsmc/core-sync';
-import { createIndexEngine, type IndexGateway, type IndexStoragePort } from '@tsmc/core-index';
+import { createIndexEngine, type CatalogMetadataPatch, type IndexGateway, type IndexStoragePort } from '@tsmc/core-index';
 import { createSearchEngine, type SearchEngine } from '@tsmc/core-search';
 import { createDownloadEngine, DEFAULT_MAX_CONCURRENCY, HARD_CEILING_CONCURRENCY, type DownloadGateway } from '@tsmc/core-download';
 import {
@@ -81,7 +81,8 @@ const indexStorage: IndexStoragePort = {
   updateMediaItemTrust,
   deleteMediaItem,
   getPublisherTrust,
-  putPublisherTrust
+  putPublisherTrust,
+  listMediaItems: listMediaBySource
 };
 
 // TelegramGateway (core-mtproto) khai báo trực tiếp các method khớp shape
@@ -102,19 +103,27 @@ const downloadEngine = createDownloadEngine(gateway as unknown as DownloadGatewa
 // cho mỗi sub-chunk trong lúc một phim đang phát — chỉ resolve một lần cho
 // mỗi nguồn trong vòng đời Core Worker này.
 const channelIdBySource = new Map<string, string>();
-async function resolveChannelIdForSource(sourceId: string): Promise<string> {
-  const cached = channelIdBySource.get(sourceId);
-  if (cached) {
-    return cached;
-  }
+
+// Dùng chung bởi resolveChannelIdForSource() (Playback) và các RPC Ingest
+// Editor (Màn hình 6, sourceId → ref trước khi gọi indexEngine).
+async function requireSourceRef(sourceId: string): Promise<string> {
   const state = await getSyncState();
   const source = state.sources[sourceId];
   if (!source || source.removed) {
     throw new Error(`Nguồn "${sourceId}" không tồn tại hoặc đã bị xoá.`);
   }
-  const channel = await gateway.resolveIndexChannel(source.ref);
+  return source.ref;
+}
+
+async function resolveChannelIdForSource(sourceId: string): Promise<string> {
+  const cached = channelIdBySource.get(sourceId);
+  if (cached) {
+    return cached;
+  }
+  const ref = await requireSourceRef(sourceId);
+  const channel = await gateway.resolveIndexChannel(ref);
   if (!channel) {
-    throw new Error(`Không resolve được kênh Telegram cho nguồn "${sourceId}" (ref "${source.ref}").`);
+    throw new Error(`Không resolve được kênh Telegram cho nguồn "${sourceId}" (ref "${ref}").`);
   }
   channelIdBySource.set(sourceId, channel.id);
   return channel.id;
@@ -273,6 +282,21 @@ const api = {
   // resolveItemTrust() + trust.ts. UI gọi cái này, KHÔNG gọi lại scanSource()
   // để "verify" — scanSource() không bao giờ tra cứu theo từng publisher.
   resolveItemTrust: (sourceId: string, ref: string, msgId: number) => resolveItemTrustAndReindex(sourceId, ref, msgId),
+
+  // Ingest Editor (Màn hình 6, ADR-0013 §3/ADR-0014 §4) — chỉ Kho Cá Nhân
+  // (kênh do chính tài khoản này tạo) mới sửa được. UI gọi cái này TRƯỚC khi
+  // cho nhập liệu, không đợi tới lúc Lưu mới báo "không có quyền".
+  checkSourceWritable: async (sourceId: string) => indexEngine.checkWritable(await requireSourceRef(sourceId)),
+  // Đóng gói lại TOÀN BỘ catalog.json của nguồn (không phải diff) rồi ghim
+  // đè lên kênh media — xem core-index/publish-catalog.ts. Re-scan + reindex
+  // NGAY sau khi publish thành công (dùng lại scanSourceAndReindex ở trên)
+  // để Browse/tìm kiếm phản ánh đúng ngay, không cần user tự bấm "Quét" lại.
+  async saveMediaMetadata(sourceId: string, msgId: number, patch: CatalogMetadataPatch) {
+    const ref = await requireSourceRef(sourceId);
+    await indexEngine.publishCatalogMetadata(sourceId, ref, msgId, patch);
+    return scanSourceAndReindex(sourceId, ref);
+  },
+
   // Tìm kiếm (F3, ADR-0008) — chỉ gọi khi ô tìm kiếm CÓ nội dung; duyệt
   // không gõ gì đọc thẳng IndexedDB qua liveQuery (đường đọc), không qua RPC.
   searchMedia: async (query: string, opts?: { sourceId?: string; limit?: number }) => (await getSearchEngine()).search(query, opts),

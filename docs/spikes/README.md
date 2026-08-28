@@ -11,6 +11,7 @@ Quy tắc: **một spike chỉ đóng khi có số liệu từ thiết bị th�
 | [SPIKE-03](#spike-03) | Bundle GramJS nặng bao nhiêu, TTI ra sao? | [0003](../adr/0003-chon-thu-vien-mtproto-gramjs.md) | 🟢 Đạt (236 KB brotli, ~110 ms) — 🔴 nhưng phát hiện `telegram` đã bị archive, cần bạn quyết hướng đi |
 | [SPIKE-04](#spike-04) | Tốc độ tải thực tế và ngưỡng `FLOOD_WAIT` | [0006](../adr/0006-download-pipeline-dc-pool-flood-wait.md) | 🟡 **Đã đóng (chấp nhận)** — ~1.1 GB tải liên tục ở mức 4/8 request đồng thời, 0 lần gặp `FLOOD_WAIT`; trần thật chưa lộ ra nhưng đủ bằng chứng cho use-case phát phim thật |
 | [SPIKE-05](#spike-05) | Angular Material + CDK ăn bao nhiêu ngân sách app shell? | [0016](../adr/0016-angular-material-va-cdk.md) | ⏳ Chưa dựng — chạy ngay sau khi scaffold |
+| [SPIKE-06](#spike-06) | Ghi `catalog.json` lên kênh media qua MTProto thật (`sendFile`→`pinMessage`→`deleteMessages`) có đúng như thiết kế không? | [0014](../adr/0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md), [0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md), [0009](../adr/0009-dong-bo-state-event-log-va-snapshot.md) | 🟢 **Đạt (2026-08-28)** — cả 5 tiêu chí A-E đạt trên tài khoản thật, publish/update/xoá đều đúng như thiết kế |
 
 ---
 
@@ -362,3 +363,82 @@ Tài khoản test, kênh "Group học tập" (private, nhỏ), file 1384 MB, DC 
 **Nếu vượt ngưỡng:** giảm dần theo thứ tự — bỏ theme dựng sẵn, thay component Material bằng CDK + CSS tự viết ở những chỗ giao diện đơn giản, `@defer` các component chỉ dùng trong dialog/cài đặt.
 
 **Chưa dựng** — chạy ngay sau khi scaffold workspace, vì cần một app thật để đo.
+
+---
+
+## SPIKE-06
+
+**Trạng thái:** 🟢 **Đã chạy, ĐẠT (2026-08-28)** — xem "Kết quả" và "Đã chốt" bên dưới.
+
+**Câu hỏi:** `publishCatalogDocument()` (`libs/core-mtproto/src/gateway-index.ts`, slice Ingest Editor — Màn hình 6) — chuỗi `sendFile → pinMessage → deleteMessages` lên **kênh media** thật — có hoạt động đúng như thiết kế không? Cụ thể: publish lần đầu có đọc lại đúng nội dung không, và một chu trình "sửa rồi Lưu lại" (publish lần hai, xoá bản cũ) có thật sự chuyển pin sang bản mới VÀ xoá sạch bản cũ không (không phải chỉ unpin, để lại rác)?
+
+**Vì sao quan trọng:** [ADR-0014 § Cập nhật sau khi Accepted (2026-08-28)](../adr/0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md#cập-nhật-sau-khi-accepted-2026-08-28-slice-ingest-editor--metadata-editor-màn-hình-6) ghi rõ: đây là lần đầu tiên `sendFile`/`pinMessage`/`deleteMessages` được gọi cho **kênh media** trong toàn bộ codebase — trước đó ba hàm này (dùng chung khuôn với `publishSnapshot()`, [ADR-0009](../adr/0009-dong-bo-state-event-log-va-snapshot.md)) chỉ có test đơn vị với fake gateway. Nếu đường ghi này hỏng theo cách âm thầm (vd pin sai message, xoá nhầm, hoặc để lại 2 catalog cùng ghim), user sẽ mất một phần metadata của chính Kho Cá Nhân họ — một thao tác **ghi thật lên tài khoản Telegram thật**, không phải lỗi đọc có thể sửa bằng quét lại.
+
+### Bàn thử nghiệm
+
+`tools/spike-06/` — script Node độc lập, gọi thẳng GramJS tầng thấp (không qua `libs/core-mtproto`/`libs/core-index`, cùng lý do tách như SPIKE-02/SPIKE-04: nếu spike hỏng, biết chắc là hành vi giao thức/tài khoản chứ không phải bug ở pipeline thật).
+
+**Điểm an toàn cốt lõi:** script tự **tạo một kênh test mới** (`channels.CreateChannel`) cho mỗi lần chạy, không bao giờ đụng tới kênh có sẵn nào của bạn — khác SPIKE-02/04 (cần `--peer` trỏ vào kênh thật có sẵn để có đủ dữ liệu/tải mô phỏng). Ở đây không cần dữ liệu thật, chỉ cần MỘT kênh mà chính tài khoản test là creator (đúng điều kiện `isOwn` mà [ADR-0014 §4](../adr/0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md) yêu cầu) — tạo mới đảm bảo sạch tuyệt đối, không rủi ro pin/xoá nhầm nội dung đang dùng thật. Script mặc định tự xoá kênh test khi xong (`channels.DeleteChannel`); cờ `--keep` giữ lại để tự kiểm tra bằng mắt trong app Telegram trước khi xoá tay.
+
+> Spike đã đóng và số liệu đã ghi lại đầy đủ bên dưới — không còn cần chạy lại. Theo quy ước đã dùng cho SPIKE-01/02/03/04, mã nguồn `tools/spike-06/` sẽ được xoá SAU KHI được commit ít nhất một lần (để lịch sử còn trong git log) — chưa xoá ngay ở đây vì thư mục này chưa từng được commit lần nào.
+
+### Cách chạy
+
+```bash
+cd tools/spike-06
+npm install
+
+# Bước 1 — đăng nhập một lần (hoặc copy .session.local từ spike-02/04 nếu còn).
+TSMC_API_ID=xxxxx TSMC_API_HASH=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx npm run login
+
+# Bước 2 — chạy chuỗi tạo kênh → publish A → đọc lại → publish B → xoá A → đọc lại → tự xoá kênh.
+# Gọi "node test.mjs" trực tiếp, KHÔNG dùng "npm run test -- ..." (PowerShell nuốt --flag qua npm run).
+TSMC_API_ID=xxxxx TSMC_API_HASH=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx node test.mjs
+
+# Thêm --keep nếu muốn tự xem kênh test trong Telegram trước khi xoá tay:
+TSMC_API_ID=xxxxx TSMC_API_HASH=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx node test.mjs --keep
+```
+
+Kết quả ghi ra `docs/spikes/spike-06-result.local.json` (đã gitignore) — **chỉ chứa số liệu tổng hợp** (đạt/không đạt từng bước, thời gian mỗi RPC), không chứa session, không chứa số điện thoại, không chứa id kênh thật (kênh test đã bị xoá ngay sau khi chạy trừ khi dùng `--keep`). An toàn để dán nội dung vào chat cho Claude đọc và viết lại phần Kết quả bên dưới.
+
+### Tiêu chí đạt/không đạt
+
+| Mã | Kiểm tra | Đạt khi |
+|---|---|---|
+| A | Tạo kênh test, `creator === true` | Kênh tạo thành công, đúng là kênh do tài khoản test sở hữu |
+| B | `sendFile` + `pinMessage` catalog A, đọc lại | Nội dung đọc lại (`GetFullChannel.pinnedMsgId` → `getMessages` → `downloadMedia` → JSON) khớp byte-chính-xác với JSON đã gửi |
+| **C** | `sendFile` + `pinMessage` catalog B + `deleteMessages(A)`, đọc lại | **Đây là câu trả lời chính của spike** — pin phải chuyển hẳn sang B (không phải vẫn còn trỏ A hoặc rơi vào trạng thái không xác định), nội dung đọc lại khớp B |
+| D | Message A đã bị xoá thật | `getMessages([A.msgId])` không còn trả về media (rỗng hoặc `MessageEmpty`) — không phải chỉ unpin còn message vẫn sống trong lịch sử kênh |
+| E | Không cần can thiệp tay giữa chừng | Toàn bộ 4 bước trên chạy tự động, không lỗi ngoại lệ nào bị bắt ở nhánh `catch` |
+
+### Ma trận thiết bị cần phủ
+
+Không áp dụng — đây là hành vi API/tài khoản Telegram (giống SPIKE-02/04), không phụ thuộc trình duyệt/hệ điều hành. Một lần chạy trên một tài khoản là đủ để có bằng chứng cho câu hỏi cốt lõi; không cần phủ nhiều thiết bị.
+
+### Kết quả
+
+#### Tài khoản thật, kênh test tự sinh (id `3721156441`, đã tự xoá sau khi chạy) · 2026-08-28T14:16:23Z
+
+| Mã | Bước | Kết quả | Số đo |
+|---|---|---|---|
+| A | Tạo kênh test | ✅ ĐẠT | `creator=true` — đúng điều kiện `isOwn` ADR-0014 §4 |
+| B | `sendFile` + `pinMessage` catalog A, đọc lại | ✅ ĐẠT | `sendFile` 433 ms, `pinMessage` 122 ms; đọc lại khớp byte-chính-xác |
+| **C** | `sendFile` + `pinMessage` catalog B + `deleteMessages(A)`, đọc lại | ✅ **ĐẠT** | `sendFile` 185 ms, `pinMessage` 117 ms, `deleteMessages` 62 ms; pin đã chuyển hẳn sang B, đọc lại khớp byte-chính-xác |
+| D | Message A đã bị xoá thật | ✅ ĐẠT | `getMessages([A.msgId])` không còn trả về media sau `deleteMessages` |
+| E | Không cần can thiệp tay | ✅ ĐẠT | Toàn bộ chuỗi chạy tự động, không rơi vào nhánh `catch` |
+
+Toàn bộ 5/5 tiêu chí đạt trong một lần chạy duy nhất — không có bước nào mơ hồ hay cần diễn giải thêm (khác SPIKE-02/04, nơi tình huống cần đo — `CDN_REDIRECT`/`FLOOD_WAIT` — chưa từng xảy ra nên câu hỏi gốc vẫn treo). Ở đây câu hỏi gốc ("chuỗi ghi có đúng thiết kế không") có câu trả lời dứt khoát: **có**.
+
+**Đọc kết quả này cho đúng — phạm vi bằng chứng:** một lần chạy, một tài khoản, một kênh test mới tạo (không có publisher/admin nào khác, không có nội dung/catalog.json có sẵn để xung đột). Đây là bằng chứng đủ mạnh cho câu hỏi **đúng/sai của một chuỗi API call xác định** (không phải câu hỏi ngưỡng phụ thuộc tài khoản/thời điểm như `FLOOD_WAIT` ở SPIKE-04) — nếu cơ chế có lỗi thiết kế, nó sẽ lộ ra ở MỌI lần chạy, không phải một hiện tượng ngẫu nhiên cần nhiều mẫu mới thấy. Chưa test: kênh có catalog.json lớn (nhiều item), kênh có nhiều publisher, hay tình huống `FLOOD_WAIT` xảy ra giữa chuỗi 3 RPC ghi liên tiếp — những rủi ro này thuộc phạm vi khác (ADR-0006), không phải câu hỏi của spike này.
+
+**Đã chốt (2026-08-28):** đạt, gỡ rủi ro "chưa traffic-verified" cho cơ chế `publishCatalogDocument()`. Gỡ dòng rủi ro tương ứng ở [architecture.md §7](../architecture.md#7-rủi-ro-lớn-nhất--trạng-thái-kiểm-chứng). Xem addendum SPIKE-06 ở [ADR-0014](../adr/0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md).
+
+### Ta sẽ làm gì với từng kết quả
+
+| Kết quả | Hành động |
+|---|---|
+| Cả 5 mã (A-E) đạt | `publishCatalogDocument()` được xác nhận đúng thiết kế trên ít nhất một tài khoản/kênh thật — gỡ rủi ro "chưa traffic-verified" ở addendum ADR-0014 2026-08-28, đóng spike 🟢 |
+| B đạt, C thất bại (pin không chuyển sang B, hoặc đọc lại sai nội dung) | Lỗi nghiêm trọng ở chính cơ chế "cập nhật" — Ingest Editor's Save trên item THỨ HAI trở đi sẽ ghi sai; phải sửa `gateway-index.ts` trước khi khuyến nghị dùng thật, dù publish LẦN ĐẦU (B) vẫn ổn |
+| B, C đạt nhưng D thất bại (A không bị xoá thật) | `deleteMessages` không hoạt động như kỳ vọng (vd cần quyền khác, hoặc `revoke:true` không đủ) — catalog cũ tồn đọng vĩnh viễn trong kênh, không mất dữ liệu MỚI nhưng kênh media tích rác theo thời gian; hạ mức ưu tiên xuống "chấp nhận, dọn tay" nếu không sửa được ngay |
+| A thất bại (không tạo được kênh, hoặc `creator !== true`) | Vấn đề ở quyền tài khoản test hoặc API, không phải bug thiết kế — thử tài khoản khác trước khi kết luận gì về `publishCatalogDocument()` |
+| Ngoại lệ không rõ nguyên nhân ở bất kỳ bước nào | Ghi lại nguyên văn lỗi GramJS (`errorMessage`) vào phần Kết quả — có thể là giới hạn API chưa biết (vd rate limit riêng cho `channels.CreateChannel`/`DeleteChannel`), cần điều tra thêm trước khi đóng spike theo hướng nào |

@@ -4,6 +4,7 @@
 import { tryCatalogTier } from './catalog-tier';
 import { parseFilenameFallback } from './filename-parser';
 import type { IndexGateway, ResolvedIndexChannel } from './gateway-port';
+import { publishCatalogMetadata as writeCatalogPatch, type CatalogMetadataPatch } from './publish-catalog';
 import type { IndexStoragePort, StoredMediaItem, TrustLabel } from './storage-port';
 import { classifyFromCache, ensureChannelAdminListCached, resolvePublisherTrust } from './trust';
 
@@ -37,6 +38,14 @@ export interface IndexEngine {
    * đó (không phải 'pending'). Xem trust.ts resolvePublisherTrust().
    */
   resolveItemTrust(sourceId: string, ref: string, msgId: number): Promise<ResolveItemTrustResult>;
+  /**
+   * Ingest Editor (Màn hình 6) — chỉ hợp lệ cho Kho Cá Nhân (ADR-0014 §4,
+   * `ResolvedIndexChannel.isOwn`). Gọi UI TRƯỚC khi cho nhập liệu, để chặn
+   * ngay từ đầu thay vì đợi tới lúc Lưu mới báo lỗi.
+   */
+  checkWritable(ref: string): Promise<boolean>;
+  /** Sửa 1 item rồi đóng gói lại TOÀN BỘ catalog.json của nguồn, ghim đè lên kênh media — xem publish-catalog.ts. */
+  publishCatalogMetadata(sourceId: string, ref: string, msgId: number, patch: CatalogMetadataPatch): Promise<void>;
 }
 
 async function scanHistoryItems(
@@ -185,6 +194,19 @@ export function createIndexEngine(gateway: IndexGateway, storage: IndexStoragePo
         await storage.updateMediaItemTrust(sourceId, msgId, trust);
       }
       return { trust };
+    },
+
+    async checkWritable(ref) {
+      const channel = await gateway.resolveIndexChannel(ref);
+      return channel?.isOwn ?? false;
+    },
+
+    async publishCatalogMetadata(sourceId, ref, msgId, patch) {
+      const channel = await gateway.resolveIndexChannel(ref);
+      if (!channel) {
+        throw new Error(`"${ref}" không phải kênh hoặc không resolve được.`);
+      }
+      await writeCatalogPatch(gateway, storage, sourceId, channel, msgId, patch);
     }
   };
 }

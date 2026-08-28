@@ -15,6 +15,12 @@ Thumbs.db
 # thật (xem ADR-0011) — nhưng vẫn không commit vì là artifact cục bộ.
 docs/spikes/*.local.json
 
+# Session MTProto thật sinh ra bởi login.mjs của các spike (tools/spike-02,
+# spike-04, spike-06...) — tương đương TOÀN QUYỀN tài khoản Telegram (CLAUDE.md
+# bất biến). KHÔNG có rule nào ở trên phủ pattern này trước đây — lỗ hổng
+# thật, phát hiện lúc dựng SPIKE-06.
+tools/*/.session.local
+
 # Core Worker bundle (GramJS) — dựng lại bằng "npm run build:worker",
 # không commit. Đặt trong public/ để ng serve/ng build đều phục vụ được.
 apps/web/public/core-worker.js

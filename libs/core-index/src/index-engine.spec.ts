@@ -285,3 +285,43 @@ describe('createIndexEngine.resolveItemTrust — lúc TRUY CẬP, chỉ 1 item/l
     expect(resolveIndexChannel).not.toHaveBeenCalled();
   });
 });
+
+describe('createIndexEngine.checkWritable / publishCatalogMetadata — Ingest Editor (Màn hình 6)', () => {
+  it('checkWritable(): isOwn=true → true, isOwn=false → false, không resolve được → false', async () => {
+    const storage = createFakeStorage();
+    expect(await createIndexEngine(createFakeGateway({ resolveIndexChannel: async () => makeChannel({ isOwn: true }) }), storage).checkWritable('@c')).toBe(
+      true
+    );
+    expect(
+      await createIndexEngine(createFakeGateway({ resolveIndexChannel: async () => makeChannel({ isOwn: false }) }), storage).checkWritable('@c')
+    ).toBe(false);
+    expect(await createIndexEngine(createFakeGateway({ resolveIndexChannel: async () => null }), storage).checkWritable('@c')).toBe(false);
+  });
+
+  it('publishCatalogMetadata(): resolve kênh thành công, isOwn → gọi publishCatalogDocument', async () => {
+    const storage = createFakeStorage();
+    await storage.replaceMediaItems('src1', [{ msgId: 1, title: 'A', trust: 'owner' }]);
+    const publishCatalogDocument = vi.fn(async () => ({ msgId: 1 }));
+    const gateway = createFakeGateway({ resolveIndexChannel: async () => makeChannel({ id: 'c1', isOwn: true }), publishCatalogDocument });
+    const engine = createIndexEngine(gateway, storage);
+
+    await engine.publishCatalogMetadata('src1', '@c', 1, { title: 'A (sửa)' });
+    expect(publishCatalogDocument).toHaveBeenCalledOnce();
+  });
+
+  it('publishCatalogMetadata(): không phải chủ kênh → NotChannelOwnerError nổi lên nguyên vẹn, KHÔNG bị nuốt', async () => {
+    const storage = createFakeStorage();
+    const gateway = createFakeGateway({ resolveIndexChannel: async () => makeChannel({ isOwn: false }) });
+    const engine = createIndexEngine(gateway, storage);
+
+    await expect(engine.publishCatalogMetadata('src1', '@c', 1, { title: 'X' })).rejects.toMatchObject({ name: 'NotChannelOwnerError' });
+  });
+
+  it('publishCatalogMetadata(): không resolve được kênh → lỗi rõ ràng, không phải NotChannelOwnerError', async () => {
+    const storage = createFakeStorage();
+    const gateway = createFakeGateway({ resolveIndexChannel: async () => null });
+    const engine = createIndexEngine(gateway, storage);
+
+    await expect(engine.publishCatalogMetadata('src1', '@khong_ton_tai', 1, { title: 'X' })).rejects.toThrow(/không phải kênh/);
+  });
+});
