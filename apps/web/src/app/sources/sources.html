@@ -68,14 +68,5 @@
 
   <div class="debug-block">
     <app-sync-status />
-
-    <div class="logout-block">
-      <button mat-stroked-button color="warn" [disabled]="loggingOut()" (click)="onLogout()">
-        🚪 Đăng xuất (tạm — xem Màn hình 7)
-      </button>
-      @if (logoutError(); as message) {
-        <p class="error">{{ message }}</p>
-      }
-    </div>
   </div>
 </section>

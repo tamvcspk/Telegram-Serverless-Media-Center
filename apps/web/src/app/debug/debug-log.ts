@@ -18,6 +18,32 @@ export function debugLog(line: string): void {
   });
 }
 
+const DEBUG_STORAGE_KEY = 'tsmc-debug-enabled';
+
+/**
+ * `?debug=1` HOẶC cờ đã lưu (Cài đặt, Màn hình 7 — MatSlideToggle "Bật Log
+ * Worker"). Cờ lưu trong `localStorage` (KHÔNG qua kênh state Telegram) —
+ * đây là tuỳ chọn debug cục bộ của thiết bị này, không phải domain data cần
+ * đồng bộ (ADR-0009 chỉ đồng bộ mutation người dùng thật sự quan tâm xuyên
+ * thiết bị). `initDebugCapture()` chỉ đọc cờ này MỘT LẦN lúc bootstrap
+ * (main.ts) — bật/tắt từ Cài đặt có hiệu lực sau khi tải lại trang.
+ */
 export function isDebugEnabled(): boolean {
-  return typeof location !== 'undefined' && new URLSearchParams(location.search).get('debug') === '1';
+  if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('debug') === '1') {
+    return true;
+  }
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem(DEBUG_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function setDebugEnabled(enabled: boolean): void {
+  try {
+    localStorage.setItem(DEBUG_STORAGE_KEY, enabled ? '1' : '0');
+  } catch {
+    // Safari chế độ riêng tư/quota đầy có thể ném lỗi — tắt log debug không
+    // phải tính năng cốt lõi, im lặng bỏ qua thay vì làm hỏng toàn màn Cài đặt.
+  }
 }

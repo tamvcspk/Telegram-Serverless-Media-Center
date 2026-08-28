@@ -1,0 +1,35 @@
+<div class="logout-sheet">
+  @switch (phase()) {
+    @case ('processing') {
+      <h2>Đang đăng xuất…</h2>
+      <mat-progress-bar mode="indeterminate" />
+      <p class="hint">Đang đồng bộ và đóng phiên — đừng đóng tab này.</p>
+    }
+    @case ('error') {
+      <h2>Đăng xuất thất bại</h2>
+      <p class="error">Không thể đồng bộ/đăng xuất lúc này: {{ errorMessage() }}</p>
+      <p class="hint">Chưa có dữ liệu nào bị xoá — bạn có thể thử lại hoặc huỷ để quay lại Cài đặt.</p>
+      <div class="actions">
+        <button mat-stroked-button color="warn" type="button" (click)="onConfirm()">Thử lại</button>
+        <button mat-flat-button type="button" (click)="onCancel()">Huỷ</button>
+      </div>
+    }
+    @default {
+      @if (data.pendingOutboxCount === 0) {
+        <h2>Đăng xuất khỏi app?</h2>
+        <p>Toàn bộ phim trong kho cache cục bộ sẽ bị xoá. Dữ liệu trên Telegram vẫn an toàn. Bạn có chắc chắn muốn thoát?</p>
+        <div class="actions">
+          <button mat-stroked-button color="warn" type="button" (click)="onConfirm()">Xác nhận thoát</button>
+          <button mat-flat-button type="button" (click)="onCancel()">Huỷ</button>
+        </div>
+      } @else {
+        <h2>Đăng xuất khỏi app?</h2>
+        <p>Bạn có {{ data.pendingOutboxCount }} thay đổi chưa kịp lưu lên Telegram (vd: sắp xếp bộ sưu tập). Đăng xuất ngay sẽ MẤT các thay đổi này.</p>
+        <div class="actions">
+          <button mat-stroked-button color="warn" type="button" (click)="onConfirm()">Đồng bộ rồi thoát</button>
+          <button mat-flat-button type="button" (click)="onCancel()">Huỷ</button>
+        </div>
+      }
+    }
+  }
+</div>

@@ -1,6 +1,8 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'vitest';
-import { deleteSessionRecord, getSessionRecord, putSessionRecord, type SessionRecord } from './session-store';
+import { createEmptySyncState } from '@tsmc/shared-models';
+import { appendOutbox, getSyncState, putSyncState } from './sync-store';
+import { deleteSessionRecord, getSessionRecord, putSessionRecord, wipeAllData, type SessionRecord } from './session-store';
 
 async function makeRecord(): Promise<SessionRecord> {
   const cryptoKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
@@ -39,5 +41,16 @@ describe('@tsmc/core-storage session store', () => {
     expect(loaded?.apiId).toBe(999);
 
     await deleteSessionRecord();
+  });
+
+  it('wipeAllData(): dọn sạch mọi bảng — luồng Đăng xuất (Màn hình 7)', async () => {
+    await putSessionRecord(await makeRecord());
+    await putSyncState({ ...createEmptySyncState(), settings: { theme: { val: 'dark', ts: 1, dev: 'a' } } });
+    await appendOutbox({ v: 1, op: 'settings.set', ts: 1, dev: 'a', k: 'theme', val: 'dark' });
+
+    await wipeAllData();
+
+    expect(await getSessionRecord()).toBeUndefined();
+    expect(await getSyncState()).toEqual(createEmptySyncState());
   });
 });

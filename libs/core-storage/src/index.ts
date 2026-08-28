@@ -18,7 +18,7 @@ export type {
   PublisherTrustRecord,
   SearchIndexRecord
 } from './session-store';
-export { getSessionRecord, putSessionRecord, deleteSessionRecord } from './session-store';
+export { getSessionRecord, putSessionRecord, deleteSessionRecord, wipeAllData } from './session-store';
 
 export { getSearchIndexBlob, putSearchIndexBlob } from './search-index-store';
 

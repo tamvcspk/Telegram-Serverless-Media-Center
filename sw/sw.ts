@@ -2,6 +2,7 @@
 import { precacheAndRoute } from 'workbox-precaching';
 import type { PrecacheEntry } from 'workbox-precaching';
 import { SUB_CHUNK_SIZE } from '@tsmc/core-download';
+import { CHUNK_CACHE_NAME } from '@tsmc/shared-models';
 import type {
   StreamChunkRequestMessage,
   StreamChunkCancelMessage,
@@ -40,7 +41,6 @@ self.addEventListener('activate', (event) => {
 // cho đủ chỗ (8 sub-chunk) để độ song song thật sự phát huy tác dụng ở cả
 // trần mặc định lẫn trần nâng cấp.
 const WINDOW_SIZE = 8 * SUB_CHUNK_SIZE;
-const CHUNK_CACHE_NAME = 'tsmc-chunks-v1';
 const BRIDGE_TIMEOUT_MS = 20_000;
 
 // size/mimeType THẬT từ Telegram, lấy qua bridge (tsmc-stream-info-request)

@@ -3,7 +3,7 @@ import { createTelegramGateway } from '@tsmc/core-mtproto';
 import { createSyncEngine, type SyncGateway, type SyncStoragePort } from '@tsmc/core-sync';
 import { createIndexEngine, type IndexGateway, type IndexStoragePort } from '@tsmc/core-index';
 import { createSearchEngine, type SearchEngine } from '@tsmc/core-search';
-import { createDownloadEngine, type DownloadGateway } from '@tsmc/core-download';
+import { createDownloadEngine, DEFAULT_MAX_CONCURRENCY, HARD_CEILING_CONCURRENCY, type DownloadGateway } from '@tsmc/core-download';
 import {
   appendOutbox,
   countMediaBySource,
@@ -28,6 +28,7 @@ import {
   replaceMediaItems,
   updateMediaItemTrust,
   upsertMediaItems,
+  wipeAllData,
   type MediaRecord
 } from '@tsmc/core-storage';
 import type { StateChannelResolutionCallbacks } from '@tsmc/shared-models';
@@ -194,20 +195,57 @@ async function resolveItemTrustAndReindex(sourceId: string, ref: string, msgId: 
 const api = {
   login: gateway.login.bind(gateway),
   restoreSession: gateway.restoreSession.bind(gateway),
+  /**
+   * Luồng Đăng xuất (Màn hình 7, docs/ux-design.md) — bốn bước PHẢI đúng thứ
+   * tự, mỗi bước lỗi thì DỪNG ở đó (không rơi xuống bước sau, không xoá gì):
+   * 1) flush outbox — lỗi (FLOOD_WAIT/mất mạng) ném ra NGAY, chưa đụng gì cả,
+   *    UI hiện lại y nguyên màn Cài đặt để user Thử lại/Huỷ (không mất event
+   *    optimistic nào).
+   * 2) dừng timer nền — an toàn làm sau khi outbox đã rỗng.
+   * 3) `auth.LogOut` thật trên Telegram — lỗi thì KHÔNG xoá bất kỳ dữ liệu
+   *    cục bộ nào (session vẫn còn, có thể thử lại từ đầu).
+   * 4) chỉ khi (3) thành công mới dọn IndexedDB (media cache, collections,
+   *    sync state…) — xoá trước khi (3) xác nhận xong sẽ mất dữ liệu vĩnh
+   *    viễn nếu (3) fail giữa chừng (không có cách khôi phục outbox đã xoá).
+   */
   async logout() {
+    await syncEngine.forceFlush();
     // Dừng outbox/compaction timer TRƯỚC khi đăng xuất — logout() không
     // reset GramJS client (xem gateway.ts), nên nếu không dừng, timer nền
     // của phiên cũ có thể vẫn bắn ngay trước khi UI kịp gọi lại initSync()
     // cho tài khoản kế tiếp trong cùng tab.
     syncEngine.stop();
     await gateway.logout();
+    await wipeAllData();
   },
 
   // Sync & Hydration (F1.2/F1.3) — UI gọi initSync() sau khi status()
   // chuyển 'authenticated' (không tự chạy ngầm bên trong login/
   // restoreSession, giữ hai mối quan tâm tách bạch).
-  initSync: (callbacks: StateChannelResolutionCallbacks) => syncEngine.init(callbacks),
+  async initSync(callbacks: StateChannelResolutionCallbacks) {
+    const state = await syncEngine.init(callbacks);
+    // Áp lại trần độ song song đã lưu (Settings, Màn hình 7, ADR-0006 §3) —
+    // downloadEngine tạo mới mỗi lần Core Worker khởi động (không persist
+    // trong bộ nhớ worker), nên phải nạp lại từ SyncState mỗi lần initSync()
+    // chạy xong, không chỉ lúc user vừa chỉnh slider.
+    const saved = state.settings['maxConcurrency']?.val;
+    if (typeof saved === 'number' && Number.isFinite(saved)) {
+      downloadEngine.setMaxConcurrency(saved);
+    }
+    return state;
+  },
   forceFlush: () => syncEngine.forceFlush(),
+  // Settings (Màn hình 7, ADR-0006 §3) — ghi vào state riêng tư (đồng bộ
+  // xuyên thiết bị qua kênh state, ADR-0009) RỒI áp dụng ngay cho phiên này,
+  // không chỉ ghi rồi chờ initSync() lần sau mới có hiệu lực. Clamp về đúng
+  // khoảng [4, 8] mà ADR-0006 §3 cho phép TRƯỚC khi ghi — downloadEngine tự
+  // clamp cho chính nó, nhưng nếu không clamp ở đây thì giá trị ghi vào state
+  // (đồng bộ sang thiết bị khác) có thể lệch khỏi giá trị thật sự có hiệu lực.
+  async setMaxConcurrency(n: number) {
+    const clamped = Math.max(DEFAULT_MAX_CONCURRENCY, Math.min(HARD_CEILING_CONCURRENCY, Math.floor(n)));
+    await syncEngine.mutate({ op: 'settings.set', k: 'maxConcurrency', val: clamped });
+    downloadEngine.setMaxConcurrency(clamped);
+  },
 
   setProgress: (key: string, position: number) => syncEngine.mutate({ op: 'progress.set', k: key, p: position }),
   clearProgress: (key: string) => syncEngine.mutate({ op: 'progress.clear', k: key }),

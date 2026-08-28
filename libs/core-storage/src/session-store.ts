@@ -189,3 +189,32 @@ export async function putSessionRecord(record: SessionRecord): Promise<void> {
 export async function deleteSessionRecord(): Promise<void> {
   await getDb().session.delete('default');
 }
+
+/**
+ * Dọn TOÀN BỘ IndexedDB — luồng Đăng xuất (Màn hình 7, docs/ux-design.md).
+ * Xoá cả `session` dù `gateway.logout()` (core-mtproto) đã tự xoá riêng —
+ * gọi lại ở đây vô hại (bảng đã rỗng), và giữ hàm này là điểm dọn dẹp DUY
+ * NHẤT, không rải logic "xoá bảng nào" ra worker-host. KHÔNG xoá
+ * `tsmc-chunks-v1` (Cache Storage của sw.ts, không phải IndexedDB) — đó là
+ * cache byte tải, dọn riêng qua nút "Xoá bộ nhớ đệm chunk" (không bắt buộc
+ * lúc đăng xuất, vẫn còn ích nếu user đăng nhập lại đúng tài khoản đó).
+ */
+export async function wipeAllData(): Promise<void> {
+  const db = getDb();
+  await db.transaction(
+    'rw',
+    [db.session, db.syncMeta, db.syncState, db.outbox, db.media, db.indexMeta, db.publisherTrust, db.searchIndex],
+    async () => {
+      await Promise.all([
+        db.session.clear(),
+        db.syncMeta.clear(),
+        db.syncState.clear(),
+        db.outbox.clear(),
+        db.media.clear(),
+        db.indexMeta.clear(),
+        db.publisherTrust.clear(),
+        db.searchIndex.clear()
+      ]);
+    }
+  );
+}

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { toObservable, toSignal } from '@angular/core/rxjs-interop';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { MatButtonModule } from '@angular/material/button';
 import { MatChipsModule } from '@angular/material/chips';
@@ -43,7 +43,7 @@ function sortRows(rows: MediaRecord[], sort: BrowseSort): MediaRecord[] {
  */
 @Component({
   selector: 'app-browse',
-  imports: [ScrollingModule, MatButtonModule, MatChipsModule, MatFormFieldModule, MatInputModule, MatMenuModule],
+  imports: [ScrollingModule, MatButtonModule, MatChipsModule, MatFormFieldModule, MatInputModule, MatMenuModule, RouterLink],
   providers: [BrowseStore],
   templateUrl: './browse.html',
   styleUrl: './browse.scss',

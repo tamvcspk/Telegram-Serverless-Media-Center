@@ -1,0 +1,38 @@
+.logout-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom));
+
+  h2 {
+    margin: 0;
+  }
+
+  p {
+    margin: 0;
+  }
+
+  .hint {
+    color: var(--mat-sys-on-surface-variant, #666);
+    font-size: 0.85rem;
+  }
+
+  .error {
+    color: var(--mat-sys-error, #b3261e);
+  }
+}
+
+// Nút thoát (warn) đứng TRƯỚC Huỷ trong DOM nhưng Huỷ mới là nút nổi bật hơn
+// về thị giác (ux-design.md: giảm khả năng chạm nhầm ngón cái) — đảo thứ tự
+// hiển thị bằng flex row-reverse thay vì đổi thứ tự DOM (giữ đúng ngữ nghĩa
+// "đọc trước = ít quan trọng hơn" cho screen reader).
+.actions {
+  display: flex;
+  flex-direction: row-reverse;
+  gap: 0.5rem;
+  justify-content: flex-start;
+
+  button {
+    flex: 1 1 0;
+  }
+}

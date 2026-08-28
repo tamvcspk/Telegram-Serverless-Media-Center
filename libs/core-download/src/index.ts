@@ -10,6 +10,8 @@ export {
   DocumentNotFoundError,
   FloodWaitTooLongError,
   SUB_CHUNK_SIZE,
+  DEFAULT_MAX_CONCURRENCY,
+  HARD_CEILING_CONCURRENCY,
   type DownloadEngine,
   type DownloadEngineOptions
 } from './download-engine';

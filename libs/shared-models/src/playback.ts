@@ -41,3 +41,13 @@ export interface StreamInfoRequestMessage {
 }
 
 export type StreamInfoResponseMessage = { ok: true; size: number; mimeType: string } | { ok: false; error: string };
+
+/**
+ * Tên Cache Storage giữ byte chunk đã tải (`sw/sw.ts`) — đặt ở đây (không
+ * phải hardcode riêng trong `sw.ts`) vì Settings UI (Màn hình 7,
+ * docs/ux-design.md, khối "Quản lý Lưu trữ") cũng cần đúng tên này để gọi
+ * `caches.delete()` từ main thread. Cache Storage là API chuẩn của trình
+ * duyệt, không phải state riêng của Core Worker — main thread gọi thẳng
+ * được, không cần qua RPC.
+ */
+export const CHUNK_CACHE_NAME = 'tsmc-chunks-v1';

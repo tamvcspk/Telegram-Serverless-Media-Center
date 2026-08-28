@@ -46,3 +46,4 @@ export type {
   StreamInfoRequestMessage,
   StreamInfoResponseMessage
 } from './playback';
+export { CHUNK_CACHE_NAME } from './playback';

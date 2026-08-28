@@ -1,0 +1,62 @@
+<section class="settings" aria-label="Cài đặt hệ thống">
+  <header class="topbar">
+    <button mat-icon-button type="button" aria-label="Quay lại" (click)="onBack()">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 18l-6-6 6-6" />
+      </svg>
+    </button>
+    <h1>⚙️ Cài đặt hệ thống</h1>
+  </header>
+
+  <mat-divider />
+
+  <section class="block">
+    <h2>👤 Tài khoản kết nối</h2>
+    @if (user(); as u) {
+      <div class="account-row">
+        <span class="avatar" aria-hidden="true">{{ initials(u) }}</span>
+        <div class="account-info">
+          <span class="name">{{ displayName(u) }}</span>
+          @if (u.phone) {
+            <span class="phone">+{{ u.phone }}</span>
+          }
+        </div>
+      </div>
+    }
+    <button mat-stroked-button color="warn" type="button" (click)="onOpenLogout()">🚪 Đăng xuất khỏi app</button>
+    <p class="hint">⚠️ Khuyến cáo: bạn sẽ phải nhập lại API_ID/API_HASH để vào lại.</p>
+  </section>
+
+  <mat-divider />
+
+  <section class="block">
+    <h2>💾 Quản lý lưu trữ</h2>
+    <p>Bộ nhớ đệm (cache): {{ cacheUsageLabel() }}</p>
+    <button mat-stroked-button type="button" [disabled]="clearingCache()" (click)="onClearCache()">Xoá bộ nhớ đệm chunk</button>
+    @if (clearCacheError(); as err) {
+      <p class="error">{{ err }}</p>
+    }
+  </section>
+
+  <mat-divider />
+
+  <section class="block">
+    <h2>🌐 Mạng & băng thông</h2>
+    <label for="concurrency-input">Luồng tải song song: {{ concurrency() }}</label>
+    <mat-slider [min]="minConcurrency" [max]="maxConcurrency" [step]="1" discrete [disabled]="concurrencyPending()">
+      <input id="concurrency-input" matSliderThumb [value]="concurrency()" (valueChange)="onConcurrencyChange($event)" />
+    </mat-slider>
+    <p class="error">⚠️ Tăng cao dễ dính FLOOD_WAIT từ Telegram — tài khoản của bạn có thể bị giới hạn tốc độ tạm thời.</p>
+    @if (concurrencyError(); as err) {
+      <p class="error">{{ err }}</p>
+    }
+  </section>
+
+  <mat-divider />
+
+  <section class="block">
+    <h2>🐛 Chẩn đoán (Debug)</h2>
+    <mat-slide-toggle [checked]="debugEnabled()" (change)="onDebugToggle($event.checked)">Bật log Worker</mat-slide-toggle>
+    <p class="hint">Có hiệu lực sau khi tải lại trang.</p>
+  </section>
+</section>

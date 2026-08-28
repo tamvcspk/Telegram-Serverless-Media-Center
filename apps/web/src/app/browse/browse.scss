@@ -31,8 +31,19 @@
   border-bottom: 1px solid var(--mat-sys-outline-variant, #eee);
 }
 
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
 .search {
+  flex: 1 1 auto;
   width: 100%;
+}
+
+.settings-btn {
+  flex: 0 0 auto;
 }
 
 .source-filter {

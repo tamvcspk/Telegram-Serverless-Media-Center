@@ -20,10 +20,10 @@ export const SUB_CHUNK_SIZE = 512 * 1024;
 
 /** ADR-0006 §3: "Bắt đầu từ 2 request đồng thời/DC". */
 const AIMD_START_CONCURRENCY = 2;
-/** ADR-0006 §3: "Trần cứng mặc định là 4". */
-const DEFAULT_MAX_CONCURRENCY = 4;
-/** ADR-0006 §3: "cho phép user nâng lên 8" — trần cứng tuyệt đối bất kể `opts.maxConcurrency` truyền gì. */
-const HARD_CEILING_CONCURRENCY = 8;
+/** ADR-0006 §3: "Trần cứng mặc định là 4". Xuất ra cho UI Settings (Màn hình 7) dùng làm cận dưới của slider — không hardcode lại số này ở apps/web. */
+export const DEFAULT_MAX_CONCURRENCY = 4;
+/** ADR-0006 §3: "cho phép user nâng lên 8" — trần cứng tuyệt đối bất kể `opts.maxConcurrency`/`setMaxConcurrency()` truyền gì. Xuất ra cho UI Settings dùng làm cận trên của slider. */
+export const HARD_CEILING_CONCURRENCY = 8;
 /** ADR-0006 §4: "cho DC đó nghỉ theo backoff luỹ thừa" sau 3 lần FLOOD liên tiếp — bắt đầu 2s, nhân đôi, trần 60s (cùng ngưỡng "phải hiện cho user"). */
 const CIRCUIT_BREAKER_TRIP_THRESHOLD = 3;
 const CIRCUIT_BREAKER_INITIAL_BACKOFF_MS = 2_000;
@@ -116,12 +116,21 @@ export interface DownloadEngine {
    * đúng. Dùng CHUNG cache `PlaybackDocumentRef` với fetchWindow (không resolve 2 lần).
    */
   getInfo(channelId: string, msgId: number): Promise<{ size: number; mimeType: string }>;
+  /**
+   * Nâng/hạ trần AIMD lúc chạy — Settings UI (Màn hình 7, ADR-0006 §3 "known
+   * gap" đóng ở slice này). Luôn clamp về [1, HARD_CEILING_CONCURRENCY] bất
+   * kể `n` truyền gì. Hạ trần thấp hơn `concurrency` HIỆN TẠI của một DC thì
+   * clamp NGAY state đó xuống trần mới — không chỉ đổi trần cho lần ramp kế
+   * tiếp, vì AIMD chỉ tự giảm khi gặp FLOOD_WAIT thật, user hạ trần để né rủi
+   * ro thì phải có tác dụng ngay, không phải chờ flood mới giảm.
+   */
+  setMaxConcurrency(n: number): void;
 }
 
 const CANCELLED_SET_CAP = 256;
 
 export function createDownloadEngine(gateway: DownloadGateway, opts: DownloadEngineOptions = {}): DownloadEngine {
-  const maxConcurrency = Math.max(1, Math.min(HARD_CEILING_CONCURRENCY, opts.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY));
+  let maxConcurrency = Math.max(1, Math.min(HARD_CEILING_CONCURRENCY, opts.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY));
   const refCache = new Map<string, PlaybackDocumentRef>();
   const cancelled = new Set<string>();
   const dcStates = new Map<number, DcState>();
@@ -294,6 +303,13 @@ export function createDownloadEngine(gateway: DownloadGateway, opts: DownloadEng
     async getInfo(channelId, msgId) {
       const ref = await resolveRef(channelId, msgId, false);
       return { size: ref.size, mimeType: ref.mimeType };
+    },
+
+    setMaxConcurrency(n) {
+      maxConcurrency = Math.max(1, Math.min(HARD_CEILING_CONCURRENCY, Math.floor(n)));
+      for (const state of dcStates.values()) {
+        state.concurrency = Math.min(state.concurrency, maxConcurrency);
+      }
     }
   };
 }

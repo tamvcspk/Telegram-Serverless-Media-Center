@@ -67,18 +67,10 @@
   z-index: 1;
 }
 
-// SyncStatus/nút Đăng xuất tạm host (Màn hình 7 chưa có UI) — tách khối
-// riêng, đặt dưới cùng để không lẫn với danh sách nguồn thật ở trên.
+// SyncStatus tạm host (công cụ debug outbox, chưa có chỗ đàng hoàng hơn) —
+// tách khối riêng, đặt dưới cùng để không lẫn với danh sách nguồn thật ở trên.
 .debug-block {
   margin-top: 1rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--mat-sys-outline-variant, #eee);
-}
-
-.logout-block {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  align-items: flex-start;
-  margin-top: 0.75rem;
 }

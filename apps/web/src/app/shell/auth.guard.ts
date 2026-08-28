@@ -6,6 +6,7 @@ import { firstValueFrom } from 'rxjs';
 import { createCoreWorkerClient } from '@tsmc/worker-host';
 import type { StateChannelCandidate, StateChannelChoice } from '@tsmc/shared-models';
 import { StateChannelResolutionDialog } from '../sync/state-channel-resolution-dialog/state-channel-resolution-dialog';
+import { currentUser } from './current-user';
 
 // Cache cấp module — initSync() (ADR-0009 hydrate) KHÔNG an toàn gọi hai lần
 // (đăng ký thêm leader-change listener, hydrate lại từ đầu, xem
@@ -64,6 +65,7 @@ export const authGuard: CanActivateFn = async () => {
     return router.parseUrl('/login');
   }
 
+  currentUser.set(session);
   await ensureSync(client, dialog);
   return true;
 };

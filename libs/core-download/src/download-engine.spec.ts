@@ -180,4 +180,66 @@ describe('createDownloadEngine — hardening: AIMD + circuit breaker (ADR-0006 �
     expect(fetchCalls.filter((o) => o === 0)).toHaveLength(2);
     expect(fetchCalls.filter((o) => o === SUB_CHUNK_SIZE)).toHaveLength(2);
   });
+
+  // AIMD tăng +1 sau ĐÚNG `concurrency` lần thành công liên tiếp (xem
+  // onChunkSuccess) — từ 2 lên 8 cần 2+3+4+5+6+7=27 thành công tích luỹ.
+  // `poolSize` của MỘT fetchWindow() cố định ngay lúc bắt đầu cửa sổ đó
+  // (không đổi giữa chừng dù dcState.concurrency tăng), nên ramp chỉ LỘ RA ở
+  // cửa sổ TIẾP THEO — cửa sổ đầu (27 chunk) chỉ để tích luỹ đủ thành công,
+  // cửa sổ thứ hai mới thật sự chạy ở pool đã ramp.
+  const RAMP_TO_8_CHUNK_COUNT = 27;
+
+  it('setMaxConcurrency(): nâng trần cho phép ramp cao hơn mặc định 4 (Settings UI, ADR-0006 §3)', async () => {
+    const gateway = createFakeDownloadGateway({ ref: makeRef({ size: (RAMP_TO_8_CHUNK_COUNT + 8) * SUB_CHUNK_SIZE }) });
+    const engine = createDownloadEngine(gateway);
+    engine.setMaxConcurrency(8);
+
+    await engine.fetchWindow('c1', 1, 0, RAMP_TO_8_CHUNK_COUNT * SUB_CHUNK_SIZE, 'w1');
+    await engine.fetchWindow('c1', 1, RAMP_TO_8_CHUNK_COUNT * SUB_CHUNK_SIZE, 8 * SUB_CHUNK_SIZE, 'w2');
+
+    expect(gateway.peakConcurrency).toBe(8);
+  });
+
+  it('setMaxConcurrency(): luôn clamp về [1, 8] bất kể giá trị truyền vào lớn/nhỏ hơn', async () => {
+    const gateway = createFakeDownloadGateway({ ref: makeRef({ size: (RAMP_TO_8_CHUNK_COUNT + 8) * SUB_CHUNK_SIZE }) });
+    const engine = createDownloadEngine(gateway);
+    engine.setMaxConcurrency(999);
+
+    await engine.fetchWindow('c1', 1, 0, RAMP_TO_8_CHUNK_COUNT * SUB_CHUNK_SIZE, 'w1');
+    await engine.fetchWindow('c1', 1, RAMP_TO_8_CHUNK_COUNT * SUB_CHUNK_SIZE, 8 * SUB_CHUNK_SIZE, 'w2');
+
+    expect(gateway.peakConcurrency).toBe(8);
+  });
+
+  it('setMaxConcurrency(): hạ trần áp dụng NGAY cho DC đang có concurrency cao hơn trần mới, không chờ FLOOD_WAIT', async () => {
+    // peakConcurrency của createFakeDownloadGateway là max TOÀN CỤC (không tự
+    // giảm) — dùng probe tự chế reset được giữa hai cửa sổ để đo riêng độ
+    // song song của w3, tách khỏi đỉnh 8 đã đạt ở w1/w2.
+    const totalChunks = RAMP_TO_8_CHUNK_COUNT + 8 + 8;
+    let inFlight = 0;
+    let peak = 0;
+    const gateway: DownloadGateway = {
+      async getPlaybackDocument() {
+        return makeRef({ size: totalChunks * SUB_CHUNK_SIZE });
+      },
+      async fetchFileChunk(_ref, _offset, limit) {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await Promise.resolve();
+        inFlight--;
+        return new Uint8Array(limit).buffer;
+      }
+    };
+    const engine = createDownloadEngine(gateway);
+    engine.setMaxConcurrency(8);
+    await engine.fetchWindow('c1', 1, 0, RAMP_TO_8_CHUNK_COUNT * SUB_CHUNK_SIZE, 'w1');
+    await engine.fetchWindow('c1', 1, RAMP_TO_8_CHUNK_COUNT * SUB_CHUNK_SIZE, 8 * SUB_CHUNK_SIZE, 'w2');
+    expect(peak).toBe(8);
+
+    engine.setMaxConcurrency(4);
+    peak = 0;
+    await engine.fetchWindow('c1', 1, (RAMP_TO_8_CHUNK_COUNT + 8) * SUB_CHUNK_SIZE, 8 * SUB_CHUNK_SIZE, 'w3');
+
+    expect(peak).toBe(4);
+  });
 });

@@ -4,7 +4,6 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { MatBottomSheet } from '@angular/material/bottom-sheet';
 import { MatButtonModule } from '@angular/material/button';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { Router } from '@angular/router';
 import { countMediaBySource, getIndexMeta, getSyncState, liveQuery, type IndexMetaRecord } from '@tsmc/core-storage';
 import { createCoreWorkerClient } from '@tsmc/worker-host';
 import type { SourceRef } from '@tsmc/shared-models';
@@ -33,8 +32,11 @@ interface SourceRow {
  * quyết định "công cụ debug tạm thời" ghi trong file cũ; xem lại ở git log
  * nếu cần điều tra lại bug admin-cache.
  *
- * `SyncStatus` + nút Đăng xuất vẫn tạm host ở đây (không đổi từ trước) — cả
- * hai thuộc Màn hình 7 (Cài đặt) chưa có route/UI thật.
+ * `SyncStatus` vẫn tạm host ở đây (không đổi từ trước) — thuộc Màn hình 7
+ * (Cài đặt), UI debug thô chờ có chỗ đàng hoàng hơn. Nút Đăng xuất đã CHUYỂN
+ * sang `settings/settings.ts` (route `/settings`, Màn hình 7 thật) cùng luồng
+ * outbox-flush/xoá IndexedDB đầy đủ — không giữ bản tạm ở đây nữa để tránh
+ * hai lối đăng xuất với hai mức an toàn dữ liệu khác nhau.
  */
 @Component({
   selector: 'app-sources',
@@ -45,7 +47,6 @@ interface SourceRow {
 })
 export class Sources {
   private readonly client = createCoreWorkerClient();
-  private readonly router = inject(Router);
   private readonly bottomSheet = inject(MatBottomSheet);
 
   protected readonly rows = toSignal(
@@ -70,9 +71,6 @@ export class Sources {
   protected readonly needsFullScanIds = signal<ReadonlySet<string>>(new Set());
   protected readonly removingIds = signal<ReadonlySet<string>>(new Set());
   protected readonly actionError = signal<string | null>(null);
-
-  protected readonly loggingOut = signal(false);
-  protected readonly logoutError = signal<string | null>(null);
 
   sourceLabel(source: SourceRef): string {
     const title = source.patch?.['title'];
@@ -166,19 +164,6 @@ export class Sources {
         next.delete(sourceId);
         return next;
       });
-    }
-  }
-
-  async onLogout(): Promise<void> {
-    this.loggingOut.set(true);
-    this.logoutError.set(null);
-    try {
-      await this.client.logout();
-      await this.router.navigateByUrl('/login');
-    } catch (err) {
-      this.logoutError.set(err instanceof Error ? err.message : 'Đăng xuất thất bại.');
-    } finally {
-      this.loggingOut.set(false);
     }
   }
 }

@@ -1,9 +1,15 @@
 <section class="browse" aria-label="Trang chủ — duyệt phim">
   <header class="search-bar">
-    <mat-form-field appearance="outline" class="search">
-      <mat-label>Tìm theo tên phim, đạo diễn, diễn viên…</mat-label>
-      <input matInput #queryInput [value]="store.query()" (input)="onQueryInput(queryInput.value)" />
-    </mat-form-field>
+    <div class="search-row">
+      <mat-form-field appearance="outline" class="search">
+        <mat-label>Tìm theo tên phim, đạo diễn, diễn viên…</mat-label>
+        <input matInput #queryInput [value]="store.query()" (input)="onQueryInput(queryInput.value)" />
+      </mat-form-field>
+
+      <button mat-icon-button type="button" routerLink="/settings" aria-label="Cài đặt" class="settings-btn">
+        <span aria-hidden="true">⚙️</span>
+      </button>
+    </div>
 
     @if (sources().length > 0) {
       <mat-chip-set aria-label="Lọc theo nguồn" class="source-filter">
