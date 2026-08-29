@@ -143,6 +143,58 @@ describe('createIndexEngine.scanSource', () => {
     expect(items?.find((i) => i.msgId === 2)).toMatchObject({ title: 'Video 2' });
   });
 
+  it('kênh Forum: gán topic (nguyên văn tên topic, đã sanitize) từ topicId — bỏ qua hẳn listForumTopics() cho kênh không phải Forum', async () => {
+    const listForumTopics = vi.fn(async () => [{ id: '5', title: 'Phim bộ' }]);
+    const gateway = createFakeGateway({
+      resolveIndexChannel: async () => makeChannel({ isOwn: true, isForum: true }),
+      getPinnedCatalogDocument: async () => null,
+      listForumTopics,
+      fetchHistorySince: async () => [
+        makeHistoryMessage({ msgId: 1, fileName: 'Show.S01E01.mkv', topicId: '5' }),
+        makeHistoryMessage({ msgId: 2, fileName: 'NoTopic.2024.mkv', topicId: undefined })
+      ]
+    });
+    const storage = createFakeStorage();
+    const engine = createIndexEngine(gateway, storage);
+
+    const result = await engine.scanSource('src1', '@my_forum', { tier: 'full' });
+    expect(result.itemCount).toBe(2);
+    expect(listForumTopics).toHaveBeenCalledTimes(1);
+    const items = storage.mediaBySource.get('src1');
+    expect(items?.find((i) => i.msgId === 1)?.topic).toBe('Phim bộ');
+    expect(items?.find((i) => i.msgId === 2)?.topic).toBeUndefined();
+  });
+
+  it('kênh không phải Forum (isForum=false) → KHÔNG gọi listForumTopics(), item không có topic', async () => {
+    const listForumTopics = vi.fn(async () => null);
+    const gateway = createFakeGateway({
+      resolveIndexChannel: async () => makeChannel({ isOwn: true, isForum: false }),
+      getPinnedCatalogDocument: async () => null,
+      listForumTopics,
+      fetchHistorySince: async () => [makeHistoryMessage({ msgId: 1, fileName: 'Movie.2024.mkv' })]
+    });
+    const storage = createFakeStorage();
+    const engine = createIndexEngine(gateway, storage);
+
+    await engine.scanSource('src1', '@broadcast', { tier: 'full' });
+    expect(listForumTopics).not.toHaveBeenCalled();
+    expect(storage.mediaBySource.get('src1')?.[0].topic).toBeUndefined();
+  });
+
+  it('hashtag trên message: season/episode ưu tiên hashtag, thẻ lạ gộp vào genres (ADR-0010 § Cập nhật 2026-08-29 mục B)', async () => {
+    const gateway = createFakeGateway({
+      resolveIndexChannel: async () => makeChannel({ isOwn: true }),
+      getPinnedCatalogDocument: async () => null,
+      fetchHistorySince: async () => [makeHistoryMessage({ msgId: 1, fileName: 'Some.Show.mkv', hashtags: ['#S02E05', '#anime'] })]
+    });
+    const storage = createFakeStorage();
+    const engine = createIndexEngine(gateway, storage);
+
+    await engine.scanSource('src1', '@my_channel', { tier: 'full' });
+    const item = storage.mediaBySource.get('src1')?.find((i) => i.msgId === 1);
+    expect(item).toMatchObject({ kind: 'episode', series: { name: 'Some Show', season: 2, episode: 5 }, genres: ['anime'] });
+  });
+
   it('kênh cộng đồng: item quét từ lịch sử của publisher KHÔNG phải admin KHÔNG bị loại — vẫn lưu, gắn nhãn not-admin (phát hiện thật: loại cứng ở đây tạo nghịch lý so với pending — xem trust.ts)', async () => {
     const gateway = createFakeGateway({
       resolveIndexChannel: async () => makeChannel({ isOwn: false }),

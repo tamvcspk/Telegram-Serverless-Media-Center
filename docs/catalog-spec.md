@@ -50,6 +50,7 @@ Catalog là **một file JSON ghim sẵn** trong kênh: một lần tải là c�
   "originalTitle": "Dune: Part Two",
   "year": 2024,
   "genres": ["sci-fi", "adventure"],
+  "topic": "Phim lẻ",                // tên Forum Topic nguyên văn — KHÔNG phải thể loại, xem dưới
   "kind": "movie",                  // "movie" | "episode"
   "series": { "name": "Dune", "season": 1, "episode": 2 },
 
@@ -82,6 +83,8 @@ Catalog là **một file JSON ghim sẵn** trong kênh: một lần tải là c�
 Thiếu `compat` thì client **không được** giả định là `full` — coi như không biết, và tự dò khi phát.
 
 **`metaSource`** — metadata đến từ đâu. `"filename"` nghĩa là suy luận từ tên file (dễ sai) → UI hiển thị nhẹ hơn, và lần sau có catalog tốt hơn thì ghi đè không do dự.
+
+**`topic`** — nguyên văn tên [Forum Topic](https://core.telegram.org/api/forum) của kênh (nếu kênh bật Forum), vd "Phim lẻ", "Phim bộ", "Anime". Khác `genres`: `genres` mô tả **nội dung phim** (thể loại), `topic` mô tả **cách kênh tự tổ chức** (do admin đặt tên tuỳ ý, không phải đặc tính của phim) — client **không được** suy luận `kind`/`series` từ giá trị này (tên topic có thể là tiếng Anh, có emoji, hoặc không theo quy ước nào — ADR-0010).
 
 ## Client đọc catalog phải làm gì
 

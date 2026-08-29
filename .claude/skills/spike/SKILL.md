@@ -80,6 +80,10 @@ Nếu spike làm đổi đánh giá của một ADR đã `Accepted` → viết a
 
 ## Ranh giới an toàn
 
-Spike cần đăng nhập MTProto thật (**SPIKE-02**, **SPIKE-04**) thì **người dùng tự chạy trong terminal của họ**, Claude không chạy hộ: session MTProto tương đương toàn quyền tài khoản Telegram ([ADR-0011](../../../docs/adr/0011-bao-mat-session-va-noi-dung-khong-tin-cay.md)). Script phải ghi kết quả ra file `*.local.json` **chỉ chứa số liệu tổng hợp** — không session, không số điện thoại — để dán lại an toàn.
+Spike cần đăng nhập MTProto thật (**SPIKE-02**, **SPIKE-04**, **SPIKE-06**, **SPIKE-07**) thì **người dùng tự chạy trong terminal của họ**, Claude không chạy hộ: session MTProto tương đương toàn quyền tài khoản Telegram ([ADR-0011](../../../docs/adr/0011-bao-mat-session-va-noi-dung-khong-tin-cay.md)). Script phải ghi kết quả ra file `*.local.json` **chỉ chứa số liệu tổng hợp** — không session, không số điện thoại — để dán lại an toàn.
 
 SPIKE-04 (dò ngưỡng `FLOOD_WAIT`) còn thêm một luật: chạy trên **tài khoản test dùng một lần**, và mục tiêu là tìm **trần an toàn**, không phải tốc độ tối đa.
+
+### Credential dùng chung — `tools/.env` (kể từ SPIKE-07)
+
+`TSMC_API_ID`/`TSMC_API_HASH`/`TSMC_PHONE` không còn phải gõ tay mỗi lần: người dùng tự tạo `tools/.env` (copy từ `tools/env.example`, đã gitignore qua rule `.env`/`.env.*` sẵn có ở gitignore gốc) — đặt **một cấp trên** `tools/spike-NN/`, không phải trong đó, vì `tools/spike-NN/` bị xoá sau khi spike đóng còn `tools/.env` cần sống sót để dùng lại cho spike sau. Khi viết `login.mjs`/`test.mjs` cho spike mới, copy nguyên hàm `loadSharedEnv()` từ `tools/spike-07/login.mjs` (đọc `../.env`, không ghi đè biến đã có sẵn trong `process.env`, không cần thêm dependency `dotenv` cho một script sẽ bị xoá cùng thư mục). Mã OTP vẫn luôn phải gõ tay — không lưu được vì dùng một lần.

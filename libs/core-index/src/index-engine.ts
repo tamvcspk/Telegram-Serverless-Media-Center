@@ -2,8 +2,9 @@
 // @tsmc/core-mtproto (nhận gateway/storage thật qua tham số, worker-host/
 // core-worker.ts nối dây — cùng quy ước với core-sync/sync-engine.ts).
 import { tryCatalogTier } from './catalog-tier';
-import { parseFilenameFallback } from './filename-parser';
+import { ensureForumTopicsCached, lookupTopicTitle } from './forum-topics';
 import type { IndexGateway, ResolvedIndexChannel } from './gateway-port';
+import { deriveFallbackMetadata } from './hashtag-parser';
 import { publishCatalogMetadata as writeCatalogPatch, type CatalogMetadataPatch } from './publish-catalog';
 import type { IndexStoragePort, StoredMediaItem, TrustLabel } from './storage-port';
 import { classifyFromCache, ensureChannelAdminListCached, resolvePublisherTrust } from './trust';
@@ -61,6 +62,9 @@ async function scanHistoryItems(
   // theo từng publisher ở đây (đó là việc của resolvePublisherTrust(), chỉ
   // chạy lúc item được TRUY CẬP — xem trust.ts).
   await ensureChannelAdminListCached(gateway, storage, sourceId, channel);
+  // Cùng nguyên tắc "MỘT cuộc gọi/kênh" — bỏ qua hẳn cho kênh không phải
+  // Forum (channel.isForum === false), xem forum-topics.ts.
+  await ensureForumTopicsCached(gateway, storage, sourceId, channel);
 
   const messages = await gateway.fetchHistorySince(channel.id, minId, limit, direction);
   const items: StoredMediaItem[] = [];
@@ -91,12 +95,21 @@ async function scanHistoryItems(
     // (catalog-spec.md: chỉ msgId bắt buộc, "chưa có metadata đầy đủ" không
     // phải lý do bỏ qua).
     const titleSource = message.fileName ?? message.caption ?? `Video ${message.msgId}`;
+    // Hashtag (message.entities) ưu tiên TRƯỚC filename cho season/episode,
+    // filename luôn thắng cho title — xem thứ tự đầy đủ ở hashtag-parser.ts.
+    const derived = deriveFallbackMetadata(message.msgId, titleSource, message.hashtags);
+    // Forum Topic (đã cache 1 lần/kênh ở ensureForumTopicsCached phía trên)
+    // — `undefined` khi kênh không phải Forum hoặc message ngoài mọi topic.
+    const topic = await lookupTopicTitle(storage, sourceId, message.topicId);
+    if (topic) {
+      derived.topic = topic;
+    }
     // `size` (nếu Telegram trả) — giữ lại từ T2/T3 quét lịch sử, không phải
     // do parseFilenameFallback() suy luận. Cần cho slice Playback (F4,
     // ADR-0005): SW đọc `size` cục bộ để trả Content-Length mà "không cần
     // chạm mạng" — phát hiện thật lúc dựng F4: field này trước đó bị bỏ rơi
     // ở tầng quét, dù `size` đã có sẵn trong CatalogItemV1/IndexHistoryMessage.
-    items.push({ ...parseFilenameFallback(message.msgId, titleSource), size: message.size, trust, publisherId: message.publisherId });
+    items.push({ ...derived, size: message.size, trust, publisherId: message.publisherId });
   }
   return { items, maxMsgId };
 }

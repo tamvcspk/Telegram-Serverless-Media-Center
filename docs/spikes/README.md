@@ -12,6 +12,8 @@ Quy tắc: **một spike chỉ đóng khi có số liệu từ thiết bị th�
 | [SPIKE-04](#spike-04) | Tốc độ tải thực tế và ngưỡng `FLOOD_WAIT` | [0006](../adr/0006-download-pipeline-dc-pool-flood-wait.md) | 🟡 **Đã đóng (chấp nhận)** — ~1.1 GB tải liên tục ở mức 4/8 request đồng thời, 0 lần gặp `FLOOD_WAIT`; trần thật chưa lộ ra nhưng đủ bằng chứng cho use-case phát phim thật |
 | [SPIKE-05](#spike-05) | Angular Material + CDK ăn bao nhiêu ngân sách app shell? | [0016](../adr/0016-angular-material-va-cdk.md) | ⏳ Chưa dựng — chạy ngay sau khi scaffold |
 | [SPIKE-06](#spike-06) | Ghi `catalog.json` lên kênh media qua MTProto thật (`sendFile`→`pinMessage`→`deleteMessages`) có đúng như thiết kế không? | [0014](../adr/0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md), [0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md), [0009](../adr/0009-dong-bo-state-event-log-va-snapshot.md) | 🟢 **Đạt (2026-08-28)** — cả 5 tiêu chí A-E đạt trên tài khoản thật, publish/update/xoá đều đúng như thiết kế |
+| [SPIKE-07](#spike-07) | Forum Topics API của GramJS `2.26.22` có dùng được để categorize phim theo topic không? | [0010](../adr/0010-catalog-spec-v1-va-chien-luoc-indexing.md) | 🟢 **Đạt (2026-08-29)** — tạo nhóm forum, tạo topic, `GetForumTopics` liệt kê đúng, và quét lịch sử suy ra đúng topic mỗi message thuộc về (`replyToTopId ?? replyToMsgId` khi `forumTopic`) — cả 4 lần chạy trên tài khoản thật, lần cuối A-E đều đạt |
+| [SPIKE-08](#spike-08) | Trong 3 API dò khả năng phát (`canPlayType`/`MediaSource.isTypeSupported`/WebCodecs `isConfigSupported`), cái nào khớp đúng khả năng phát THẬT của `<video src>` theo ADR-0005 (progressive, không MSE)? | [0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md), [0005](../adr/0005-streaming-qua-service-worker-http-range.md) | ⏳ Chưa dựng |
 
 ---
 
@@ -442,3 +444,211 @@ Toàn bộ 5/5 tiêu chí đạt trong một lần chạy duy nhất — không 
 | B, C đạt nhưng D thất bại (A không bị xoá thật) | `deleteMessages` không hoạt động như kỳ vọng (vd cần quyền khác, hoặc `revoke:true` không đủ) — catalog cũ tồn đọng vĩnh viễn trong kênh, không mất dữ liệu MỚI nhưng kênh media tích rác theo thời gian; hạ mức ưu tiên xuống "chấp nhận, dọn tay" nếu không sửa được ngay |
 | A thất bại (không tạo được kênh, hoặc `creator !== true`) | Vấn đề ở quyền tài khoản test hoặc API, không phải bug thiết kế — thử tài khoản khác trước khi kết luận gì về `publishCatalogDocument()` |
 | Ngoại lệ không rõ nguyên nhân ở bất kỳ bước nào | Ghi lại nguyên văn lỗi GramJS (`errorMessage`) vào phần Kết quả — có thể là giới hạn API chưa biết (vd rate limit riêng cho `channels.CreateChannel`/`DeleteChannel`), cần điều tra thêm trước khi đóng spike theo hướng nào |
+
+---
+
+## SPIKE-07
+
+**Trạng thái:** 🟢 **Đã chạy, ĐẠT (2026-08-29)** — xem "Kết quả" và "Đã chốt" bên dưới.
+
+**Câu hỏi:** GramJS `2.26.22` (bản ghim, đã archive — [ADR-0003](../adr/0003-chon-thu-vien-mtproto-gramjs.md)) có hỗ trợ đủ **Forum Topics** để dùng làm tín hiệu categorize phim (phim lẻ/phim bộ) không — cụ thể hai câu hỏi con:
+1. `channels.GetForumTopics` có liệt kê đúng topic + title của một supergroup có bật Topics không?
+2. Một message quét được qua lịch sử (`getMessages`/`messages.getHistory`) có xác định được nó thuộc topic nào (`replyTo.topMsgId`) không, hay phải gọi thêm RPC riêng cho từng message?
+
+**Vì sao quan trọng:** đây là follow-up của brainstorm cải thiện `libs/core-index/src/index-engine.ts` (dùng hashtag + forum topic làm tín hiệu suy luận metadata bên cạnh filename, xem `docs/roadmap.md` § Index/quét nguồn). Hashtag không cần spike — chỉ đọc `message.entities` đã có sẵn trong response quét, không phải API mới. Forum Topics thì có: đây là bề mặt GramJS **hoàn toàn chưa ai chạm tới trong repo** (không có `isForum`/`topicId`/`getForumTopics` ở đâu cả) trên một thư viện đã bị archive. Nếu spike đạt, cần addendum [ADR-0010](../adr/0010-catalog-spec-v1-va-chien-luoc-indexing.md) thêm field category/topic vào `CatalogItemV1` và mở rộng `IndexGateway`. Nếu không đạt, roadmap đóng lại mục đó theo hướng "không khả thi với thư viện hiện tại", không phải xoá âm thầm.
+
+**Đã kiểm tra tĩnh trước khi viết tool (không tính là spike, chỉ là điều kiện cần):** đọc `node_modules/telegram/tl/api.d.ts` xác nhận schema TL của bản ghim `2.26.22` **có** `channels.CreateChannel({megagroup, forum})`, `channels.CreateForumTopic`, `channels.GetForumTopics`, và `MessageReplyHeader.topMsgId`/`forumTopic`. Điều này chỉ chứng minh **thư viện biên dịch được với các type này** — giống hệt tình huống SPIKE-03 ban đầu ("build thành công") hoá ra sai cho nhánh `crypto` khi chạm `connect()` thật. Spike này là bước kiểm chứng **hành vi runtime trên tài khoản thật**, không phải lặp lại việc đọc `.d.ts`.
+
+### Bàn thử nghiệm
+
+`tools/spike-07/` — script Node độc lập, gọi thẳng GramJS tầng thấp (không qua `libs/core-index`/`libs/core-mtproto`, cùng lý do tách như SPIKE-02/04/06: nếu spike hỏng, biết chắc là hành vi giao thức/tài khoản/thư viện chứ không phải bug ở pipeline thật).
+
+**Điểm an toàn cốt lõi:** script tự **tạo một supergroup test mới** (`channels.CreateChannel({megagroup:true, forum:true})`) cho mỗi lần chạy, không bao giờ đụng tới nhóm/kênh có sẵn nào của bạn — cùng mô hình an toàn với SPIKE-06. Script mặc định tự xoá nhóm test khi xong (`channels.DeleteChannel`); cờ `--keep` giữ lại để tự kiểm tra bằng mắt trong app Telegram trước khi xoá tay.
+
+> **Mã nguồn đã xoá (2026-08-29)** sau khi spike đóng và số liệu đã ghi lại đầy đủ bên dưới — không còn cần chạy lại. Lịch sử mã nguồn vẫn còn trong git log (4 lần chạy thật trên tài khoản, xem "Kết quả" dưới). Phần "Cách chạy" dưới đây mô tả cách spike ĐÃ chạy, không còn thực thi được nữa. `tools/env.example` và quy ước `tools/.env` dùng chung cho mọi spike (xem [skill spike](../../.claude/skills/spike/SKILL.md)) vẫn giữ nguyên, không bị xoá theo.
+
+### Cách chạy
+
+**Khuyến nghị — dùng chung `tools/.env`** (mới, xem `tools/env.example`): copy `tools/env.example` thành `tools/.env` (một cấp trên `tools/spike-07/`, đã gitignore, sống sót qua các lần mở/đóng spike), điền `TSMC_API_ID`/`TSMC_API_HASH`/`TSMC_PHONE`. `login.mjs`/`test.mjs` tự đọc file này — không cần gõ tay biến môi trường mỗi lần, và dùng lại được cho spike-08, spike-09... sau này.
+
+```bash
+cd tools/spike-07
+npm install
+npm run login    # chỉ còn hỏi mã OTP nếu đã điền TSMC_PHONE trong tools/.env
+node test.mjs
+node test.mjs --keep   # muốn tự xem nhóm test trong Telegram trước khi xoá tay
+```
+
+**Không muốn tạo `.env`** — gõ tay từng lần như các spike trước:
+
+```bash
+cd tools/spike-07
+npm install
+
+# Bước 1 — đăng nhập một lần (hoặc copy .session.local từ spike-02/04/06 nếu còn).
+TSMC_API_ID=xxxxx TSMC_API_HASH=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx npm run login
+
+# Bước 2 — chạy chuỗi tạo nhóm forum → tạo 2 topic → GetForumTopics → gửi
+# message vào từng topic → quét lại lịch sử → đối chiếu → tự xoá nhóm.
+# Gọi "node test.mjs" trực tiếp, KHÔNG dùng "npm run test -- ..." (PowerShell nuốt --flag qua npm run).
+TSMC_API_ID=xxxxx TSMC_API_HASH=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx node test.mjs
+
+# Thêm --keep nếu muốn tự xem nhóm test trong Telegram trước khi xoá tay:
+TSMC_API_ID=xxxxx TSMC_API_HASH=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx node test.mjs --keep
+```
+
+Kết quả ghi ra `docs/spikes/spike-07-result.local.json` (đã gitignore) — **chỉ chứa số liệu tổng hợp** (đạt/không đạt từng bước, id/title topic test, thời gian), không chứa session, không chứa số điện thoại, không chứa id nhóm thật (nhóm test đã bị xoá ngay sau khi chạy trừ khi dùng `--keep`). An toàn để dán nội dung vào chat cho Claude đọc và viết lại phần Kết quả bên dưới.
+
+### Tiêu chí đạt/không đạt
+
+| Mã | Kiểm tra | Đạt khi |
+|---|---|---|
+| A | Tạo supergroup test với `forum=true` ngay lúc `channels.CreateChannel` | `channel.megagroup === true && channel.forum === true` sau khi tạo |
+| B | `channels.CreateForumTopic` tạo 2 topic ("Phim lẻ", "Phim bộ") không lỗi | Cả hai lệnh gọi trả về `Updates` không throw |
+| **C** | `channels.GetForumTopics` liệt kê đúng 2 topic vừa tạo, đúng title, có id | **Câu trả lời chính #1** — topic list + title đọc được đúng như đã tạo, không cần suy đoán id từ `Updates` của bước B |
+| **D** | Gửi message vào từng topic (`InputReplyToMessage{topMsgId}`), quét lại bằng `getMessages()`, `replyTo.topMsgId` khớp đúng topic đã gửi | **Câu trả lời chính #2** — quét lịch sử tự nhiên (không gọi thêm RPC/message) đã đủ biết message thuộc topic nào |
+| E | Message gửi KHÔNG chỉ định topic — ghi nhận `replyTo` đọc lại là gì | Không phải đạt/không đạt — là quan sát bắt buộc: cần biết giá trị mặc định (undefined? topic "General" id nào?) để thiết kế fallback khi kênh bật Forum nhưng post không thuộc topic cụ thể |
+| F | Dọn dẹp — xoá nhóm test thành công (trừ khi `--keep`) | `channels.DeleteChannel` không lỗi |
+
+### Ma trận thiết bị cần phủ
+
+Không áp dụng — đây là hành vi API/tài khoản Telegram (giống SPIKE-02/04/06), không phụ thuộc trình duyệt/hệ điều hành. Một lần chạy trên một tài khoản là đủ bằng chứng cho câu hỏi đúng/sai của một chuỗi API call xác định (cùng loại câu hỏi với SPIKE-06, khác với ngưỡng phụ thuộc tài khoản/thời điểm như SPIKE-04).
+
+### Kết quả
+
+#### Tài khoản thật, nhóm test tự sinh (id `4355095639`, tự xoá sau khi chạy — script tự dọn ngay cả khi lỗi giữa chừng) · 2026-08-29T09:02:43Z · lần 1/2
+
+| Mã | Kết quả | Số đo/chi tiết |
+|---|---|---|
+| A | ✅ ĐẠT | `megagroup=true, forum=true` ngay lúc `channels.CreateChannel` — không cần `channels.ToggleForum` riêng |
+| B | ✅ ĐẠT | `channels.CreateForumTopic("Phim lẻ")` → id đoán từ `Updates` = 2; `("Phim bộ")` → id = 3 |
+| **C** | ✅ **ĐẠT** | `channels.GetForumTopics` trả về **3** topic: `General`(id=1, tự sinh mặc định khi bật Forum — không phải do script tạo) , `Phim lẻ`(id=2), `Phim bộ`(id=3) — khớp chính xác với id đoán từ `Updates` ở bước B, xác nhận **câu trả lời chính #1**: liệt kê topic + title hoạt động đúng như tài liệu TL mô tả |
+| D | ❌ **Crash — bug ở script, không phải ở Telegram/GramJS** | `client.sendMessage()` ném `Invalid message type: VirtualClass` |
+
+**Phân tích lỗi (đã sửa, xem `tools/spike-07/test.mjs` comment tại chỗ gọi `sendMessage`):** script lần 1 tự dựng `new Api.InputReplyToMessage({replyToMsgId, topMsgId})` rồi gán vào `replyTo` của `client.sendMessage()`. Đọc `node_modules/telegram/client/messages.js` (dòng ~486-491) mới thấy: hàm cấp cao **tự dựng** `InputReplyToMessage` nội bộ từ `replyTo`/`topMsgId` dạng **số thuần**, qua `Utils.getMessageId()` (`node_modules/telegram/Utils.js:1122`) — hàm này chỉ chấp nhận `number` hoặc object có field `.id` (một `Message` thật), ném lỗi cho bất kỳ type khác. `InputReplyToMessage` tự tay dựng có field `replyToMsgId`, không có `.id` → rơi vào nhánh `throw`. Sửa: gọi `sendMessage(channel, { message, replyTo: topicId, topMsgId: topicId })` — cả hai đều số, để GramJS tự lo phần dựng `InputReplyToMessage`.
+
+**Phát hiện phụ đáng giá hơn cả việc sửa bug:** `client.sendMessage()` (và `client.sendFile()`, cùng file dòng ~476) đều nhận thẳng tham số `topMsgId` ở tầng cao — nghĩa là **không cần tự tay dựng `Api.InputReplyToMessage` ở code thật** (`libs/core-mtproto/src/gateway-index.ts` sau này) nếu implement gửi/publish theo topic; chỉ cần truyền thêm `topMsgId` vào lệnh gọi `sendFile`/`sendMessage` sẵn có.
+
+#### Cùng tài khoản, nhóm test tự sinh (id `4389650027`) · 2026-08-29T09:06:01Z · lần 2/3
+
+Sau khi sửa bug `sendMessage()` ở lần 1, script chạy hết được tới bước 5 — nhưng lộ ra một phát hiện thật thứ hai, **không phải lỗi Telegram/GramJS mà là lỗi đọc sai tên field trong chính script**:
+
+| Mã | Kết quả | Số đo/chi tiết |
+|---|---|---|
+| A-C | ✅ ĐẠT | Giống hệt lần 1 |
+| Gửi message vào 2 topic + 1 message không topic | ✅ ĐẠT | `sendMessage(channel, { replyTo: topicId, topMsgId: topicId })` (đã sửa) chạy trơn tru — xác nhận phát hiện phụ ở lần 1 (không cần tự dựng `InputReplyToMessage`) là đúng |
+| D | ❌ Vẫn không khớp — **nhưng vì lý do khác lần 1** | `"Phim lẻ": expected=2, actual replyTo.topMsgId=undefined, replyTo.forumTopic=true` — `forumTopic=true` ĐÃ đúng (chứng minh Telegram có gắn message vào topic thật), chỉ riêng `topMsgId` đọc ra `undefined` |
+
+**Phân tích (đã sửa, xem `tools/spike-07/test.mjs` comment tại chỗ đọc `message.replyTo`):** đọc lại `tl/api.d.ts` phần định nghĩa `MessageReplyHeader` (type trả về khi ĐỌC message, khác `InputReplyToMessage` là type dùng khi GỬI) — field mang id topic ở đây tên là **`replyToTopId`**, không phải `topMsgId`. Đây là kiểu bất đối xứng tên field giữa chiều gửi/nhận **giống hệt** phát hiện `senderId` đã gặp ở [ADR-0010 addendum 2026-08-25](../adr/0010-catalog-spec-v1-va-chien-luoc-indexing.md#cập-nhật-sau-khi-accepted-2026-08-25-slice-index-f2) (đọc code TL thật thay vì đoán tên field theo trực giác luôn là cách an toàn duy nhất với GramJS). `forumTopic: true` đọc đúng ngay từ lần 1 vì tên field đó **giống nhau** ở cả hai class — chỉ riêng field mang id là khác tên. Sửa: đọc `msg.replyTo.replyToTopId` thay vì `msg.replyTo.topMsgId`.
+
+**Đọc kết quả 2 lần chạy cho đúng:** cả hai lần "không đạt" ở D đều là **lỗi trong chính script test**, không phải bằng chứng Telegram/GramJS thiếu hỗ trợ — thực ra dữ liệu đã đúng cả hai lần (`forumTopic=true` ngay từ đầu), script chỉ đọc sai tên field. Đây chính xác là loại "phép đo sai và vì sao sai" mà quy ước ghi spike yêu cầu giữ lại, không xoá đi khi sửa.
+
+#### Cùng tài khoản, nhóm test tự sinh (id `4335005210`) · 2026-08-29T09:09:16Z · lần 3/4
+
+Sửa tên field xong, chạy lại — D **vẫn không khớp, nhưng lần này là phát hiện THẬT về Telegram, không phải bug script nữa**:
+
+| Mã | Kết quả | Số đo/chi tiết |
+|---|---|---|
+| A-C, gửi message | ✅ ĐẠT | Giống hệt lần 2 |
+| D | ❌ Không khớp — **giá trị đọc về là `null` chứ không phải thiếu field** | `"Phim lẻ": expected=2, actual replyTo.replyToTopId=null, replyTo.forumTopic=true` |
+
+**Đây là tín hiệu khác hẳn hai lần trước:** `null` nghĩa là field TỒN TẠI trong response thật của Telegram nhưng server không set giá trị — không phải lỗi đọc sai tên (đã sửa đúng tên ở lần 2). Giả thuyết (khớp hành vi đã biết công khai ở Bot API: *"message_thread_id = reply_to_top_message_id nếu có, ngược lại reply_to_message_id khi is_topic_message"*): Telegram chỉ set `replyToTopId` cho message trả lời **sâu hơn** một message khác **bên trong** topic; với message gửi **thẳng** vào topic (top-level — đúng cách spike này gửi), server chỉ set `replyToMsgId` = chính id topic, bỏ trống `replyToTopId` vì coi là dư thừa (`top == replyToMsgId` đã ngầm hiểu).
+
+Đã sửa script (`tools/spike-07/test.mjs`) để đọc CẢ `replyToTopId` lẫn `replyToMsgId`, suy ra topic id theo thứ tự ưu tiên `replyToTopId ?? (forumTopic ? replyToMsgId : undefined)` — đây chính là logic sẽ cần dùng thật ở tầng suy luận metadata sau này (không phải đọc một field đơn lẻ).
+
+#### Cùng tài khoản, nhóm test tự sinh (id `4301117864`) · 2026-08-29T09:11:15Z · lần 4/4 — **CÂU TRẢ LỜI CUỐI CÙNG**
+
+| Mã | Kết quả | Số đo/chi tiết |
+|---|---|---|
+| A | ✅ ĐẠT | `megagroup=true, forum=true` |
+| B | ✅ ĐẠT | topic id 2 ("Phim lẻ"), 3 ("Phim bộ") |
+| **C** | ✅ **ĐẠT** | `GetForumTopics` liệt kê đúng `{"General":1,"Phim bộ":3,"Phim lẻ":2}` |
+| **D** | ✅ **ĐẠT** | `"Phim lẻ": expected=2, replyToTopId=null, replyToMsgId=2, forumTopic=true, derived=2` — và tương tự cho "Phim bộ" (derived=3). Logic suy luận `replyToTopId ?? (forumTopic ? replyToMsgId : undefined)` khớp đúng 100% |
+| E | ✅ Quan sát rõ ràng | Message không thuộc topic nào: `replyTo=undefined` — tín hiệu "không có topic" hoàn toàn không mơ hồ, không lẫn với message thuộc "General" |
+| F | ✅ (ngầm định, giống 3 lần trước — script không lỗi ở bước dọn dẹp) | Nhóm test tự xoá, không để lại rác |
+
+**Đọc kết quả 4 lần chạy cho đúng — khác hẳn cách đọc "0/N lần gặp" của SPIKE-02/04:** đây không phải trường hợp "tình huống cần đo chưa từng xảy ra". Cả hai câu hỏi chính đều có câu trả lời **dứt khoát, tái lập được**: (1) `GetForumTopics` liệt kê đúng topic+title — **có**; (2) quét lịch sử tự nhiên (không cần RPC riêng/message) xác định được message thuộc topic nào — **có, với điều kiện dùng đúng logic suy luận 2-field**, không phải đọc một field đơn lẻ như trực giác ban đầu. 3 lần "không đạt" trước đó (2 bug script + 1 phát hiện hành vi thật) đều được giữ nguyên trong tài liệu này, không xoá đi — đúng quy ước ghi spike ("ghi cả phép đo sai và vì sao sai").
+
+**Chi phí RPC — quan trọng cho thiết kế thật:** `channels.GetForumTopics` là **một** lệnh gọi/kênh (giống `getChannelAdmins`, cache được theo TTL) để có bảng `topicId → title`; sau đó **không cần RPC nào thêm mỗi message** — `replyToTopId`/`replyToMsgId` đã có sẵn trong response `messages.getHistory`/`getMessages` mà `scanHistoryItems()` (`libs/core-index/src/index-engine.ts`) đã gọi. Nghĩa là categorize-theo-topic **rẻ giống hashtag**, không đắt như lo ngại ban đầu ở "Ta sẽ làm gì với từng kết quả" bên dưới (nhánh "D hỏng, cần RPC riêng mỗi message" — nhánh đó **không xảy ra**).
+
+**Đã chốt (2026-08-29):** đạt, gỡ rủi ro "Forum Topics API chưa kiểm chứng" ở [architecture.md §7](../architecture.md#7-rủi-ro-lớn-nhất--trạng-thái-kiểm-chứng). Việc tiếp theo (viết addendum ADR-0010 + code `CatalogItemV1`/`IndexGateway` thật) là quyết định riêng, chưa tự làm ở đây — xem `docs/roadmap.md` § Index/quét nguồn.
+
+### Ta sẽ làm gì với từng kết quả
+
+| Kết quả | Hành động |
+|---|---|
+| **A-F đều đạt** *(đã xảy ra, lần 4)* | Forum Topics dùng được đúng như kỳ vọng — viết addendum [ADR-0010](../adr/0010-catalog-spec-v1-va-chien-luoc-indexing.md) thêm field category/topic vào `CatalogItemV1` + `topicId`/`listForumTopics()` vào `IndexGateway` (`libs/core-index/src/gateway-port.ts`), cập nhật `docs/catalog-spec.md`, đóng spike 🟢. Cập nhật roadmap: bỏ "chờ SPIKE-07", mở việc code thật |
+| A đạt, B/C hỏng (tạo topic được nhưng không liệt kê lại đúng, hoặc ngược lại) | API vỡ ở nửa đường — ghi rõ nửa nào hỏng, đánh giá xem có cách vòng khác (vd suy đoán topic từ title thay vì id) trước khi quyết bỏ hẳn hướng này |
+| A, B, C đạt nhưng D hỏng (quét lịch sử không thấy `topMsgId`, hoặc cần RPC riêng mỗi message) | Đây là kết quả tệ nhất về mặt chi phí: categorize theo topic **khả thi về mặt dữ liệu nhưng đắt về RPC** (N message × N lookup — rủi ro `FLOOD_WAIT`, giống lý do ADR-0010 §3 cấm tra cứu publisher theo từng item lúc quét). Nhiều khả năng đóng theo hướng "chấp nhận rủi ro — không làm", hoặc giới hạn categorize-theo-topic chỉ cho T1 (catalog.json admin tự ghi tay category, không suy luận lúc quét) |
+| A hỏng (không tạo được nhóm forum, hoặc `forum` không phải field hợp lệ lúc tạo) | Vấn đề ở phiên bản schema/quyền tài khoản test, không phải câu hỏi cốt lõi — thử tài khoản/flow khác (vd `channels.ToggleForum` sau khi tạo, thay vì set `forum:true` ngay lúc `CreateChannel`) trước khi kết luận API không dùng được |
+| Ngoại lệ không rõ nguyên nhân ở bất kỳ bước nào | Ghi lại nguyên văn lỗi GramJS (`errorMessage`) vào phần Kết quả — có thể là giới hạn API chưa biết, cần điều tra thêm trước khi đóng spike theo hướng nào |
+
+---
+
+## SPIKE-08
+
+**Trạng thái:** ⏳ Chưa dựng.
+
+**Câu hỏi:** Trong ba API trình duyệt có thể dùng để dò khả năng phát trước khi upload (`HTMLVideoElement.canPlayType()`, `MediaSource.isTypeSupported()`, WebCodecs `VideoDecoder.isConfigSupported()`/`MediaCapabilities.decodingInfo()`), **cái nào khớp đúng với khả năng phát THẬT** của `<video src="/_stream/...">` — đường phát progressive qua Service Worker + HTTP Range mà [ADR-0005](../adr/0005-streaming-qua-service-worker-http-range.md) đã chọn (**không** dùng `MediaSource`/`appendBuffer`)? Và một parser MP4 box thuần JS (kiểu mp4box.js, không phải `ffmpeg.wasm` đầy đủ) có trích đúng codec string (`avc1.xx`, `hev1.xx`, `av01.xx`...) từ header để đưa vào API đó không?
+
+**Vì sao quan trọng:** đây là follow-up của brainstorm tự động hoá bước "probe ngay trong trình duyệt" ở mục 3 "Chế độ Admin trong web app" của [ADR-0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md) (hiện Metadata Editor — Màn hình 6 — vẫn là 3 radio button admin tự đoán, `apps/web/src/app/metadata-editor/metadata-editor.html`, không hề có detect thật). Rủi ro cụ thể: WebCodecs trả lời "thiết bị giải mã được codec này", không phải "`<video>` demux/phát được container này" — và bản thân kiến trúc dùng progressive playback chứ không phải MSE, nên ngay cả `MediaSource.isTypeSupported()` — lựa chọn hay bị dùng mặc định cho việc này — cũng có thể là API sai. Nếu tự động hoá Ingest Editor bằng API sai, hệ thống sẽ báo compat sai **có hệ thống** (không phải ngẫu nhiên) — tệ hơn giữ nguyên 3 radio button thủ công hiện tại, vì admin sẽ tin tưởng nhầm vào một con số tưởng là đo được.
+
+### Bàn thử nghiệm
+
+Trang tĩnh độc lập ở `tools/spike-08/` (theo đúng mô hình cô lập của [SPIKE-01](#spike-01): không cần Telegram, không cần build Angular — nếu spike hỏng, biết chắc lỗi ở hành vi trình duyệt chứ không phải ở pipeline ingest thật). Cần chuẩn bị trước một bộ file mẫu nhỏ bằng `ffmpeg` cục bộ (ghi lại đúng lệnh dùng để biết "sự thật nền" của mỗi file):
+
+| File mẫu | Container/codec | Kỳ vọng (giả thuyết, CHƯA kiểm chứng) |
+|---|---|---|
+| `a.mp4` | MP4 + H.264 + AAC | phát được mọi nơi |
+| `b.mp4` | MP4 + HEVC + AAC | Safari có, Chrome desktop thường không |
+| `c.mp4` | MP4 + AV1 + Opus | Chrome/Firefox mới có, Safari cũ không |
+| `d.mkv` | MKV + H.264 (codec bên trong bình thường phát được) | **unplayable ở `<video src>` bất kể codec** — đây là giả thuyết nền của toàn bộ bảng phân hạng ADR-0013, đáng kiểm lại chứ không chỉ suy luận |
+| `e.mkv` | Nội dung thực chất là hồ sơ WebM (VP9 + Opus) nhưng đổi đuôi/mimetype thành mkv | câu hỏi phụ: trình duyệt chặn theo đuôi/mimetype khai báo, hay tự dò nội dung thật? |
+
+Với mỗi file, trang test chạy song song 4 phép thử và so khớp:
+
+- **A** — `video.canPlayType(mime)` với chuỗi mime+`codecs=` parse được từ file
+- **B** — `MediaSource.isTypeSupported(mime)` cùng chuỗi
+- **C** — WebCodecs `VideoDecoder.isConfigSupported({codec})` cùng codec string
+- **D — sự thật nền** — gắn thẳng file vào `<video src>` qua chính SW đang chạy (dựng lại đường `/_stream/*` giống hệt SPIKE-01: `<video>` → SW → tab (`File.slice`) → file trên máy), đợi sự kiện `loadeddata` hoặc `error`. Đây là câu trả lời đúng duy nhất — A/B/C chỉ có giá trị nếu khớp D.
+
+Song song đó, trang test tự trích codec string bằng một MP4 box parser JS thuần (mp4box.js hoặc tương đương, chỉ đọc header — không tải hết file), so với giá trị biết trước từ chính lệnh `ffmpeg` đã dùng để tạo file mẫu.
+
+### Cách chạy
+
+Chưa dựng — khi build, theo đúng mẫu SPIKE-01: `npm run spike:auto` cho Chrome/Edge desktop tự động; `npm run deploy:spike` để lấy URL test trên thiết bị thật, **bắt buộc cho Safari/iOS và Chrome Android** vì đây chính xác là nơi ba API A/B/C được kỳ vọng trả lời khác nhau — desktop Chrome một mình không đủ để trả lời câu hỏi của spike này.
+
+### Tiêu chí đạt/không đạt
+
+| Mã | Kiểm tra | Đạt khi |
+|---|---|---|
+| A vs D | `canPlayType` khớp `loadeddata`/`error` thật | Khớp ở mọi file mẫu — đây là API "đúng theo lý thuyết" vì `<video src>` không dùng MSE, nhưng "đúng theo lý thuyết" chưa phải bằng chứng |
+| B vs D | `MediaSource.isTypeSupported` khớp D | Nếu **không** khớp, xác nhận MSE là API sai cho kiến trúc progressive này dù nó hay được chọn mặc định |
+| **C vs D** | WebCodecs `isConfigSupported` khớp D | **Câu trả lời chính của spike** — nếu lệch, đặc biệt **sai dương** (C nói "được" nhưng D là `error`), xác nhận đúng rủi ro đã nêu: không được dùng WebCodecs một mình để quyết định compat |
+| Parser | Codec string trích từ MP4 box parser khớp giá trị biết trước (từ lệnh `ffmpeg` đã tạo file) | Khớp 100% cho mọi file mẫu MP4 |
+| MKV (`d.mkv`) | D luôn là `error` bất kể codec bên trong | Xác nhận quy tắc "MKV = unplayable ở mức container, không phải per-codec" ở ADR-0013 vẫn đúng |
+| WebM-giả-mkv (`e.mkv`) | Ghi lại D là gì | Không phải đạt/không đạt — là quan sát bắt buộc, xem "Ta sẽ làm gì" |
+
+### Ma trận thiết bị cần phủ
+
+| Nền tảng | Bắt buộc | Lý do |
+|---|---|---|
+| Chrome desktop (Windows) | Có | baseline, chạy tự động qua `spike:auto` |
+| Safari iOS hoặc macOS thật | **Có** | nơi kỳ vọng HEVC lệch rõ nhất so với Chrome — không có thiết bị này thì spike không trả lời được câu hỏi chính |
+| Chrome Android | Nên có | đại diện thiết bị phổ thông nhất trong số user thật của TSMC |
+| Firefox desktop | Tuỳ chọn | không phải mục tiêu chính nhưng rẻ để thêm cùng lúc |
+
+### Kết quả
+
+*(để trống tới khi có số liệu thiết bị thật)*
+
+### Ta sẽ làm gì với từng kết quả
+
+| Kết quả | Hành động |
+|---|---|
+| A khớp D ở mọi nơi; B và/hoặc C lệch D | Xác nhận giả thuyết ban đầu — dùng `canPlayType()` làm API chính thức cho cả Ingest Editor lẫn `Player.checkCompat()`; viết addendum [ADR-0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md) chỉ định rõ API, cấm dùng `MediaCapabilities`/WebCodecs một mình để quyết định compat; đóng spike 🟢 |
+| Cả A, B, C đều khớp D ở mọi nơi | Không có rủi ro sai-API như lo ngại — vẫn ưu tiên `canPlayType()` vì nhẹ nhất (không cần tạo `MediaSource`/`VideoDecoder`), có thể dùng thêm `MediaCapabilities.decodingInfo()` cho tín hiệu phụ (`powerEfficient`/`smooth`) nếu muốn UI tinh hơn; đóng spike 🟢 |
+| A cũng lệch D ở một số file/thiết bị (kể cả API "đúng theo lý thuyết" cũng sai) | Phát hiện nghiêm trọng hơn dự kiến — không API tĩnh nào đáng tin một mình; quay lại phương án "thử phát thật, bắt sự kiện `error`" (chính là D) làm cơ chế fallback bắt buộc, không chỉ dò trước; viết addendum ADR-0013 hạ mức tin cậy của bước probe tĩnh |
+| Parser trích sai codec string (vd nhầm HEVC profile/level) ở một số file | Không chặn được hướng đi — dùng `canPlayType()` với MIME thô (không kèm `codecs=`) làm fallback kém chính xác hơn khi parser thất bại, ghi rõ giới hạn này trong addendum ADR-0013 |
+| `e.mkv` (nội dung WebM, đuôi/mimetype mkv) lại **phát được** trên một trình duyệt nào đó | Phát hiện ngoài dự kiến đáng giá — nghĩa là bảng phân hạng ADR-0013 "MKV luôn Hạng C/D" bảo thủ hơn cần thiết trong một ca hẹp; ghi lại làm quan sát, **không đổi** quy tắc mặc định (remux vẫn an toàn hơn phát hiện từng ca đặc biệt) |
+| Không thiết bị Safari/iOS thật nào sẵn có để chạy | Không đóng spike ở trạng thái 🟢/🟡 — giữ ⏳/🔬, vì thiếu đúng nền tảng mà câu hỏi chính nhắm tới (giống lý do SPIKE-01 bắt buộc chờ iPad thật trước khi kết luận) |

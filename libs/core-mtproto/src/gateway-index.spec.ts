@@ -25,13 +25,17 @@ vi.mock('telegram', () => {
     creator?: boolean;
     broadcast?: boolean;
     left?: boolean;
-    constructor(data: { id: number | string; accessHash?: string; title: string; creator?: boolean; broadcast?: boolean; left?: boolean }) {
+    forum?: boolean;
+    constructor(
+      data: { id: number | string; accessHash?: string; title: string; creator?: boolean; broadcast?: boolean; left?: boolean; forum?: boolean }
+    ) {
       this.id = { toString: () => String(data.id) };
       this.accessHash = data.accessHash !== undefined ? { toString: () => data.accessHash as string } : undefined;
       this.title = data.title;
       this.creator = data.creator;
       this.broadcast = data.broadcast;
       this.left = data.left;
+      this.forum = data.forum;
     }
   }
   class FakeUser {
@@ -114,6 +118,38 @@ vi.mock('telegram', () => {
   class FakeChannelParticipantAdmin {}
   class FakeChannelParticipantCreator {}
   class FakeChannelParticipantPlain {}
+  class FakeMessageEntityHashtag {
+    offset: number;
+    length: number;
+    constructor(data: { offset: number; length: number }) {
+      this.offset = data.offset;
+      this.length = data.length;
+    }
+  }
+  class FakeMessageReplyHeader {
+    forumTopic?: boolean;
+    replyToMsgId?: number;
+    replyToTopId?: number;
+    constructor(data: { forumTopic?: boolean; replyToMsgId?: number; replyToTopId?: number }) {
+      this.forumTopic = data.forumTopic;
+      this.replyToMsgId = data.replyToMsgId;
+      this.replyToTopId = data.replyToTopId;
+    }
+  }
+  class FakeForumTopic {
+    id: number;
+    title: string;
+    constructor(data: { id: number; title: string }) {
+      this.id = data.id;
+      this.title = data.title;
+    }
+  }
+  class FakeGetForumTopics {
+    channel: unknown;
+    constructor(data: { channel: unknown }) {
+      this.channel = data.channel;
+    }
+  }
   class FakeCustomFile {
     constructor(
       public name: string,
@@ -147,12 +183,16 @@ vi.mock('telegram', () => {
       ChannelParticipantAdmin: FakeChannelParticipantAdmin,
       ChannelParticipantCreator: FakeChannelParticipantCreator,
       ChannelParticipant: FakeChannelParticipantPlain,
+      MessageEntityHashtag: FakeMessageEntityHashtag,
+      MessageReplyHeader: FakeMessageReplyHeader,
+      ForumTopic: FakeForumTopic,
       channels: {
         GetFullChannel: FakeGetFullChannel,
         GetParticipants: FakeGetParticipants,
         ChannelParticipants: FakeChannelParticipants,
         GetParticipant: FakeGetParticipant,
-        ChannelParticipant: FakeChannelParticipantSingle
+        ChannelParticipant: FakeChannelParticipantSingle,
+        GetForumTopics: FakeGetForumTopics
       }
     },
     TelegramClient: FakeTelegramClient
@@ -163,7 +203,7 @@ const { Api } = await import('telegram');
 const { createIndexGatewayMethods } = await import('./gateway-index');
 
 function makeChannel(
-  overrides: Partial<{ id: number; accessHash: string; title: string; creator: boolean; broadcast: boolean; left: boolean }> = {}
+  overrides: Partial<{ id: number; accessHash: string; title: string; creator: boolean; broadcast: boolean; left: boolean; forum: boolean }> = {}
 ) {
   return new Api.Channel({ id: 1, accessHash: 'hash-1', title: 'Kho Phim', creator: false, ...overrides } as never);
 }
@@ -339,6 +379,69 @@ describe('@tsmc/core-mtproto createIndexGatewayMethods', () => {
     expect(mocks.getMessages).toHaveBeenCalledWith(expect.anything(), { minId: 0, limit: 100, reverse: true });
   });
 
+  it('fetchHistorySince(): suy ra topicId bằng replyToTopId ?? replyToMsgId khi forumTopic (SPIKE-07)', async () => {
+    const client = await makeClient();
+    const methods = createIndexGatewayMethods(() => client);
+    mocks.getEntity.mockResolvedValue(makeChannel());
+
+    const doc = new Api.Document({ mimeType: 'video/mp4', size: 1000, attributes: [new Api.DocumentAttributeFilename({ fileName: 'A.mkv' } as never)] } as never);
+    mocks.getMessages.mockResolvedValueOnce([
+      // Reply sâu bên trong topic — có cả replyToTopId lẫn replyToMsgId, topicId phải lấy replyToTopId.
+      {
+        id: 1,
+        media: new Api.MessageMediaDocument({ document: doc } as never),
+        senderId: { toString: () => '9' },
+        replyTo: new Api.MessageReplyHeader({ forumTopic: true, replyToTopId: 5, replyToMsgId: 42 } as never)
+      },
+      // Message gửi THẲNG vào topic — chỉ có replyToMsgId (= chính id topic).
+      {
+        id: 2,
+        media: new Api.MessageMediaDocument({ document: doc } as never),
+        senderId: { toString: () => '9' },
+        replyTo: new Api.MessageReplyHeader({ forumTopic: true, replyToMsgId: 5 } as never)
+      },
+      // forumTopic không set (reply thường, không phải Forum) → topicId undefined dù có replyToMsgId.
+      {
+        id: 3,
+        media: new Api.MessageMediaDocument({ document: doc } as never),
+        senderId: { toString: () => '9' },
+        replyTo: new Api.MessageReplyHeader({ replyToMsgId: 5 } as never)
+      },
+      // Không thuộc topic nào — replyTo hoàn toàn undefined.
+      { id: 4, media: new Api.MessageMediaDocument({ document: doc } as never), senderId: { toString: () => '9' }, replyTo: undefined }
+    ]);
+
+    const items = await methods.fetchHistorySince('1', 0, 100);
+    expect(items.find((i) => i.msgId === 1)?.topicId).toBe('5');
+    expect(items.find((i) => i.msgId === 2)?.topicId).toBe('5');
+    expect(items.find((i) => i.msgId === 3)?.topicId).toBeUndefined();
+    expect(items.find((i) => i.msgId === 4)?.topicId).toBeUndefined();
+  });
+
+  it('fetchHistorySince(): tách hashtag từ message.entities theo offset/length, không regex caption thô', async () => {
+    const client = await makeClient();
+    const methods = createIndexGatewayMethods(() => client);
+    mocks.getEntity.mockResolvedValue(makeChannel());
+
+    const doc = new Api.Document({ mimeType: 'video/mp4', size: 1000, attributes: [new Api.DocumentAttributeFilename({ fileName: 'A.mkv' } as never)] } as never);
+    const text = 'Dune Part Two #S01E02 #scifi';
+    mocks.getMessages.mockResolvedValueOnce([
+      {
+        id: 1,
+        media: new Api.MessageMediaDocument({ document: doc } as never),
+        senderId: { toString: () => '9' },
+        message: text,
+        entities: [new Api.MessageEntityHashtag({ offset: 14, length: 7 } as never), new Api.MessageEntityHashtag({ offset: 22, length: 6 } as never)]
+      },
+      // Không có entities → hashtags undefined, không throw.
+      { id: 2, media: new Api.MessageMediaDocument({ document: doc } as never), senderId: { toString: () => '9' }, message: 'no tags here', entities: [] }
+    ]);
+
+    const items = await methods.fetchHistorySince('1', 0, 100);
+    expect(items.find((i) => i.msgId === 1)?.hashtags).toEqual(['#S01E02', '#scifi']);
+    expect(items.find((i) => i.msgId === 2)?.hashtags).toBeUndefined();
+  });
+
   it("fetchHistorySince(): direction 'desc' lấy message MỚI NHẤT, bỏ qua minId/reverse (phát hiện thật — xem comment ở source)", async () => {
     const client = await makeClient();
     const methods = createIndexGatewayMethods(() => client);
@@ -427,6 +530,31 @@ describe('@tsmc/core-mtproto createIndexGatewayMethods', () => {
 
     mocks.invoke.mockRejectedValueOnce(new Error('FLOOD_WAIT_60'));
     await expect(methods.checkPublisherIsAdmin('1', 'u6')).rejects.toThrow('FLOOD_WAIT_60');
+  });
+
+  it('listForumTopics(): kênh không phải Forum → null, KHÔNG gọi invoke (channel.forum lấy free từ entity đã resolve)', async () => {
+    const client = await makeClient();
+    const methods = createIndexGatewayMethods(() => client);
+    mocks.getEntity.mockResolvedValueOnce(makeChannel({ forum: false }));
+
+    expect(await methods.listForumTopics('1')).toBeNull();
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+
+  it('listForumTopics(): kênh Forum → gọi channels.GetForumTopics, map id/title, bỏ qua entry không phải ForumTopic', async () => {
+    const client = await makeClient();
+    const methods = createIndexGatewayMethods(() => client);
+    mocks.getEntity.mockResolvedValueOnce(makeChannel({ forum: true }));
+
+    mocks.invoke.mockResolvedValueOnce({
+      topics: [new Api.ForumTopic({ id: 1, title: 'General' } as never), new Api.ForumTopic({ id: 5, title: 'Phim bộ' } as never), { notATopic: true }]
+    });
+
+    const result = await methods.listForumTopics('1');
+    expect(result).toEqual([
+      { id: '1', title: 'General' },
+      { id: '5', title: 'Phim bộ' }
+    ]);
   });
 
   it('diagnoseChannel(): phân loại đúng document (có/không filename, video attr), photo, media khác, và message không có media — KHÔNG lọc gì cả', async () => {

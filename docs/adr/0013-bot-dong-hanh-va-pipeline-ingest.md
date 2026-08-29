@@ -93,3 +93,17 @@ Phần probe là thứ **bắt buộc phải có ngay từ v1**; phần remux tr
 - `ffmpeg.wasm` nặng (vài chục MB) → **lazy-load, chỉ tải khi user thật sự vào chế độ Admin**, không bao giờ nằm trong bundle chính.
 - CSP ở [ADR-0011](./0011-bao-mat-session-va-noi-dung-khong-tin-cay.md) cần `'wasm-unsafe-eval'` (đã có) và `worker-src 'self' blob:` cho `ffmpeg.wasm` — phải bổ sung khi triển khai tính năng này.
 - Bot cần token lưu ở phía admin; tuyệt đối không đưa token bot vào web app.
+
+## Cập nhật sau khi Accepted (2026-08-29, brainstorm compat detection)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định
+> đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết
+> định gốc **vẫn đứng vững**, xem lý do bên dưới.
+
+**Hiện trạng thật của bước "probe ngay trong trình duyệt" (mục 3):** chưa được xây. Ingest Editor (Màn hình 6, `apps/web/src/app/metadata-editor/metadata-editor.ts`) hiện chỉ có 3 radio button (`Full`/`Partial`/`Unplayable`) do admin **tự đoán bằng mắt** rồi ghi thẳng vào `compat` — không có bất kỳ probe container/codec thật nào chạy. `tsmc-ingest` CLI (ffprobe-based, mục 1 của Quyết định) cũng chưa tồn tại trong repo.
+
+**Câu hỏi mới phát sinh khi bàn cách tự động hoá bước probe đó:** dùng API trình duyệt nào để dò khả năng phát là đúng? Có ba ứng viên (`HTMLVideoElement.canPlayType()`, `MediaSource.isTypeSupported()`, WebCodecs `VideoDecoder.isConfigSupported()`/`MediaCapabilities.decodingInfo()`) và rủi ro cụ thể: WebCodecs trả lời "thiết bị giải mã được codec", không phải "`<video>` phát được file" — và vì kiến trúc dùng progressive playback ([ADR-0005](./0005-streaming-qua-service-worker-http-range.md), không dùng `MediaSource`/`appendBuffer`), ngay cả `MediaSource.isTypeSupported()` — lựa chọn hay bị dùng mặc định — cũng có thể là API sai cho đúng đường phát thật của TSMC. Đây **chưa phải kết luận** — chỉ là giả thuyết mở [SPIKE-08](../spikes/README.md#spike-08), chưa có số liệu thiết bị thật.
+
+**Điều gì KHÔNG đổi:** bảng phân hạng A/B/C/D ở mục 1 (điều kiện container/codec quyết định hạng) vẫn đứng nguyên — SPIKE-08 chỉ nhắm tới việc chọn đúng *cơ chế đo* cho bước probe trình duyệt ở mục 3, không đổi *tiêu chí phân hạng*. Quy tắc "MKV/container lạ luôn Hạng C/D bất kể codec bên trong" cũng không đổi trừ khi SPIKE-08 phát hiện bằng chứng ngược lại.
+
+**Việc tiếp theo:** sau khi SPIKE-08 có số liệu thật, viết addendum kế tiếp chỉ định rõ API dùng cho Ingest Editor + `Player.checkCompat()` (`apps/web/src/app/player/player.ts`), trước khi thay 3 radio button thủ công bằng probe tự động.

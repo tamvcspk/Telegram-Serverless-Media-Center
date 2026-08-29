@@ -30,6 +30,13 @@ export interface IndexMeta {
   /** `null` = đã hỏi nhưng Telegram từ chối tiết lộ (CHAT_ADMIN_REQUIRED). */
   trustedAdmins?: string[] | null;
   trustedAdminsFetchedAt?: number;
+  /**
+   * Map topicId -> title đã sanitize, cache TTL cùng khuôn `trustedAdmins`
+   * (forum-topics.ts). `null` = kênh không phải Forum (`listForumTopics()`
+   * trả null) — không phải "rỗng".
+   */
+  forumTopics?: Record<string, string> | null;
+  forumTopicsFetchedAt?: number;
   lastScanAt?: number;
   lastError?: string;
   itemCount?: number;

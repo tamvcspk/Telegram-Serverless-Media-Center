@@ -14,6 +14,8 @@ export type { IndexStoragePort, IndexMeta, IndexTier, TrustLabel, StoredMediaIte
 export { tryCatalogTier } from './catalog-tier';
 export type { CatalogTierResult } from './catalog-tier';
 export { parseFilenameFallback } from './filename-parser';
+export { deriveFallbackMetadata } from './hashtag-parser';
+export { ensureForumTopicsCached, lookupTopicTitle } from './forum-topics';
 export { classifyFromCache, ensureChannelAdminListCached, resolvePublisherTrust } from './trust';
 export { NotChannelOwnerError } from './publish-catalog';
 export type { CatalogMetadataPatch } from './publish-catalog';

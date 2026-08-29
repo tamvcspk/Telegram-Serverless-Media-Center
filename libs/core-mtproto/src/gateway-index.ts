@@ -64,6 +64,8 @@ export interface ResolvedIndexChannel {
   title: string;
   /** `creator === true` — ADR-0010 §3: kênh private của user tin toàn bộ. */
   isOwn: boolean;
+  /** `channel.forum === true` (SPIKE-07) — field có sẵn từ resolve kênh, không cần RPC riêng. */
+  isForum: boolean;
 }
 
 export interface MemberChannelSummary extends ResolvedIndexChannel {
@@ -87,6 +89,10 @@ export interface IndexHistoryMessage {
   mimeType?: string;
   size?: number;
   video?: { w: number; h: number; durationSec: number };
+  /** Forum Topic message này thuộc về — `replyToTopId ?? replyToMsgId` khi `forumTopic` (SPIKE-07). */
+  topicId?: string;
+  /** Hashtag tách từ `message.entities` (MessageEntityHashtag) — không regex lại caption thô. */
+  hashtags?: string[];
 }
 
 /**
@@ -121,6 +127,44 @@ function extractVideoAttributes(document: Api.Document): IndexHistoryMessage['vi
 }
 
 /**
+ * SPIKE-07: Telegram chỉ set `replyToTopId` cho reply SÂU bên trong topic —
+ * message gửi THẲNG vào topic chỉ có `replyToMsgId` (= chính id topic). Đọc
+ * một field đơn lẻ theo trực giác ban đầu cho kết quả sai (đã verify thật).
+ * Message không thuộc topic nào: `replyTo` hoàn toàn `undefined`.
+ */
+function extractTopicId(message: Api.Message): string | undefined {
+  const replyTo = message.replyTo;
+  if (!(replyTo instanceof Api.MessageReplyHeader) || replyTo.forumTopic !== true) {
+    return undefined;
+  }
+  const topicId = replyTo.replyToTopId ?? replyTo.replyToMsgId;
+  return topicId !== undefined ? topicId.toString() : undefined;
+}
+
+/**
+ * `MessageEntityHashtag.offset/length` đã cắt sẵn ranh giới hashtag trong
+ * `message.message` (text/caption) — đáng tin hơn tự đoán bằng regex trên
+ * caption thô (ADR-0010 § Cập nhật 2026-08-29 mục B).
+ */
+function extractHashtags(message: Api.Message): string[] | undefined {
+  const text = message.message;
+  const entities = message.entities;
+  if (!text || !entities || entities.length === 0) {
+    return undefined;
+  }
+  const tags: string[] = [];
+  for (const entity of entities) {
+    if (entity instanceof Api.MessageEntityHashtag) {
+      const tag = text.slice(entity.offset, entity.offset + entity.length);
+      if (tag) {
+        tags.push(tag);
+      }
+    }
+  }
+  return tags.length > 0 ? tags : undefined;
+}
+
+/**
  * Nhóm các RPC channel/message cho index — nhận `getClient` thay vì tự giữ
  * `client` để dùng chung đúng một session với gateway.ts (client chỉ tồn
  * tại sau login/restoreSession thành công), cùng quy ước với gateway-sync.ts.
@@ -133,7 +177,7 @@ export function createIndexGatewayMethods(getClient: () => TelegramClient) {
   function cache(channel: Api.Channel): ResolvedIndexChannel {
     const id = channel.id.toString();
     channelCache.set(id, channel);
-    return { id, accessHash: channel.accessHash?.toString() ?? '', title: channel.title, isOwn: channel.creator === true };
+    return { id, accessHash: channel.accessHash?.toString() ?? '', title: channel.title, isOwn: channel.creator === true, isForum: channel.forum === true };
   }
 
   async function resolveChannelEntity(channelId: string): Promise<Api.Channel> {
@@ -321,7 +365,9 @@ export function createIndexGatewayMethods(getClient: () => TelegramClient) {
           caption: message.message || undefined,
           mimeType: document.mimeType,
           size: document.size.toJSNumber(),
-          video: extractVideoAttributes(document)
+          video: extractVideoAttributes(document),
+          topicId: extractTopicId(message),
+          hashtags: extractHashtags(message)
         });
       }
       return items;
@@ -417,6 +463,32 @@ export function createIndexGatewayMethods(getClient: () => TelegramClient) {
         return false;
       }
       return result.participant instanceof Api.ChannelParticipantAdmin || result.participant instanceof Api.ChannelParticipantCreator;
+    },
+
+    /**
+     * `channels.GetForumTopics` (SPIKE-07) — 1 RPC/kênh, cache là việc của
+     * core-index/forum-topics.ts (cùng convention với getChannelAdmins()).
+     * Kiểm tra `channel.forum` từ entity ĐÃ RESOLVE (miễn phí, không RPC
+     * riêng) trước khi gọi — trả `null` ngay cho kênh không phải Forum thay
+     * vì để Telegram từ chối, vì đa số kênh media là broadcast (không Forum).
+     */
+    async listForumTopics(channelId: string): Promise<{ id: string; title: string }[] | null> {
+      const client = getClient();
+      const channel = await resolveChannelEntity(channelId);
+      if (channel.forum !== true) {
+        return null;
+      }
+
+      const result = await client.invoke(
+        new Api.channels.GetForumTopics({
+          channel,
+          offsetDate: 0,
+          offsetId: 0,
+          offsetTopic: 0,
+          limit: 100
+        })
+      );
+      return result.topics.filter((t): t is Api.ForumTopic => t instanceof Api.ForumTopic).map((t) => ({ id: t.id.toString(), title: t.title }));
     },
 
     /**

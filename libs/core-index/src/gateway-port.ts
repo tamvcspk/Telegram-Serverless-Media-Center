@@ -14,6 +14,12 @@ export interface ResolvedIndexChannel {
   title: string;
   /** ADR-0010 §3: kênh private của user (do chính mình tạo) tin toàn bộ. */
   isOwn: boolean;
+  /**
+   * `channels.CreateChannel`/kết quả resolve kênh trả thẳng field `forum`
+   * (SPIKE-07) — dùng để index-engine.ts bỏ qua hẳn `listForumTopics()` cho
+   * kênh không phải Forum (đa số kênh media là broadcast, không có Forum).
+   */
+  isForum: boolean;
 }
 
 export interface MemberChannelSummary extends ResolvedIndexChannel {
@@ -37,6 +43,19 @@ export interface IndexHistoryMessage {
   mimeType?: string;
   size?: number;
   video?: { w: number; h: number; durationSec: number };
+  /**
+   * Forum Topic message này thuộc về — suy ra bằng `replyToTopId ??
+   * replyToMsgId` khi `forumTopic === true` (SPIKE-07, ADR-0010 § Cập nhật
+   * 2026-08-29 mục A). `undefined` = không thuộc topic nào (kênh không phải
+   * Forum, hoặc message gửi ngoài mọi topic).
+   */
+  topicId?: string;
+  /**
+   * Hashtag tách từ `message.entities` (MessageEntityHashtag, cắt theo
+   * offset/length) — KHÔNG regex lại caption thô (ADR-0010 § Cập nhật
+   * 2026-08-29 mục B). `undefined` khi message không có hashtag nào.
+   */
+  hashtags?: string[];
 }
 
 export interface IndexGateway {
@@ -59,6 +78,15 @@ export interface IndexGateway {
    * quyết định null nghĩa là gì.
    */
   getChannelAdmins(channelId: string): Promise<string[] | null>;
+  /**
+   * Liệt kê Forum Topic của kênh (`channels.GetForumTopics`, SPIKE-07) — 1
+   * RPC/kênh/lượt quét, cache TTL giống `getChannelAdmins` (xem
+   * forum-topics.ts). Trả `null` khi kênh không phải Forum — cùng convention
+   * null-safety với `getChannelAdmins()` (null = "không áp dụng", không phải
+   * "rỗng"). KHÔNG BAO GIỜ gọi theo từng message (ADR-0010 § Cập nhật
+   * 2026-08-29 mục A).
+   */
+  listForumTopics(channelId: string): Promise<{ id: string; title: string }[] | null>;
   /**
    * Tra cứu ĐÚNG MỘT publisher — dùng lúc TRUY CẬP (on-access), không bao
    * giờ gọi hàng loạt lúc quét (N publisher × N RPC = rủi ro FLOOD_WAIT,

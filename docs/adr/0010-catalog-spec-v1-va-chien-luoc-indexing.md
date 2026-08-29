@@ -109,3 +109,42 @@ Phát sinh khi cho user tự thêm nguồn bằng username/invite link (không t
 - `parseUsername()` nội bộ của GramJS chỉ nhận dạng invite link kiểu CŨ `t.me/joinchat/HASH`, không nhận `t.me/+HASH` (định dạng Telegram đã đổi sang từ lâu) — `getEntity()` ném "Cannot find any entity corresponding to...". Workaround ở tầng gọi: chuyển `+HASH` về `joinchat/HASH` trước khi gọi GramJS.
 - Link nội bộ `t.me/c/<id>` (Telegram tự sinh khi kênh không có invite link/username) nhúng thẳng channel id thô, không resolve được qua `ResolveUsername`/`CheckChatInvite`. Không vô dụng: nếu tài khoản đang đăng nhập đã là thành viên, id này nằm sẵn trong dialog list **của chính tài khoản đó** — resolve qua `getDialogs()` thay vì coi là id thô chia sẻ được, đúng tinh thần CLAUDE.md bất biến #10 (`access_hash` khác nhau theo từng tài khoản).
 - Bổ sung `listMemberChannels()` cho user **chọn thẳng** từ danh sách chat đã tham gia thay vì gõ/dán ref thủ công — loại bỏ hầu hết nguồn lỗi resolve ở trên vì entity đã có sẵn `access_hash` đúng.
+
+## Cập nhật sau khi Accepted (2026-08-29, SPIKE-07 + brainstorm cải thiện quét nguồn)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững** (3 tầng, spec, fallback tên file + hashtag, index tăng dần, mô hình tin cậy phân tầng); mục này **mở rộng thêm** hai nguồn tín hiệu mới cho fallback derivation (mục 4 của Quyết định gốc), chưa có dòng nào trong Quyết định gốc bị đổi.
+
+### Bối cảnh phát sinh
+
+Brainstorm cải thiện chức năng quét nguồn (`libs/core-index/src/index-engine.ts`) đặt câu hỏi: Telegram cung cấp hashtag và **Forum Topics** (nhóm dạng supergroup có thể bật chia tin theo chủ đề) bên cạnh channel/group thô — quét có thể adapt để derive metadata từ đó, và dùng topic để categorize phim lẻ/phim bộ. Hashtag đã được Quyết định gốc §4 nhắc tới nhưng chưa code cụ thể cách làm; Forum Topics là bề mặt GramJS hoàn toàn mới, cần kiểm chứng trước khi cam kết — mở [SPIKE-07](../spikes/README.md#spike-07).
+
+**SPIKE-07 đã đóng 🟢 (2026-08-29)** — chi tiết đầy đủ + 3 lần chạy hỏng trước đó (bug script, không phải hành vi Telegram/GramJS) ở [docs/spikes/README.md#spike-07](../spikes/README.md#spike-07), tóm tắt:
+- `channels.GetForumTopics` liệt kê đúng topic + title, **1 RPC/kênh**, cache được (cùng khuôn TTL với `getChannelAdmins` đã có ở mục 3 phía trên).
+- Quét lịch sử — **chính RPC `messages.getHistory`/`getMessages` mà `scanHistoryItems()` đã gọi**, không cần RPC riêng nào thêm mỗi message — xác định đúng topic mỗi message thuộc về, với điều kiện suy luận đúng: `replyToTopId ?? replyToMsgId` khi `forumTopic === true` (Telegram chỉ set `replyToTopId` cho reply sâu bên trong topic; message gửi thẳng vào topic chỉ có `replyToMsgId` = chính id topic — đọc một field đơn lẻ theo trực giác ban đầu cho kết quả sai).
+- Message không thuộc topic nào: `replyTo` hoàn toàn `undefined` — tín hiệu "không category" rõ ràng, không lẫn với topic "General" (id cố định `1`, luôn tồn tại mặc định khi bật Forum).
+
+Kết luận chi phí: categorize-theo-topic **rẻ ngang hashtag** (không tốn RPC/item như lo ngại ban đầu ở nhánh xấu nhất của bảng "Ta sẽ làm gì" trong SPIKE-07) — không vi phạm nguyên tắc "tín hiệu MIỄN PHÍ" đã đặt ra ở mục 3 phía trên.
+
+### Quyết định thiết kế mới (đã code 2026-08-29, chưa verify thiết bị thật)
+
+**A. Category theo Forum Topic**
+
+- Thêm field mới **`topic?: string`** vào `CatalogItemV1` (`libs/shared-models/src/catalog.ts`) — sanitize bằng `sanitizeUntrustedString()` giống `genres`, giới hạn cùng độ dài. Giá trị là **nguyên văn tên topic** (vd "Phim lẻ", "Phim bộ", "Anime") — KHÔNG được dùng để tự động suy luận `kind`/`series`: đoán "kind: episode" bằng cách khớp từ khoá tiếng Việt như "bộ" trong tên topic là suy diễn không đáng tin (channel có thể đặt tên topic tuỳ ý, tiếng Anh, có emoji, hoặc dùng từ không theo quy ước nào) — rủi ro gán sai cao hơn giá trị mang lại. `topic` tách biệt khỏi `genres` vì khác bản chất: `genres` mô tả **nội dung phim** (hài, kinh dị...), `topic` mô tả **cách nguồn tự tổ chức** (do admin kênh đặt, không phải đặc tính của phim) — trộn chung sẽ làm bộ lọc thể loại ở Browse (F3) nhiễu theo cấu trúc kênh thay vì nội dung thật.
+- Thêm `topicId?: string` vào `IndexHistoryMessage` (`libs/core-index/src/gateway-port.ts`) — suy ra bằng đúng công thức đã kiểm chứng ở SPIKE-07 (`replyToTopId ?? replyToMsgId` khi `forumTopic`).
+- Thêm method mới vào `IndexGateway`: `listForumTopics(channelId): Promise<{ id: string; title: string }[] | null>` — trả `null` khi kênh không phải Forum (cùng convention null-safety đã có ở `getChannelAdmins()`: null nghĩa là "không áp dụng", không phải "rỗng"). Gọi **đúng một lần/kênh/lượt quét**, cache theo TTL giống admin list — **không bao giờ** gọi theo từng message, đúng nguyên tắc "tín hiệu MIỄN PHÍ" ở mục 3.
+- `ResolvedIndexChannel` cần thêm `isForum: boolean` — `channels.CreateChannel`/kết quả resolve kênh đã trả thẳng field `forum` (xác nhận tại SPIKE-07, không cần RPC riêng để biết), dùng để `index-engine.ts` **bỏ qua hẳn** việc gọi `listForumTopics()` cho kênh không phải Forum (đa số kênh media hiện tại là broadcast channel — theo ADR-0013, không phải supergroup — không có Forum, nên đây không phải trường hợp hiếm).
+
+**B. Hashtag — cụ thể hoá cách làm (Quyết định gốc §4 đã nói CÓ làm, mục này nói LÀM THẾ NÀO)**
+
+- Thêm `hashtags?: string[]` vào `IndexHistoryMessage` — `TelegramGateway` tách từ `message.entities` (lọc `MessageEntityHashtag`, cắt chuỗi theo `offset`/`length` UTF-16 có sẵn trong entity) — **không** regex lại caption thô như suy nghĩ ban đầu ở comment đầu `filename-parser.ts`, vì entity đã phân tách sẵn, đáng tin hơn tự đoán ranh giới từ bằng regex.
+- Thứ tự ưu tiên khi hợp nhất với `parseFilenameFallback()` hiện có (hàm suy luận mới, tách riêng, không sửa hàm cũ):
+  1. `catalog.json` thật (T1) luôn thắng tuyệt đối — không đổi.
+  2. Season/episode: thử pattern trên hashtag trước (vd `#S01E02`); không khớp thì rơi về regex filename hiện có (`SEASON_EPISODE_RE`).
+  3. Title: luôn ưu tiên nguồn filename — hashtag hiếm khi chứa tên phim đầy đủ, thường chỉ là thẻ ngắn.
+  4. Hashtag không khớp bất kỳ pattern season/episode/year/resolution nào → gộp vào `genres` (thẻ tự do, sanitize giống `genres` hiện có) thay vì bỏ qua.
+
+**Trạng thái code hoá (2026-08-29):** cả mục A và B đã code — `libs/shared-models/src/catalog.ts` (field `topic`), `libs/core-index/src/gateway-port.ts` + `libs/core-mtproto/src/gateway-index.ts` (`topicId`/`hashtags`/`isForum`/`listForumTopics()` thật qua `channels.GetForumTopics`), file mới `libs/core-index/src/forum-topics.ts` (cache TTL 1h, cùng khuôn `trust.ts`) và `libs/core-index/src/hashtag-parser.ts` (`deriveFallbackMetadata()`, tách khỏi `parseFilenameFallback()` như đã chốt). `docs/catalog-spec.md` đã cập nhật field `topic` cùng lúc (xem đánh đổi bên dưới — dòng "CHƯA cập nhật" đã hết hiệu lực). Có unit test đầy đủ ở cả 3 package (`core-index`, `core-mtproto`, `shared-models`), `tsc --noEmit`/`eslint` sạch. **Chưa verify bằng kênh Forum thật** (SPIKE-07 verify bằng script test riêng, không phải qua đường code này) — xem [docs/roadmap.md](../roadmap.md) § Sync & dữ liệu cho quy ước "cần kiểm chứng thiết bị thật".
+
+### Đánh đổi chấp nhận
+
+- **Bỏ heuristic suy luận `kind`/`series` từ tên topic** ở v1 — an toàn hơn (không gán nhãn sai) nhưng bỏ lỡ một tín hiệu tốt (kênh đặt topic "Phim bộ" rất có thể đúng là phim bộ). Có thể làm lại ở slice sau nếu có dữ liệu thật cho thấy heuristic đủ tin cậy — không phải quyết định vĩnh viễn, chỉ là phạm vi thận trọng cho lần code đầu.

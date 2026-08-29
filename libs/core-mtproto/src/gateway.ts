@@ -55,6 +55,8 @@ export interface TelegramGateway {
   getPinnedCatalogDocument(channelId: string): Promise<PinnedCatalogDocument | null>;
   fetchHistorySince(channelId: string, minId: number, limit: number, direction?: 'asc' | 'desc'): Promise<IndexHistoryMessage[]>;
   getChannelAdmins(channelId: string): Promise<string[] | null>;
+  /** Forum Topic của kênh (`channels.GetForumTopics`, SPIKE-07) — xem comment ở gateway-index.ts. */
+  listForumTopics(channelId: string): Promise<{ id: string; title: string }[] | null>;
   /** Tra cứu MỘT publisher — dùng lúc truy cập (on-access), không dùng hàng loạt lúc quét. Xem comment ở gateway-index.ts. */
   checkPublisherIsAdmin(channelId: string, publisherId: string): Promise<boolean | null>;
   /** Chẩn đoán — không lọc gì cả, xem comment ChannelDiagnosticMessage (gateway-index.ts). Chỉ debug UI gọi. */

@@ -95,6 +95,11 @@ export const catalogItemV1Schema = v.object({
   originalTitle: v.optional(untrustedString()),
   year: v.optional(v.number()),
   genres: v.optional(untrustedStringArray(50)),
+  // ADR-0010 § Cập nhật 2026-08-29 (mục A) — nguyên văn tên Forum Topic
+  // (vd "Phim lẻ", "Phim bộ"), do admin kênh đặt để TỰ TỔ CHỨC kênh, khác
+  // bản chất với `genres` (mô tả NỘI DUNG phim) nên KHÔNG gộp chung. Không
+  // suy luận `kind`/`series` từ giá trị này — xem "Đánh đổi chấp nhận" ở ADR.
+  topic: v.optional(untrustedString()),
   kind: v.optional(kindSchema),
   series: v.optional(seriesSchema),
   runtime: v.optional(v.number()),
