@@ -31,19 +31,8 @@
   border-bottom: 1px solid var(--mat-sys-outline-variant, #eee);
 }
 
-.search-row {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-
 .search {
-  flex: 1 1 auto;
   width: 100%;
-}
-
-.settings-btn {
-  flex: 0 0 auto;
 }
 
 .source-filter {
@@ -80,72 +69,19 @@
   width: 100%;
 }
 
-.row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  height: 72px;
-  padding: 0 0.75rem;
+// Mỗi phần tử `*cdkVirtualFor` là MỘT HÀNG (không phải một phim) — số cột
+// (`gridTemplateColumns()`) và chiều cao hàng (`rowHeightPx()`) đều tính
+// động ở browse.ts (ResizeObserver) rồi bind qua style binding, KHÔNG phải
+// hằng số CSS ở đây — cột dùng `1fr` nên co giãn lấp đầy hết bề rộng hàng
+// (không chừa khoảng trống cuối hàng), kéo theo chiều cao poster
+// (aspect-ratio) đổi theo bề rộng màn hình. `height` bind PHẢI đúng bằng
+// giá trị dùng cho `itemSize` (browse.html) — lệch sẽ làm các hàng đè/hở
+// nhau khi cuộn. Padding CHỈ ngang (không dọc) — browse.ts trừ đúng
+// `GRID_HORIZONTAL_PADDING_PX` này khi đo bề rộng để tính số cột.
+.grid-row {
+  display: grid;
+  align-items: start;
+  column-gap: 12px;
   box-sizing: border-box;
-  cursor: pointer;
-  border-bottom: 1px solid var(--mat-sys-outline-variant, #eee);
-
-  &:hover {
-    background: var(--mat-sys-surface-variant, #f5f5f5);
-  }
-}
-
-.poster-placeholder {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 56px;
-  border-radius: 3px;
-  background: var(--mat-sys-surface-variant, #eee);
-  color: var(--mat-sys-on-surface-variant, #999);
-}
-
-.info {
-  flex: auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-
-  .title {
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .meta {
-    font-size: 0.85rem;
-    color: var(--mat-sys-on-surface-variant, #666);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-}
-
-.collection-btn,
-.edit-btn {
-  flex: none;
-  color: var(--mat-sys-on-surface-variant, #666);
-}
-
-.trust-badge {
-  flex: none;
-  font-size: 0.75rem;
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
-  background: var(--mat-sys-tertiary-container, #fff2c7);
-  color: var(--mat-sys-on-tertiary-container, #6b5200);
-
-  &.warn {
-    background: var(--mat-sys-error-container, #ffdad4);
-    color: var(--mat-sys-on-error-container, #8c0000);
-  }
+  padding: 0 12px;
 }

@@ -1,15 +1,9 @@
-<section class="browse" aria-label="Trang chủ — duyệt phim">
+<section class="browse" aria-label="Trang chủ — duyệt phim" #gridMeasure>
   <header class="search-bar">
-    <div class="search-row">
-      <mat-form-field appearance="outline" class="search">
-        <mat-label>Tìm theo tên phim, đạo diễn, diễn viên…</mat-label>
-        <input matInput #queryInput [value]="store.query()" (input)="onQueryInput(queryInput.value)" />
-      </mat-form-field>
-
-      <button mat-icon-button type="button" routerLink="/settings" aria-label="Cài đặt" class="settings-btn">
-        <span aria-hidden="true">⚙️</span>
-      </button>
-    </div>
+    <mat-form-field appearance="outline" class="search">
+      <mat-label>Tìm theo tên phim, đạo diễn, diễn viên…</mat-label>
+      <input matInput #queryInput [value]="store.query()" (input)="onQueryInput(queryInput.value)" />
+    </mat-form-field>
 
     @if (sources().length > 0) {
       <mat-chip-set aria-label="Lọc theo nguồn" class="source-filter">
@@ -32,82 +26,17 @@
       }
     </p>
   } @else {
-    <cdk-virtual-scroll-viewport itemSize="72" class="viewport">
+    <cdk-virtual-scroll-viewport [itemSize]="rowHeightPx()" class="viewport">
       <div
-        class="row"
-        *cdkVirtualFor="let row of rows(); trackBy: trackByRow"
-        role="button"
-        tabindex="0"
-        (click)="onItemClick(row)"
-        (keydown.enter)="onItemClick(row)"
-        (keydown.space)="$event.preventDefault(); onItemClick(row)"
+        class="grid-row"
+        [style.grid-template-columns]="gridTemplateColumns()"
+        [style.height.px]="rowHeightPx()"
+        *cdkVirtualFor="let chunkRow of rowChunks(); trackBy: trackByChunk"
       >
-        <span class="poster-placeholder" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="2.5" y="4.5" width="19" height="15" rx="1.5" />
-            <path d="M9.5 9l6 3-6 3z" fill="currentColor" stroke="none" />
-          </svg>
-        </span>
-        <span class="info">
-          <span class="title">{{ row.title ?? '(chưa có tên)' }}</span>
-          <span class="meta">
-            @if (row.year) {
-              {{ row.year }}
-            }
-            @if (row.kind) {
-              · {{ row.kind === 'episode' ? 'tập phim' : 'phim lẻ' }}
-            }
-            @if (row.genres && row.genres.length > 0) {
-              · {{ row.genres.join(', ') }}
-            }
-          </span>
-        </span>
-        @if (row.trust === 'pending' || row.trust === 'not-admin') {
-          <span class="trust-badge" [class.warn]="row.trust === 'not-admin'">
-            {{ row.trust === 'pending' ? 'chưa xác minh' : 'không rõ nguồn' }}
-          </span>
+        @for (row of chunkRow; track trackByRow($index, row)) {
+          <app-media-card [row]="row" (open)="onCardOpen(row)" />
         }
-        <button
-          mat-icon-button
-          type="button"
-          class="collection-btn"
-          aria-label="Thêm vào bộ sưu tập"
-          title="Thêm vào bộ sưu tập"
-          [matMenuTriggerFor]="collectionMenu"
-          (click)="$event.stopPropagation(); onOpenCollectionMenu(row)"
-          (keydown)="$event.stopPropagation()"
-        >
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M6 3.5h12a.5.5 0 0 1 .5.5v17l-6.5-4-6.5 4v-17a.5.5 0 0 1 .5-.5Z" />
-          </svg>
-        </button>
-        <button
-          mat-icon-button
-          type="button"
-          class="edit-btn"
-          aria-label="Sửa metadata"
-          title="Sửa metadata"
-          [routerLink]="['/metadata', row.sourceId, row.msgId]"
-          (click)="$event.stopPropagation()"
-          (keydown)="$event.stopPropagation()"
-        >
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 20.5l1-4L16.5 5l3 3L8 19.5l-4 1Z" />
-          </svg>
-        </button>
       </div>
     </cdk-virtual-scroll-viewport>
   }
-
-  <mat-menu #collectionMenu="matMenu">
-    @if (collections().length === 0) {
-      <button mat-menu-item disabled>Chưa có bộ sưu tập — tạo ở tab "BST" trước.</button>
-    } @else {
-      @for (collection of collections(); track collection.id) {
-        <button mat-menu-item (click)="onToggleCollection(collection)">
-          {{ isTargetInCollection(collection) ? '✓ ' : '' }}{{ collection.name }}
-        </button>
-      }
-    }
-  </mat-menu>
 </section>

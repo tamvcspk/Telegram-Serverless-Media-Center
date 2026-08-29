@@ -1,37 +1,28 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { toObservable, toSignal } from '@angular/core/rxjs-interop';
-import { CdkDrag, CdkDragDrop, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
-import { getMediaItem, getSyncState, liveQuery, type MediaRecord } from '@tsmc/core-storage';
+import { MatMenuModule } from '@angular/material/menu';
+import { getSyncState, liveQuery } from '@tsmc/core-storage';
 import { createCoreWorkerClient } from '@tsmc/worker-host';
 import { createEmptySyncState, type Collection } from '@tsmc/shared-models';
-import { firstValueFrom, from, switchMap } from 'rxjs';
+import { firstValueFrom, from } from 'rxjs';
+import { PosterTile } from '../shared/poster-tile/poster-tile';
 import { CreateCollectionDialog } from './create-collection-dialog/create-collection-dialog';
 
-/** "src:<sourceId>/msg:<msgId>" — cùng quy ước khoá đã dùng cho ProgressEntry.k (ADR-0009, xem player.ts progressKey). */
-function parseItemKey(key: string): { sourceId: string; msgId: number } | null {
-  const match = /^src:(.+)\/msg:(\d+)$/.exec(key);
-  if (!match) {
-    return null;
-  }
-  return { sourceId: match[1] as string, msgId: Number(match[2]) };
-}
-
 /**
- * Tab "BST" (Màn hình 3, docs/ux-design.md) — CRUD bộ sưu tập đầy đủ (tạo/
- * đổi tên/xoá BST, thêm/gỡ/sắp xếp lại phim) qua RPC `create/rename/delete/
- * add/removeFromCollection` + `reorderCollection` (op mới, thêm cùng slice
- * này — xem libs/shared-models/src/sync-events.ts). KHÔNG phân biệt trạng
- * thái chết link "mất quyền truy cập" vs "nguồn đã xoá tệp tin" như mockup
- * yêu cầu — cần bắt lỗi MTProto ở core-worker (CHANNEL_INVALID vs file
- * không tồn tại), việc tầng MTProto ngoài phạm vi slice UI này, xem CLAUDE.md.
+ * Tab "BST" (Màn hình 3, docs/ux-design.md) — nay CHỈ còn danh sách bộ sưu
+ * tập dạng lưới tile (tên + số lượng), tap vào tile điều hướng sang
+ * `home/collections/:id` (`CollectionDetail`, route con lồng thêm ở
+ * app.routes.ts) thay vì hiện hết mọi item của mọi BST trên cùng một trang.
+ * Toàn bộ logic resolve/kéo-thả/gỡ item đã dời sang `collection-detail.ts`.
  * Xoá cả bộ sưu tập dùng `confirm()` gốc trình duyệt thay vì dialog Material
  * riêng — hành động hiếm, không đáng một component chỉ để xác nhận.
  */
 @Component({
   selector: 'app-collections',
-  imports: [MatButtonModule, CdkDropList, CdkDrag],
+  imports: [MatButtonModule, MatMenuModule, PosterTile, RouterLink],
   templateUrl: './collections.html',
   styleUrl: './collections.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -48,52 +39,17 @@ export class Collections {
       .sort((a, b) => a.name.localeCompare(b.name, 'vi'))
   );
 
-  private readonly allItemKeys = computed(() => {
-    const keys = new Set<string>();
-    for (const collection of this.collections()) {
-      for (const item of collection.items) {
-        keys.add(item);
-      }
-    }
-    return [...keys];
-  });
-
-  // Một Map dùng chung cho MỌI bộ sưu tập (thay vì resolve riêng từng cái) —
-  // tránh N liveQuery độc lập chạy song song khi có nhiều BST cùng hiển thị.
-  protected readonly resolvedItems = toSignal(
-    toObservable(this.allItemKeys).pipe(switchMap((keys) => from(liveQuery(() => this.resolveKeys(keys))))),
-    { initialValue: new Map<string, MediaRecord | undefined>() }
-  );
-
-  private async resolveKeys(keys: string[]): Promise<Map<string, MediaRecord | undefined>> {
-    const entries = await Promise.all(
-      keys.map(async (key): Promise<[string, MediaRecord | undefined]> => {
-        const parsed = parseItemKey(key);
-        return [key, parsed ? await getMediaItem(parsed.sourceId, parsed.msgId) : undefined];
-      })
-    );
-    return new Map(entries);
-  }
-
-  itemLabel(key: string): string {
-    const map = this.resolvedItems();
-    if (!map.has(key)) {
-      return '…';
-    }
-    const record = map.get(key);
-    if (!record) {
-      return '(không còn trong catalog cục bộ)';
-    }
-    const title = record.title ?? '(chưa có tên)';
-    return record.year ? `${title} · ${record.year}` : title;
-  }
+  // Dùng CHUNG một <mat-menu> cho mọi tile (thay vì một menu/tile) — cùng lý
+  // do đã áp dụng ở browse.ts trước đây: số tile hiển thị cùng lúc nhỏ nên
+  // chi phí không đáng kể, nhưng dùng chung đơn giản hơn.
+  protected readonly menuTargetCollection = signal<Collection | null>(null);
 
   trackByCollection(_index: number, collection: Collection): string {
     return collection.id;
   }
 
-  trackByItem(_index: number, item: string): string {
-    return item;
+  onOpenTileMenu(collection: Collection): void {
+    this.menuTargetCollection.set(collection);
   }
 
   async onCreate(): Promise<void> {
@@ -105,7 +61,11 @@ export class Collections {
     await this.client.createCollection(crypto.randomUUID(), name);
   }
 
-  async onRename(collection: Collection): Promise<void> {
+  async onRename(): Promise<void> {
+    const collection = this.menuTargetCollection();
+    if (!collection) {
+      return;
+    }
     const ref = this.dialog.open(CreateCollectionDialog, { data: { existingName: collection.name } });
     const name = await firstValueFrom(ref.afterClosed());
     if (!name) {
@@ -114,23 +74,14 @@ export class Collections {
     await this.client.renameCollection(collection.id, name);
   }
 
-  async onDeleteCollection(collection: Collection): Promise<void> {
+  async onDeleteCollection(): Promise<void> {
+    const collection = this.menuTargetCollection();
+    if (!collection) {
+      return;
+    }
     if (!confirm(`Xoá bộ sưu tập "${collection.name}"? Không thể hoàn tác.`)) {
       return;
     }
     await this.client.deleteCollection(collection.id);
-  }
-
-  async onRemoveItem(collection: Collection, item: string): Promise<void> {
-    await this.client.removeFromCollection(collection.id, item);
-  }
-
-  async onDrop(collection: Collection, event: CdkDragDrop<string[]>): Promise<void> {
-    if (event.previousIndex === event.currentIndex) {
-      return;
-    }
-    const items = [...collection.items];
-    moveItemInArray(items, event.previousIndex, event.currentIndex);
-    await this.client.reorderCollection(collection.id, items);
   }
 }

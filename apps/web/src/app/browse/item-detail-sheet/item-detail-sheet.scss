@@ -1,0 +1,77 @@
+.item-sheet {
+  padding: 1rem;
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.header {
+  display: flex;
+  gap: 0.75rem;
+
+  .poster {
+    width: 5rem;
+    flex: none;
+  }
+
+  .info {
+    flex: auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+
+    h2 {
+      margin: 0;
+      font-size: 1.05rem;
+    }
+  }
+}
+
+.meta {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--mat-sys-on-surface-variant, #666);
+}
+
+.trust-badge {
+  align-self: flex-start;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: var(--mat-sys-tertiary-container, #fff2c7);
+  color: var(--mat-sys-on-tertiary-container, #6b5200);
+
+  &.warn {
+    background: var(--mat-sys-error-container, #ffdad4);
+    color: var(--mat-sys-on-error-container, #8c0000);
+  }
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+
+  button {
+    flex: 1 1 0;
+  }
+}
+
+.collections-section {
+  h3 {
+    margin: 0 0 0.5rem;
+    font-size: 0.9rem;
+  }
+
+  .hint {
+    margin: 0;
+    color: var(--mat-sys-on-surface-variant, #666);
+    font-size: 0.85rem;
+  }
+
+  .collection-row {
+    display: block;
+    padding: 0.35rem 0;
+  }
+}

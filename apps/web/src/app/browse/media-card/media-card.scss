@@ -1,0 +1,58 @@
+// Bề rộng card CO GIÃN theo grid cell (`1fr`, browse.scss) — KHÔNG cố định
+// px. Chỉ khối DƯỚI poster (title/meta/badge) giữ chiều cao cố định bằng px
+// tuyệt đối (không rem/auto) — browse.ts cộng đúng 78px (CARD_META_HEIGHT_PX)
+// này vào công thức tính `itemSize`, đổi số ở đây PHẢI đổi khớp hằng số đó.
+:host {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.media-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.title {
+  height: 20px;
+  line-height: 20px;
+  font-weight: 500;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meta {
+  height: 18px;
+  line-height: 18px;
+  font-size: 0.75rem;
+  color: var(--mat-sys-on-surface-variant, #666);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trust-badge {
+  box-sizing: border-box;
+  align-self: flex-start;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.7rem;
+  padding: 0 0.5rem;
+  border-radius: 999px;
+  background: var(--mat-sys-tertiary-container, #fff2c7);
+  color: var(--mat-sys-on-tertiary-container, #6b5200);
+
+  &.hidden {
+    visibility: hidden;
+  }
+
+  &.warn {
+    background: var(--mat-sys-error-container, #ffdad4);
+    color: var(--mat-sys-on-error-container, #8c0000);
+  }
+}

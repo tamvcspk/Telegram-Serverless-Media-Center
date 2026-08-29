@@ -2,7 +2,14 @@
   @if (status() === 'checking') {
     <p class="checking">Đang kiểm tra phiên đăng nhập…</p>
   } @else {
-    <h1 class="brand">🎬 TSMC Media Center</h1>
+    <h1 class="brand">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 9.5h18" />
+        <path d="M4.5 6.5 6.5 9.5M9 5.5 11 9.5M13.5 4.5 15.5 9.5" />
+        <rect x="3" y="9.5" width="18" height="10" rx="1.5" />
+      </svg>
+      TSMC Media Center
+    </h1>
 
     <!-- Bắt buộc theo ADR-0011 §5: cảnh báo tài khoản thật PHẢI hiện trước ô
          nhập đầu tiên, không được giấu để onboarding "mượt" hơn. -->
@@ -30,7 +37,11 @@
         </svg>
       </ng-template>
 
-      <mat-step label="🔵 Bước 1: API Credential" [editable]="false" [completed]="stepIndex() > 0">
+      <mat-step [editable]="false" [completed]="stepIndex() > 0">
+        <ng-template matStepLabel>
+          <svg class="step-dot" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor" /></svg>
+          Bước 1: API Credential
+        </ng-template>
         <p class="hint">
           Nhập key từ <a href="https://my.telegram.org" target="_blank" rel="noopener">my.telegram.org</a> — dự án
           không nhúng credential nào của riêng ai.
@@ -74,7 +85,12 @@
 
       <mat-step [editable]="false" [completed]="stepIndex() > 1">
         <ng-template matStepLabel>
-          {{ credentialsValid() ? '🔵' : '⚪' }} Bước 2: Xác thực
+          @if (credentialsValid()) {
+            <svg class="step-dot" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor" /></svg>
+          } @else {
+            <svg class="step-dot" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9" /></svg>
+          }
+          Bước 2: Xác thực
           @if (!credentialsValid()) {
             <span class="lock-hint">(khoá — hoàn tất Bước 1 hợp lệ)</span>
           }
@@ -90,7 +106,11 @@
       </mat-step>
 
       @if (status() === 'password') {
-        <mat-step label="🔵 Bước 3: Mật khẩu 2FA" [editable]="false">
+        <mat-step [editable]="false">
+          <ng-template matStepLabel>
+            <svg class="step-dot" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor" /></svg>
+            Bước 3: Mật khẩu 2FA
+          </ng-template>
           <form (submit)="onSubmitPassword($event, passwordInput.value)">
             <p>Tài khoản có bật xác thực 2 bước.{{ passwordHint() ? ' Gợi ý: ' + passwordHint() : '' }}</p>
             <mat-form-field appearance="outline">

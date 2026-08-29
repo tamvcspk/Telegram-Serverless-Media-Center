@@ -1,0 +1,44 @@
+<div class="item-sheet">
+  @if (row(); as item) {
+    <div class="header">
+      <app-poster-tile class="poster" [label]="item.title ?? '?'" />
+      <div class="info">
+        <h2>{{ item.title ?? '(chưa có tên)' }}</h2>
+        <p class="meta">
+          @if (item.year) {
+            {{ item.year }}
+          }
+          @if (item.kind) {
+            · {{ item.kind === 'episode' ? 'tập phim' : 'phim lẻ' }}
+          }
+          @if (item.genres && item.genres.length) {
+            · {{ item.genres.join(', ') }}
+          }
+        </p>
+        @if (item.trust === 'pending' || item.trust === 'not-admin') {
+          <span class="trust-badge" [class.warn]="item.trust === 'not-admin'">
+            {{ item.trust === 'pending' ? 'chưa xác minh' : 'không rõ nguồn' }}
+          </span>
+        }
+      </div>
+    </div>
+
+    <div class="actions">
+      <button mat-flat-button type="button" (click)="onPlay()">Phát</button>
+      <button mat-stroked-button type="button" (click)="onEditMetadata()">Sửa metadata</button>
+    </div>
+
+    <div class="collections-section">
+      <h3>Bộ sưu tập</h3>
+      @if (collections().length === 0) {
+        <p class="hint">Chưa có bộ sưu tập nào — tạo ở tab "BST" trước.</p>
+      } @else {
+        @for (collection of collections(); track collection.id) {
+          <mat-checkbox class="collection-row" [checked]="isInCollection(collection)" (change)="onToggleCollection(collection)">
+            {{ collection.name }}
+          </mat-checkbox>
+        }
+      }
+    </div>
+  }
+</div>

@@ -18,6 +18,10 @@
   }
 
   .brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
     margin: 0 0 0.75rem;
     font-size: 1.15rem;
     text-align: center;
@@ -57,6 +61,16 @@
     font-size: 0.75rem;
     font-weight: 400;
     opacity: 0.7;
+  }
+
+  // Chấm trạng thái bước (thay 🔵/⚪) — inline trong nhãn step, không phải
+  // <mat-icon> (bất biến #8, xem ADR-0016 addendum). Không cần ::ng-deep —
+  // SVG này được viết ngay trong <ng-template matStepLabel> của Login nên
+  // giữ nguyên _ngcontent của Login dù MatStepHeader chiếu nó ra chỗ khác
+  // (khác `.mat-step-text-label` ở trên — class đó do MatStepHeader tự tạo).
+  .step-dot {
+    vertical-align: middle;
+    margin-right: 0.25rem;
   }
 
   form {

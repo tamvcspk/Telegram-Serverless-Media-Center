@@ -10,7 +10,9 @@ import { authGuard } from './shell/auth.guard';
 //   - 'player/...'    : Immersive, không cha layout (đã có từ F4).
 //   - 'settings'      : Sub-page (Màn hình 7), header quay lại, KHÔNG dưới
 //                       'home' (không thuộc Bottom Nav — vào qua icon ⚙️ ở
-//                       Browse). Vẫn gate bằng authGuard: cần session để
+//                       toolbar chung MainShell, xem shell/main-shell.ts —
+//                       trước đây chỉ có ở Browse, nay vào được từ cả 3 tab).
+//                       Vẫn gate bằng authGuard: cần session để
 //                       hiển thị tài khoản, và syncEngine phải đã init() để
 //                       forceFlush()/setMaxConcurrency() (trong onLogout/
 //                       onConcurrencyChange) không ném "gọi trước init()"
@@ -34,9 +36,26 @@ export const routes: Routes = [
     loadComponent: () => import('./shell/main-shell').then((m) => m.MainShell),
     children: [
       { path: '', pathMatch: 'full', redirectTo: 'browse' },
-      { path: 'browse', loadComponent: () => import('./browse/browse').then((m) => m.Browse) },
-      { path: 'collections', loadComponent: () => import('./collections/collections').then((m) => m.Collections) },
-      { path: 'sources', loadComponent: () => import('./sources/sources').then((m) => m.Sources) }
+      { path: 'browse', loadComponent: () => import('./browse/browse').then((m) => m.Browse), data: { title: 'Trang chủ' } },
+      {
+        path: 'collections',
+        loadComponent: () => import('./collections/collections').then((m) => m.Collections),
+        data: { title: 'Bộ sưu tập' }
+      },
+      // Vẫn dưới 'home' (giữ Bottom Nav) dù là trang chi tiết — khác nhóm
+      // "Sub-page" của Settings/Metadata Editor vì đây vẫn là duyệt, không
+      // phải form/cài đặt. title tĩnh ở đây chỉ là fallback trước khi
+      // CollectionDetail resolve tên thật qua `pageTitleOverride`
+      // (shell/page-title.ts). `backTo` — MainShell đọc field này ở leaf
+      // route để hiện nút back bên trái toolbar CHỈ ở route lồng như thế
+      // này; 3 tab cấp cao (browse/collections/sources) không khai field
+      // này nên không có nút back.
+      {
+        path: 'collections/:id',
+        loadComponent: () => import('./collections/collection-detail/collection-detail').then((m) => m.CollectionDetail),
+        data: { title: 'Bộ sưu tập', backTo: '/home/collections' }
+      },
+      { path: 'sources', loadComponent: () => import('./sources/sources').then((m) => m.Sources), data: { title: 'Nguồn phát của bạn' } }
     ]
   },
   {

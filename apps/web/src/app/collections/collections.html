@@ -2,76 +2,37 @@
   @if (collections().length === 0) {
     <p class="hint">Chưa có bộ sưu tập nào — bấm nút "+" góc dưới để tạo bộ sưu tập đầu tiên.</p>
   } @else {
-    @for (collection of collections(); track trackByCollection($index, collection)) {
-      <section class="collection-group">
-        <header class="collection-header">
-          <h3>
-            {{ collection.name }}
-            <span class="count">({{ collection.items.length }})</span>
-          </h3>
-          <div class="collection-actions">
-            <button
-              mat-icon-button
-              type="button"
-              aria-label="Đổi tên bộ sưu tập"
-              title="Đổi tên"
-              (click)="onRename(collection)"
-            >
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
-              </svg>
-            </button>
-            <button
-              mat-icon-button
-              type="button"
-              aria-label="Xoá bộ sưu tập"
-              title="Xoá bộ sưu tập"
-              (click)="onDeleteCollection(collection)"
-            >
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M4 7h16M9 7V4h6v3m-8 0 1 13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-13" />
-              </svg>
-            </button>
-          </div>
-        </header>
-
-        @if (collection.items.length === 0) {
-          <p class="empty-hint">Chưa có phim nào trong bộ sưu tập này.</p>
-        } @else {
-          <div class="item-list" cdkDropList [cdkDropListData]="collection.items" (cdkDropListDropped)="onDrop(collection, $event)">
-            @for (item of collection.items; track trackByItem($index, item); let i = $index) {
-              <div class="item-row" cdkDrag [cdkDragData]="item">
-                <span class="index">{{ i + 1 }}.</span>
-                <span class="title">{{ itemLabel(item) }}</span>
-                <button
-                  mat-icon-button
-                  type="button"
-                  class="remove"
-                  aria-label="Gỡ khỏi bộ sưu tập"
-                  title="Gỡ khỏi bộ sưu tập"
-                  (click)="onRemoveItem(collection, item)"
-                >
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                    <path d="M6 6l12 12M18 6 6 18" />
-                  </svg>
-                </button>
-                <span class="drag-handle" cdkDragHandle aria-label="Kéo để sắp xếp lại">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-                    <circle cx="9" cy="6" r="1.5" />
-                    <circle cx="15" cy="6" r="1.5" />
-                    <circle cx="9" cy="12" r="1.5" />
-                    <circle cx="15" cy="12" r="1.5" />
-                    <circle cx="9" cy="18" r="1.5" />
-                    <circle cx="15" cy="18" r="1.5" />
-                  </svg>
-                </span>
-              </div>
-            }
-          </div>
-        }
-      </section>
-    }
+    <div class="tile-grid">
+      @for (collection of collections(); track trackByCollection($index, collection)) {
+        <div class="tile-card">
+          <a class="tile-link" [routerLink]="['/home/collections', collection.id]">
+            <app-poster-tile [label]="collection.name" />
+            <span class="name">{{ collection.name }}</span>
+            <span class="count">{{ collection.items.length }} phim</span>
+          </a>
+          <button
+            mat-icon-button
+            type="button"
+            class="tile-menu-btn"
+            aria-label="Tuỳ chọn bộ sưu tập"
+            [matMenuTriggerFor]="tileMenu"
+            (click)="$event.stopPropagation(); onOpenTileMenu(collection)"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <circle cx="12" cy="5" r="1.5" />
+              <circle cx="12" cy="12" r="1.5" />
+              <circle cx="12" cy="19" r="1.5" />
+            </svg>
+          </button>
+        </div>
+      }
+    </div>
   }
+
+  <mat-menu #tileMenu="matMenu">
+    <button mat-menu-item (click)="onRename()">Đổi tên</button>
+    <button mat-menu-item (click)="onDeleteCollection()">Xoá bộ sưu tập</button>
+  </mat-menu>
 
   <button mat-fab class="create-fab" type="button" aria-label="Tạo bộ sưu tập mới" (click)="onCreate()">
     <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">

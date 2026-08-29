@@ -4,13 +4,15 @@
 >
 > **Trạng thái so với code hiện tại:** phần lớn các màn hình dưới đây **chưa được xây** (xem [CLAUDE.md](../CLAUDE.md) để biết slice nào đã chạy thật). Auth (F1.1) đã khớp Màn hình 1 (Vertical `MatStepper`, full-bleed, khoá Bước 2 tới khi định dạng hợp lệ) trên staging (2026-08-27). Khung routing/layout skeleton cũng đã dựng theo ui-conventions §6: route `login` (full-bleed), route `home` + `MainShell` (Bottom Nav tự ghép, gate bằng `authGuard`) bọc Browse/Collections/Sources, route `player` immersive không đổi. Browse chạy thật trong tab Home và khớp layout Màn hình 2 (2026-08-27): thanh tìm kiếm + chip lọc nguồn cố định trên cùng (không cuộn theo danh sách — đạt bằng flex layout lấp đầy `.content` của `MainShell`, không phải `position: sticky`), chip lọc cuộn ngang thay vì xuống dòng; vẫn thiếu icon ⚙️ vào Settings (chưa có route/UI đích, xem dưới) và bộ lọc Tất cả/Cá nhân/Cộng đồng (field phân loại chưa có ở tầng dữ liệu, xem "Ghi chú đối chiếu" ở Màn hình 2). Collections khớp layout Màn hình 3 (2026-08-27): CRUD đầy đủ (tạo/đổi tên/xoá bộ sưu tập, thêm/gỡ/kéo-thả sắp xếp lại phim) qua `MatList`-style rows + `cdkDropList`/`cdkDrag`, FAB nổi đúng trên Bottom Nav (custom property `--tsmc-bottom-nav-height` ở `main-shell.scss`, tránh đúng cạm bẫy đã ghi trong mockup); kéo-thả lưu thật nhờ op `collection.reorder` mới thêm (xem `libs/shared-models/src/sync-events.ts`, `libs/core-sync/src/reducer.ts`) — không phải UI-only. Entry point "thêm vào bộ sưu tập" duy nhất hiện có nằm ở mỗi row của Browse (menu chọn/bỏ chọn nguồn có sẵn) — **chưa có** lối tạo bộ sưu tập MỚI ngay từ Browse (phải qua tab BST trước). **Chưa làm**: phân biệt trạng thái chết link "mất quyền truy cập" vs "nguồn đã xoá tệp tin" (cần bắt lỗi tầng MTProto, xem "Phản biện UX" ở Màn hình 3 — quyết định hoãn có chủ đích, không phải thiếu sót); xoá cả bộ sưu tập dùng `confirm()` gốc trình duyệt thay vì `MatBottomSheet`/dialog xác nhận 2 lần như Màn hình 7. Sources khớp layout Màn hình 4 (2026-08-27): thẻ nguồn thật (`sources/sources.ts`) hiện tier (catalog/delta/full)/số phim/lỗi quét gần nhất, FAB mở `AddSourceSheet` (`MatBottomSheet` thật — dán username/link hoặc chọn từ danh sách chat đã tham gia, chặn ID thô ngay tại form theo ADR-0014 §1, đúng yêu cầu "Validate tại form, không chỉ ở prose" bên dưới). **Khác mockup một điểm có chủ đích:** `scanSource()` là một lượt bounded, không báo tiến trình theo số — lúc quét chỉ có `MatProgressBar` indeterminate, KHÔNG có "Đang nạp 1500/5000 tin nhắn" (cần job nền có tiến trình thật, ngoài phạm vi slice này). `ChannelIndex` (công cụ debug F2) đã xoá hẳn — phần "chẩn đoán 500 tin" của nó không thuộc màn hình nào trong 7 màn và bị bỏ theo cùng quyết định. `SyncStatus` + nút đăng xuất rút gọn (thiếu bước flush outbox và xác nhận 2 lần của Màn hình 7) vẫn tạm host cuối trang `home/sources` — xem comment đầu `sources/sources.ts`; Settings, Metadata Editor chưa có route/UI.
 >
+> **Redesign kiểu Netflix (2026-08-28):** Màn hình 2 đổi từ list sang **lưới card** (CDK virtual scroll virtualize THEO HÀNG, không theo từng phim — xem "Ghi chú đối chiếu" ở Màn hình 2 dưới), tap card mở `MatBottomSheet` chi tiết (`ItemDetailSheet`) thay vì thao tác rời rạc trên từng row/hành động trực tiếp. Màn hình 3 tách thành 2 tầng: danh sách bộ sưu tập dạng tile (`home/collections`) → chi tiết một bộ sưu tập (`home/collections/:id`, route con MỚI, vẫn dưới Bottom Nav). Màn hình 4 đổi `AddSourceSheet` từ toggle-mở-rộng-tại-chỗ sang 3 "bước" điều hướng bên trong cùng một sheet (menu chọn → nhập thủ công/chọn từ chat, có mũi tên quay lại). Cả 3 màn đều dùng poster PLACEHOLDER (gradient + chữ cái đầu, component `apps/web/src/app/shared/poster-tile/`) — `MediaRecord.poster` vẫn chỉ là `{msgId}`, chưa có pipeline tải ảnh thật.
+>
 > Hai điểm **vi phạm bất biến ADR** đã được sửa trực tiếp trong tài liệu này, giữ nguyên qua bản mobile-first — xem ghi chú "**[Đã sửa]**" ở Màn hình 1 và Màn hình 3.
 
 ## Nguyên tắc chuyển đổi Mobile-First
 
 Bản vẽ trước dùng bố cục desktop (Sidenav, Dialog giữa màn hình, Stepper ngang). Ba nguyên tắc chuyển đổi cốt lõi cho cả 7 màn hình:
 
-- **Loại bỏ `MatSidenav`.** Thay bằng **Bottom Navigation Bar** cho 3 tab chính (Home/BST/Nguồn). Settings **không** nằm trong bottom nav (xem lý do ở Màn hình 7) — vào qua menu/góc màn hình Dashboard.
+- **Loại bỏ `MatSidenav`.** Thay bằng **Bottom Navigation Bar** cho 3 tab chính (Home/BST/Nguồn). Settings **không** nằm trong bottom nav (xem lý do ở Màn hình 7) — vào qua icon ⚙️ trên `MatToolbar` chung của `MainShell` (đã chạy thật 2026-08-28, xem `apps/web/src/app/shell/main-shell.ts`), hiện diện ở cả 3 tab thay vì chỉ riêng Dashboard như bản vẽ trước.
 - **Thay `MatDialog` (popup giữa màn hình) bằng `MatBottomSheet`** (bảng trượt từ dưới lên) cho mọi hành động cần xác nhận hoặc nhập liệu ngắn — dễ thao tác một tay bằng ngón cái hơn popup giữa màn hình trên thiết bị cầm tay.
 - **Tối ưu chiều dọc:** Stepper ngang → **Vertical `MatStepper`** (Màn hình 1); bộ lọc chip → **cuộn ngang** (`MatChipListbox` trong container `overflow-x`) thay vì xuống dòng, tiết kiệm chiều cao màn hình vốn đã hạn chế trên điện thoại.
 
@@ -110,30 +112,42 @@ Trên điện thoại, Stepper ngang hoặc form dài bị ép lại rất khó 
 
 ### Màn hình 2: Trang chủ (Dashboard) — Trải nghiệm Vuốt
 
-Để tránh sập trình duyệt khi load 20.000 phim, dùng **`cdkVirtualScrollViewport`** toàn màn hình — **tuyệt đối không dùng `MatGridList`**.
+Để tránh sập trình duyệt khi load 20.000 phim, dùng **`cdkVirtualScrollViewport`** toàn màn hình — **tuyệt đối không dùng `MatGridList`**. Bản vẽ trước là list; nay là **lưới card kiểu Netflix** (2026-08-28, đã chạy thật) — vẫn đúng luật cấm `MatGridList` vì kỹ thuật dùng là CSS Grid thường + `cdkVirtualFor` virtualize THEO HÀNG (mỗi phần tử ảo là một hàng N card, không phải một card), xem `apps/web/src/app/browse/browse.ts`.
 
-* **Component sử dụng:** Thanh tìm kiếm `MatFormField`/`MatInput` cố định (sticky) trên cùng kèm icon avatar/⚙️ ở góc phải mở Settings (xem "Ghi chú đối chiếu" bên dưới), `MatChipListbox` cuộn ngang cho bộ lọc nguồn (Tất cả/Cá nhân/Cộng đồng) thay vì `MatButtonToggleGroup` xuống dòng, `cdkVirtualFor` (render danh sách), Bottom Navigation Bar (Home/BST/Nguồn — tự ghép, xem nguyên tắc mobile-first phía trên).
-* **Phản biện UX:** Việc không có ảnh Thumbnail (Poster) ở phiên bản đầu tiên sẽ làm UI trông "kém hấp dẫn", nhưng đó là đánh đổi sống còn — tải ảnh qua MTProto ngay lúc duyệt sẽ dính `FLOOD_WAIT` ngay lập tức. Tính năng vượt trội ở đây là tìm kiếm MiniSearch tức thời, hãy làm nổi bật thanh tìm kiếm — đặc biệt hiệu quả trên mobile vì zero-latency mạng.
-* **Ghi chú đối chiếu:** bộ lọc "Tất cả / Cá nhân / Cộng đồng" giả định trường phân loại kênh cá nhân-cộng đồng trên mỗi nguồn — đúng theo bảng store `sources` ở [ADR-0007](./adr/0007-luu-tru-cuc-bo-indexeddb-dexie.md), nhưng field này **chưa có** trong model `SourceRef` hiện tại của code; đây là việc cần làm ở tầng dữ liệu trước khi UI này khớp được, không phải lỗi của bản vẽ. Icon ⚙️ ở góc thanh tìm kiếm là entry point DUY NHẤT vào Settings (Màn hình 7) — bản vẽ trước của tài liệu này nói "vào qua menu/góc màn hình Dashboard" nhưng quên vẽ icon đó ra, gây khó implement đúng; đã bổ sung vào mockup dưới đây.
+* **Component sử dụng:** `MatToolbar` chung của `MainShell` (tiêu đề trang + icon ⚙️ mở Settings, KHÔNG còn nằm trong thanh tìm kiếm của riêng Browse như bản vẽ trước — xem Màn hình 7), thanh tìm kiếm `MatFormField`/`MatInput` cố định trên cùng của Browse, `MatChipListbox` cuộn ngang cho bộ lọc nguồn (Tất cả/Cá nhân/Cộng đồng) thay vì `MatButtonToggleGroup` xuống dòng, `cdkVirtualFor` (virtualize theo hàng, mỗi hàng render N `app-media-card`), `MatBottomSheet` chi tiết phim (`ItemDetailSheet`, mở khi tap card — thay hành động rời rạc trên từng row của bản list cũ), Bottom Navigation Bar (Home/BST/Nguồn — tự ghép, xem nguyên tắc mobile-first phía trên).
+* **Phản biện UX:** Việc không có ảnh Thumbnail (Poster) thật vẫn là đánh đổi sống còn — tải ảnh qua MTProto ngay lúc duyệt sẽ dính `FLOOD_WAIT` ngay lập tức. Card lưới vì vậy dùng poster PLACEHOLDER (gradient + chữ cái đầu, `app/shared/poster-tile/`, màu suy từ hash tên phim để ổn định qua các lần render) — KHÔNG phải ảnh thật, và KHÔNG phải dấu hiệu pipeline ảnh đã có. Tính năng vượt trội ở đây vẫn là tìm kiếm MiniSearch tức thời.
+* **Ghi chú đối chiếu:** bộ lọc "Tất cả / Cá nhân / Cộng đồng" giả định trường phân loại kênh cá nhân-cộng đồng trên mỗi nguồn — đúng theo bảng store `sources` ở [ADR-0007](./adr/0007-luu-tru-cuc-bo-indexeddb-dexie.md), nhưng field này **chưa có** trong model `SourceRef` hiện tại của code; đây là việc cần làm ở tầng dữ liệu trước khi UI này khớp được, không phải lỗi của bản vẽ.
 
 ```text
 ┌───────────────────────────┐
-│ 🔍 [ Tìm phim... ]     ⚙️ │
+│ Trang chủ              ⚙️ │ ← MatToolbar chung (MainShell)
 │ ───────────────────────── │
+│ 🔍 [ Tìm phim... ]        │
 │ [Cuộn ngang: MatChip]     │
 │ (Tất cả) (Cá nhân) (Cộng..│
 │ ───────────────────────── │
-│ [cdkVirtualFor: Vuốt dọc] │
-│ ▶ Dune: Part Two (2024)   │
-│   Kho: Phim 4K | 🕒 2h46m │
-│   [Khoa học viễn tưởng]   │
-│ ───────────────────────── │
-│ ▶ Inception (2010)        │
-│   Kho: Cá nhân | 🕒 2h28m │
-│   [Hành động]             │
+│ [cdkVirtualFor: lưới 2-3  │
+│  cột, mỗi phần tử ảo = 1  │
+│  hàng]                    │
+│  ┌────┐ ┌────┐ ┌────┐     │
+│  │ D  │ │ I  │ │ O  │     │ ← poster placeholder (gradient + chữ cái đầu)
+│  └────┘ └────┘ └────┘     │
+│  Dune…  Incep…  Oppen…    │
+│  2024   2010    2023      │
 │                           │
 │ [ BOTTOM NAVIGATION BAR ] │
 │ 🏠 Home  📚 BST  📂 Nguồn │
+└───────────────────────────┘
+   ↓ tap 1 card
+┌───────────────────────────┐
+│ [ MatBottomSheet ]        │
+│  ┌────┐  Dune: Part Two   │
+│  │ D  │  2024 · phim lẻ   │
+│  └────┘  [Khoa học viễn…] │
+│ [ Phát ] [ Sửa metadata ] │
+│ Bộ sưu tập:               │
+│  ☑ Vũ trụ Marvel          │
+│  ☐ Xem sau                │
 └───────────────────────────┘
 ```
 
@@ -141,7 +155,9 @@ Trên điện thoại, Stepper ngang hoặc form dài bị ép lại rất khó 
 
 Bộ sưu tập lưu danh sách tham chiếu ID dưới dạng state riêng tư. Nút thêm mới chuyển thành **FAB** (Floating Action Button) góc phải dưới; kéo thả (`cdkDrag`) dùng icon tay cầm lớn bên phải để dễ thao tác bằng ngón cái.
 
-* **Component sử dụng:** `MatList`, `@angular/cdk/drag-drop` (`cdkDropList`, `cdkDrag`), FAB (`mat-fab` hoặc `mat-mini-fab`), Bottom Navigation Bar (tự ghép).
+**Tách 2 tầng (2026-08-28, đã chạy thật, khác bản vẽ trước "tất cả trên một trang"):** `home/collections` chỉ còn danh sách TILE (tên + số lượng phim, `app/shared/poster-tile/` — cùng poster placeholder với Màn hình 2) — tap một tile điều hướng sang route con MỚI `home/collections/:id` (`CollectionDetail`, VẪN dưới Bottom Nav, không phải sub-page kiểu Màn hình 6/7) mới thật sự hiện lưới item + kéo-thả của bộ sưu tập đó. Tiêu đề toolbar ở trang chi tiết là TÊN bộ sưu tập, ghi đè động qua `pageTitleOverride` (`shell/page-title.ts`) ngay khi resolve xong tên — không phải tiêu đề tĩnh "Bộ sưu tập" nhìn thấy thoáng qua lúc điều hướng.
+
+* **Component sử dụng:** lưới tile (`app/shared/poster-tile/`) ở trang danh sách; ở trang chi tiết: CSS Grid thường (KHÔNG virtualize — `cdkDrag` không tương thích `cdkVirtualFor`, số phim/BST nhỏ) + `@angular/cdk/drag-drop` (`cdkDropList[cdkDropListOrientation="mixed"]` cho lưới 2D, `cdkDrag`), FAB (`mat-fab` hoặc `mat-mini-fab`, chỉ ở trang danh sách), Bottom Navigation Bar (tự ghép, hiện ở cả hai tầng).
 * **Phản biện UX:** Phim có thể chết link vì **hai lý do khác nhau**, và [ADR-0007](./adr/0007-luu-tru-cuc-bo-indexeddb-dexie.md) yêu cầu UI phân biệt rõ, không được gộp về một nút "Gỡ" chung (xem [Đã sửa] ở Giai đoạn 5 phía trên):
   - **Mất quyền truy cập** (`NO_ACCESS` — bị kick khỏi kênh): dòng mờ (`opacity: 0.5`), text "Bạn đã mất quyền truy cập", hành động là **"Tham gia lại"** — phim có thể vẫn còn, xoá khỏi bộ sưu tập ở bước này là mất dữ liệu oan.
   - **Đã bị xoá** (`DELETED` — admin xoá file thật): dòng mờ, text "Nguồn chia sẻ đã xoá tệp tin này", hành động là **"Gỡ khỏi bộ sưu tập"** — phim thật sự không còn, gỡ là đúng.
@@ -153,53 +169,76 @@ Bộ sưu tập lưu danh sách tham chiếu ID dưới dạng state riêng tư.
 
 ```text
 ┌───────────────────────────┐
-│ 📚 BỘ SƯU TẬP CỦA TÔI     │
+│ Bộ sưu tập              ⚙️│ ← MatToolbar chung (MainShell)
 │ ───────────────────────── │
-│ 🦸‍♂️ Vũ trụ Marvel (8)      │
-│                           │
-│ 1. Iron Man (2008)    [⣿] │
-│ ───────────────────────── │
-│ 2. The Avengers (2012)[⣿] │
-│ ───────────────────────── │
-│ ⚠️ Captain America        │
-│    Bạn đã mất quyền       │
-│    [ Tham gia lại ]       │
-│    (mờ, cdkDragDisabled)  │
-│ ───────────────────────── │
-│ 🚫 Thor: Ragnarok         │
-│    Nguồn đã xoá tệp tin   │
-│    [ Gỡ khỏi BST ]        │
-│    (mờ, cdkDragDisabled)  │
+│  ┌────┐    ┌────┐         │
+│  │ V  │    │ X  │         │
+│  └────┘    └────┘         │
+│  Vũ trụ    Xem sau        │
+│  Marvel (8) (3)           │
 │                           │
 │                       (+) │ ← FAB (Tạo BST mới)
 │ [ BOTTOM NAVIGATION BAR ] │
 │ 🏠 Home  📚 BST  📂 Nguồn │
 └───────────────────────────┘
+   ↓ tap "Vũ trụ Marvel"      home/collections/:id
+┌───────────────────────────┐
+│ [<] Vũ trụ Marvel       ⚙️│ ← [<] back về home/collections (data.backTo), tiêu đề = tên BST (pageTitleOverride)
+│ ───────────────────────── │
+│  ┌────┐ ┌────┐            │
+│  │ I  │ │ A  │            │
+│  └────┘ └────┘            │
+│  Iron    The              │
+│  Man     Avengers         │
+│  [⣿ kéo] [⣿ kéo]          │ ← cdkDropListOrientation="mixed"
+│                           │
+│ [ BOTTOM NAVIGATION BAR ] │ ← vẫn hiện, không phải sub-page
+│ 🏠 Home  📚 BST  📂 Nguồn │
+└───────────────────────────┘
 ```
+
+**Chưa làm ở slice này (giữ nguyên từ bản vẽ trước):** phân biệt "mất quyền truy cập" (`NO_ACCESS`, nút "Tham gia lại") vs "đã bị xoá" (`DELETED`, nút "Gỡ khỏi bộ sưu tập") — cần bắt lỗi tầng MTProto, hoãn có chủ đích (xem CLAUDE.md). Trang chi tiết hiện tại gỡ item bằng một nút chung duy nhất.
 
 ### Màn hình 4: Quản lý Nguồn (Sources)
 
 Nơi thêm kho phim. Hệ thống phải phân biệt rõ tốc độ index từ nguồn xài `catalog.json` và nguồn quét lịch sử thô. Thêm nguồn mới dùng **`MatBottomSheet`** thay vì popup giữa màn hình.
 
-* **Component sử dụng:** `MatBottomSheet` (nhập link/username nguồn), `MatCard`, `MatProgressBar` (ngay dưới mỗi card, thể hiện tiến trình quét), FAB (nổi cao hơn Bottom Nav — xem cạm bẫy ở Màn hình 3), Bottom Navigation Bar (tự ghép).
-* **Phản biện UX:** Quá trình quét một kênh Telegram thô mất rất nhiều thời gian. Không được block UI bằng cái Spinner tròn quay vô tận. Phải dùng `MatProgressBar` kết hợp hiển thị số liệu cụ thể (ví dụ: "Đang nạp 1500/5000 tin nhắn") để user không có cảm giác máy bị treo.
-* **Validate tại form, không chỉ ở prose:** ô nhập trong `MatBottomSheet` nên tự chặn nếu user dán một chuỗi toàn số (id thô) — chỉ chấp nhận username (`@tên` hoặc link `t.me/tên`). [ADR-0014 §1](./adr/0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md) cấm dùng id thô vì `access_hash` khác nhau theo tài khoản; tới giờ tài liệu này chỉ nhắc bằng lời, chưa có validation cụ thể trong đặc tả form.
+**Sheet nhiều "bước" điều hướng (2026-08-28, đã chạy thật, khác bản vẽ trước — một ô nhập + nút toggle-mở-rộng-tại-chỗ):** `AddSourceSheet` nay là 3 "màn" bên trong CÙNG MỘT sheet (`step` signal, không phải route/sheet riêng): menu 2 lựa chọn ("Nhập username/link thủ công" / "Chọn từ danh sách chat của tôi") → mỗi lựa chọn dẫn tới một màn con có header mũi tên quay lại (cùng SVG chevron dùng ở Màn hình 6/7). `MatBottomSheet` không có stack điều hướng built-in nên đây là cách giữ cảm giác "trang sau" mà không mất back-stack.
+
+* **Component sử dụng:** `MatBottomSheet` 3 bước (nhập link/username hoặc chọn từ `listMemberChannels()`), `MatCard`, `MatProgressBar` (ngay dưới mỗi card, thể hiện tiến trình quét), FAB (nổi cao hơn Bottom Nav — xem cạm bẫy ở Màn hình 3), Bottom Navigation Bar (tự ghép).
+* **Phản biện UX:** Quá trình quét một kênh Telegram thô mất rất nhiều thời gian. Không được block UI bằng cái Spinner tròn quay vô tận. Phải dùng `MatProgressBar` kết hợp hiển thị số liệu cụ thể (ví dụ: "Đang nạp 1500/5000 tin nhắn") để user không có cảm giác máy bị treo. **Chưa làm** — `scanSource()` hiện là một lượt bounded, không báo tiến trình theo số, chỉ có `MatProgressBar` indeterminate (xem CLAUDE.md).
+* **Validate tại form, không chỉ ở prose:** ô nhập username/link (màn "manual" của sheet) tự chặn nếu user dán một chuỗi toàn số (id thô) — chỉ chấp nhận username (`@tên` hoặc link `t.me/tên`), đã có validation thật trong `add-source-sheet.ts`. [ADR-0014 §1](./adr/0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md) cấm dùng id thô vì `access_hash` khác nhau theo tài khoản.
 
 ```text
 ┌───────────────────────────┐
-│ 📂 NGUỒN PHÁT CỦA BẠN     │
+│ Nguồn phát của bạn      ⚙️│ ← MatToolbar chung (MainShell)
 │ ───────────────────────── │
-│ 🔒 Kho Phim Gia Đình      │
-│ Trạng thái: 🟢 150 phim   │
-│ [ ⚙️ Sửa Metadata ]        │
+│ Kho Phim Gia Đình         │
+│ Trạng thái: 150 phim      │
 │ ───────────────────────── │
-│ 📢 Hội Phim 4K            │
+│ Hội Phim 4K               │
 │ Đang nạp catalog.json...  │
-│ [MatProgressBar: 70%]     │
+│ [MatProgressBar: ▓▓▓░░]   │
 │                           │
-│                       (+) │ ← Mở BottomSheet nhập link
+│                       (+) │ ← Mở AddSourceSheet
 │ [ BOTTOM NAVIGATION BAR ] │
 │ 🏠 Home  📚 BST  📂 Nguồn │
+└───────────────────────────┘
+   ↓ (+)
+┌───────────────────────────┐
+│ [ MatBottomSheet: menu ]  │
+│ Thêm nguồn mới            │
+│ [ Nhập username/link ]    │
+│ [ Chọn từ chat của tôi ]  │
+│ [ Huỷ ]                   │
+└───────────────────────────┘
+   ↓ chọn 1 trong 2 — mỗi màn con có mũi tên quay lại về menu
+┌───────────────────────────┐        ┌───────────────────────────┐
+│ [ < ] Nhập username/link  │        │ [ < ] Chat của tôi        │
+│ ┌───────────────────────┐ │        │ [ Kho Phim Gia Đình ]     │
+│ │ @ten_kenh hoặc t.me/..│ │        │ [ Hội Phim 4K (kênh) ]    │
+│ └───────────────────────┘ │        │ [ Nhóm bạn bè (nhóm) ]    │
+│ [ Thêm nguồn ]            │        └───────────────────────────┘
 └───────────────────────────┘
 ```
 

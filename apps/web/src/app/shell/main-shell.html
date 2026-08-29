@@ -1,19 +1,48 @@
 <div class="shell">
+  <mat-toolbar class="shell-toolbar">
+    <div class="toolbar-title">
+      @if (backTo(); as target) {
+        <button mat-icon-button type="button" [routerLink]="target" aria-label="Quay lại" class="back-btn">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+        </button>
+      }
+      <h1>{{ title() }}</h1>
+    </div>
+    <button mat-icon-button type="button" routerLink="/settings" aria-label="Cài đặt" class="settings-btn">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3" />
+        <path
+          d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"
+        />
+      </svg>
+    </button>
+  </mat-toolbar>
+
   <div class="content">
     <router-outlet />
   </div>
 
   <nav class="bottom-nav">
     <a routerLink="/home/browse" routerLinkActive="active">
-      <span class="icon" aria-hidden="true">🏠</span>
+      <svg class="icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 11.5 12 4l9 7.5" />
+        <path d="M5.5 10v9a1 1 0 0 0 1 1H10v-5.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1V20h3.5a1 1 0 0 0 1-1v-9" />
+      </svg>
       <span class="label">Home</span>
     </a>
     <a routerLink="/home/collections" routerLinkActive="active">
-      <span class="icon" aria-hidden="true">📚</span>
+      <svg class="icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H9a1.5 1.5 0 0 1 1.5 1.5v16L7 18l-3 2.5Z" />
+        <path d="M13 5h5.5A1.5 1.5 0 0 1 20 6.5v14L16.5 18 13 20.5Z" />
+      </svg>
       <span class="label">BST</span>
     </a>
     <a routerLink="/home/sources" routerLinkActive="active">
-      <span class="icon" aria-hidden="true">📂</span>
+      <svg class="icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 7a1 1 0 0 1 1-1h4.5l1.5 2H20a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z" />
+      </svg>
       <span class="label">Nguồn</span>
     </a>
   </nav>

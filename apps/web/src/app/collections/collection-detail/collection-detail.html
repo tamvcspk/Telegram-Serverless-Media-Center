@@ -1,0 +1,35 @@
+<section class="collection-detail" aria-label="Chi tiết bộ sưu tập">
+  @if (collection(); as collection) {
+    @if (collection.items.length === 0) {
+      <p class="hint">Chưa có phim nào trong bộ sưu tập này.</p>
+    } @else {
+      <div class="item-grid" cdkDropList cdkDropListOrientation="mixed" [cdkDropListData]="collection.items" (cdkDropListDropped)="onDrop($event)">
+        @for (item of collection.items; track trackByItem($index, item)) {
+          <div class="item-card" cdkDrag [cdkDragData]="item">
+            <app-poster-tile [label]="itemLabel(item)" />
+            <span class="title">{{ itemLabel(item) }}</span>
+            <div class="item-actions">
+              <span class="drag-handle" cdkDragHandle aria-label="Kéo để sắp xếp lại">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                  <circle cx="9" cy="6" r="1.5" />
+                  <circle cx="15" cy="6" r="1.5" />
+                  <circle cx="9" cy="12" r="1.5" />
+                  <circle cx="15" cy="12" r="1.5" />
+                  <circle cx="9" cy="18" r="1.5" />
+                  <circle cx="15" cy="18" r="1.5" />
+                </svg>
+              </span>
+              <button mat-icon-button type="button" class="remove-btn" aria-label="Gỡ khỏi bộ sưu tập" (click)="onRemoveItem(item)">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                  <path d="M6 6l12 12M18 6 6 18" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        }
+      </div>
+    }
+  } @else {
+    <p class="hint">Bộ sưu tập không tồn tại hoặc đã bị xoá.</p>
+  }
+</section>

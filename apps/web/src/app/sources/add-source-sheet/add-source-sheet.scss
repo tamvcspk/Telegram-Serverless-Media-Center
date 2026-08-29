@@ -14,6 +14,32 @@
     font-size: 1.1rem;
   }
 
+  .menu-choices {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 100%;
+
+    button {
+      width: 100%;
+    }
+  }
+
+  // Header của bước 'manual'/'picker' — căn trái, khác phần còn lại của
+  // sheet (căn giữa) vì đây là thanh điều hướng (mũi tên quay lại + tiêu đề
+  // bước), cùng bố cục `.topbar` ở settings.html/metadata-editor.html.
+  .step-header {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    width: 100%;
+    text-align: left;
+
+    h2 {
+      margin: 0;
+    }
+  }
+
   .ref-form {
     display: flex;
     flex-direction: column;

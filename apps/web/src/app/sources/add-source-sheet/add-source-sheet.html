@@ -1,38 +1,59 @@
 <div class="add-source-sheet">
-  <h2>Thêm nguồn mới</h2>
-
-  <form class="ref-form" (submit)="onSubmitRef($event, refInput)">
-    <mat-form-field appearance="outline">
-      <mat-label>Username/invite link kênh</mat-label>
-      <input matInput #refInput placeholder="@ten_kenh hoặc t.me/..." required />
-    </mat-form-field>
-    @if (refError(); as err) {
-      <p class="error">{{ err }}</p>
+  @switch (step()) {
+    @case ('menu') {
+      <h2>Thêm nguồn mới</h2>
+      <div class="menu-choices">
+        <button mat-stroked-button type="button" (click)="step.set('manual')">Nhập username/link thủ công</button>
+        <button mat-stroked-button type="button" (click)="onOpenPicker()">Chọn từ danh sách chat của tôi</button>
+      </div>
+      <button mat-button type="button" class="cancel" (click)="onCancel()">Huỷ</button>
     }
-    <button mat-flat-button color="primary" type="submit">Thêm nguồn</button>
-  </form>
+    @case ('manual') {
+      <header class="step-header">
+        <button mat-icon-button type="button" aria-label="Quay lại" (click)="onBackToMenu()">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+        </button>
+        <h2>Nhập username/link</h2>
+      </header>
 
-  <button mat-stroked-button type="button" class="picker-toggle" (click)="onTogglePicker()">
-    {{ showPicker() ? 'Ẩn danh sách chat của tôi' : 'Hoặc chọn từ danh sách chat của tôi' }}
-  </button>
-
-  @if (showPicker()) {
-    <div class="picker">
-      @if (loadingChannels()) {
-        <p class="hint">Đang tải danh sách…</p>
-      } @else if (pickerError(); as err) {
-        <p class="error">{{ err }}</p>
-      } @else if (channels().length === 0) {
-        <p class="hint">Không tìm thấy channel/nhóm nào.</p>
-      } @else {
-        @for (channel of channels(); track channel.id) {
-          <button mat-stroked-button type="button" class="picker-item" (click)="onPickChannel(channel)">
-            {{ channel.title }} ({{ channel.isBroadcast ? 'kênh' : 'nhóm' }})
-          </button>
+      <form class="ref-form" (submit)="onSubmitRef($event, refInput)">
+        <mat-form-field appearance="outline">
+          <mat-label>Username/invite link kênh</mat-label>
+          <input matInput #refInput placeholder="@ten_kenh hoặc t.me/..." required />
+        </mat-form-field>
+        @if (refError(); as err) {
+          <p class="error">{{ err }}</p>
         }
-      }
-    </div>
-  }
+        <button mat-flat-button color="primary" type="submit">Thêm nguồn</button>
+      </form>
+    }
+    @case ('picker') {
+      <header class="step-header">
+        <button mat-icon-button type="button" aria-label="Quay lại" (click)="onBackToMenu()">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+        </button>
+        <h2>Chat của tôi</h2>
+      </header>
 
-  <button mat-button type="button" class="cancel" (click)="onCancel()">Huỷ</button>
+      <div class="picker">
+        @if (loadingChannels()) {
+          <p class="hint">Đang tải danh sách…</p>
+        } @else if (pickerError(); as err) {
+          <p class="error">{{ err }}</p>
+        } @else if (channels().length === 0) {
+          <p class="hint">Không tìm thấy channel/nhóm nào.</p>
+        } @else {
+          @for (channel of channels(); track channel.id) {
+            <button mat-stroked-button type="button" class="picker-item" (click)="onPickChannel(channel)">
+              {{ channel.title }} ({{ channel.isBroadcast ? 'kênh' : 'nhóm' }})
+            </button>
+          }
+        }
+      </div>
+    }
+  }
 </div>

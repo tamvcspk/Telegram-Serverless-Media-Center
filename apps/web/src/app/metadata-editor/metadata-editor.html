@@ -5,7 +5,12 @@
         <path d="M15 18l-6-6 6-6" />
       </svg>
     </button>
-    <h1>⚙️ Sửa metadata</h1>
+    <h1>
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 20.5l1-4L16.5 5l3 3L8 19.5l-4 1Z" />
+      </svg>
+      Sửa metadata
+    </h1>
   </header>
 
   @if (writable() === null) {
@@ -42,7 +47,7 @@
       }
 
       <div class="bottom-bar">
-        <button mat-flat-button color="primary" type="submit" [disabled]="saving()">💾 Lưu catalog.json</button>
+        <button mat-flat-button color="primary" type="submit" [disabled]="saving()">Lưu catalog.json</button>
       </div>
     </form>
   }

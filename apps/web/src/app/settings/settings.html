@@ -5,13 +5,27 @@
         <path d="M15 18l-6-6 6-6" />
       </svg>
     </button>
-    <h1>⚙️ Cài đặt hệ thống</h1>
+    <h1>
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="3" />
+        <path
+          d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"
+        />
+      </svg>
+      Cài đặt hệ thống
+    </h1>
   </header>
 
   <mat-divider />
 
   <section class="block">
-    <h2>👤 Tài khoản kết nối</h2>
+    <h2>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="8" r="3.2" />
+        <path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6" />
+      </svg>
+      Tài khoản kết nối
+    </h2>
     @if (user(); as u) {
       <div class="account-row">
         <span class="avatar" aria-hidden="true">{{ initials(u) }}</span>
@@ -23,14 +37,21 @@
         </div>
       </div>
     }
-    <button mat-stroked-button color="warn" type="button" (click)="onOpenLogout()">🚪 Đăng xuất khỏi app</button>
+    <button mat-stroked-button color="warn" type="button" (click)="onOpenLogout()">Đăng xuất khỏi app</button>
     <p class="hint">⚠️ Khuyến cáo: bạn sẽ phải nhập lại API_ID/API_HASH để vào lại.</p>
   </section>
 
   <mat-divider />
 
   <section class="block">
-    <h2>💾 Quản lý lưu trữ</h2>
+    <h2>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <ellipse cx="12" cy="5" rx="8" ry="3" />
+        <path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5" />
+        <path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" />
+      </svg>
+      Quản lý lưu trữ
+    </h2>
     <p>Bộ nhớ đệm (cache): {{ cacheUsageLabel() }}</p>
     <button mat-stroked-button type="button" [disabled]="clearingCache()" (click)="onClearCache()">Xoá bộ nhớ đệm chunk</button>
     @if (clearCacheError(); as err) {
@@ -41,7 +62,13 @@
   <mat-divider />
 
   <section class="block">
-    <h2>🌐 Mạng & băng thông</h2>
+    <h2>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M3 12h18M12 3c2.5 2.5 4 5.8 4 9s-1.5 6.5-4 9c-2.5-2.5-4-5.8-4-9s1.5-6.5 4-9Z" />
+      </svg>
+      Mạng &amp; băng thông
+    </h2>
     <label for="concurrency-input">Luồng tải song song: {{ concurrency() }}</label>
     <mat-slider [min]="minConcurrency" [max]="maxConcurrency" [step]="1" discrete [disabled]="concurrencyPending()">
       <input id="concurrency-input" matSliderThumb [value]="concurrency()" (valueChange)="onConcurrencyChange($event)" />
@@ -55,7 +82,13 @@
   <mat-divider />
 
   <section class="block">
-    <h2>🐛 Chẩn đoán (Debug)</h2>
+    <h2>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="8" y="7" width="8" height="11" rx="4" />
+        <path d="M9 7c0-1.7 1.3-3 3-3s3 1.3 3 3M4.5 10 8 11.5M19.5 10 16 11.5M4.5 17 8 15.5M19.5 17 16 15.5M12 7v11" />
+      </svg>
+      Chẩn đoán (Debug)
+    </h2>
     <mat-slide-toggle [checked]="debugEnabled()" (change)="onDebugToggle($event.checked)">Bật log Worker</mat-slide-toggle>
     <p class="hint">Có hiệu lực sau khi tải lại trang.</p>
   </section>

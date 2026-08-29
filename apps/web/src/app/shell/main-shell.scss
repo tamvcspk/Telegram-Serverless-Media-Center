@@ -15,6 +15,39 @@
   --tsmc-bottom-nav-height: calc(3.25rem + env(safe-area-inset-bottom));
 }
 
+// border-bottom cùng token với divider Settings (`<mat-divider>` ngay sau
+// `.topbar` ở settings.html render ra đúng màu này) — MainShell dùng border
+// CSS trực tiếp thay vì <mat-divider> vì toolbar này không có cấu trúc
+// "header rồi divider" tách rời như Settings, chỉ cần 1 đường kẻ dưới cùng.
+.shell-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--mat-sys-outline-variant, rgba(0, 0, 0, 0.12));
+
+  .toolbar-title {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    min-width: 0;
+  }
+
+  .back-btn {
+    flex: 0 0 auto;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 1.125rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 .content {
   flex: 1 1 auto;
   overflow-y: auto;
@@ -42,8 +75,7 @@
     font-size: 0.7rem;
 
     .icon {
-      font-size: 1.25rem;
-      line-height: 1;
+      display: block;
     }
 
     &.active {

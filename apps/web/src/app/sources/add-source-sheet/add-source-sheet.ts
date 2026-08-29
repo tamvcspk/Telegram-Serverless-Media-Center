@@ -7,6 +7,8 @@ import { createCoreWorkerClient } from '@tsmc/worker-host';
 
 export type AddSourceResult = { kind: 'ref'; ref: string } | { kind: 'channel'; id: string; title: string };
 
+type Step = 'menu' | 'manual' | 'picker';
+
 // Chấp nhận @username / t.me/username / https://t.me/username, từ chối ID
 // thô (username sau khi bóc tiền tố chỉ toàn chữ số) — ADR-0014 §1:
 // access_hash khác nhau theo từng tài khoản nên chia sẻ id thô là vô nghĩa.
@@ -24,8 +26,12 @@ function looksLikeRawId(ref: string): boolean {
 }
 
 /**
- * MatBottomSheet thêm nguồn (Màn hình 4, docs/ux-design.md) — thay popup
- * giữa màn hình theo nguyên tắc mobile-first. Chỉ thu thập lựa chọn rồi trả
+ * MatBottomSheet thêm nguồn (Màn hình 4, docs/ux-design.md) — 3 "màn" điều
+ * hướng bên trong CÙNG MỘT sheet (`step` signal), không phải route riêng hay
+ * sheet chồng sheet: `'menu'` (2 lựa chọn) → `'manual'`/`'picker'` (mỗi cái
+ * có header mũi tên quay lại). `MatBottomSheet` không có stack điều hướng
+ * built-in nên đây là cách duy nhất giữ cảm giác "trang sau" mà không mất
+ * back-stack khi dismiss-rồi-open-sheet-mới. Chỉ thu thập lựa chọn rồi trả
  * về qua `bottomSheetRef.dismiss()`; `Sources` (component cha) mới thật sự
  * gọi `addSource()`/`configureSource()` — cùng quy ước với
  * `CreateCollectionDialog` (collections/), giữ RPC ghi tập trung một chỗ.
@@ -41,9 +47,10 @@ export class AddSourceSheet {
   private readonly sheetRef = inject(MatBottomSheetRef<AddSourceSheet, AddSourceResult>);
   private readonly client = createCoreWorkerClient();
 
+  protected readonly step = signal<Step>('menu');
+
   protected readonly refError = signal<string | null>(null);
 
-  protected readonly showPicker = signal(false);
   protected readonly loadingChannels = signal(false);
   protected readonly channels = signal<readonly { id: string; title: string; isBroadcast: boolean }[]>([]);
   protected readonly pickerError = signal<string | null>(null);
@@ -64,10 +71,9 @@ export class AddSourceSheet {
     this.sheetRef.dismiss({ kind: 'ref', ref });
   }
 
-  async onTogglePicker(): Promise<void> {
-    const next = !this.showPicker();
-    this.showPicker.set(next);
-    if (!next || this.channels().length > 0) {
+  async onOpenPicker(): Promise<void> {
+    this.step.set('picker');
+    if (this.channels().length > 0) {
       return;
     }
     this.loadingChannels.set(true);
@@ -83,6 +89,10 @@ export class AddSourceSheet {
 
   onPickChannel(channel: { id: string; title: string }): void {
     this.sheetRef.dismiss({ kind: 'channel', id: channel.id, title: channel.title });
+  }
+
+  onBackToMenu(): void {
+    this.step.set('menu');
   }
 
   onCancel(): void {

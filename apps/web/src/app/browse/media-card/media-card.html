@@ -1,0 +1,22 @@
+<div class="media-card" role="button" tabindex="0" (click)="open.emit()" (keydown.enter)="open.emit()" (keydown.space)="$event.preventDefault(); open.emit()">
+  <app-poster-tile [label]="row().title ?? '?'" />
+  <span class="title">{{ row().title ?? '(chưa có tên)' }}</span>
+  <span class="meta">
+    @if (row().year) {
+      {{ row().year }}
+    }
+    @if (row().kind) {
+      · {{ row().kind === 'episode' ? 'tập phim' : 'phim lẻ' }}
+    }
+    @if (row().genres && row().genres!.length) {
+      · {{ row().genres!.join(', ') }}
+    }
+  </span>
+  <span
+    class="trust-badge"
+    [class.warn]="row().trust === 'not-admin'"
+    [class.hidden]="row().trust !== 'pending' && row().trust !== 'not-admin'"
+  >
+    {{ row().trust === 'pending' ? 'chưa xác minh' : row().trust === 'not-admin' ? 'không rõ nguồn' : '' }}
+  </span>
+</div>
