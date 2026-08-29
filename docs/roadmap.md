@@ -17,6 +17,10 @@
 - **Ingest Editor:** retry/rollback khi `FLOOD_WAIT` rơi giữa chuỗi 3 RPC ghi liên tiếp của `publishCatalogDocument()` (`sendFile → pinMessage → deleteMessages`). Xem [ADR-0014 addendum, SPIKE-06](./adr/0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md#cập-nhật-sau-khi-accepted-2026-08-28-spike-06). `[Chưa bắt đầu]`
 - **Poster ảnh thật:** pipeline tải Telegram Photo (khác Document/video đã có) để thay placeholder gradient ở Browse/Collections — ngoài phạm vi F4, cần thiết kế riêng (tải ảnh lúc duyệt danh sách lớn dễ dính `FLOOD_WAIT`). `[Chưa bắt đầu]`
 
+## Ingest
+
+- **`tsmc-ingest` CLI (ADR-0013 mục 1) — chưa có một dòng code nào.** Ưu tiên xây **trước** mọi hướng GUI (Tauri+Angular đã cân nhắc, chưa quyết — xem [ADR-0013 § Cập nhật 2026-08-29](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-08-29-phản-biện-auto-probe-sau-khi-quét--quyết-định-thứ-tự-xây)). Node + `ffprobe` cục bộ → phân hạng A/B/C/D → (remux nếu cần) → upload qua MTProto/GramJS → sinh/ghim `catalog.json`. Giải quyết dứt điểm việc `compat` hiện chỉ là 3 radio button admin tự đoán ở Metadata Editor (`apps/web/src/app/metadata-editor/metadata-editor.html`) — không có detect thật nào đang chạy. Thiết kế UX nhập metadata nên tính khả năng "kế thừa từ tập trước cùng series" ngay từ v1 — nỗi đau gõ tay cho nhiều tập phim đã được xác nhận là có thật (không phải giả định), qua trải nghiệm upload bằng Telegram app gốc rồi tự tay gõ Title/Năm/Compat từng item một qua Metadata Editor. `[Chưa bắt đầu]`
+
 ## Index / quét nguồn
 
 - **Hashtag/Forum topic làm tín hiệu index (đã code 2026-08-29):** hashtag làm tín hiệu suy luận metadata + Forum Topic làm category — cả hai đã code, xem [docs/changelog.md](./changelog.md#2026-08-29--index-category-theo-forum-topic--hashtag-làm-tín-hiệu-fallback). Còn thiếu: verify bằng kênh Forum + hashtag thật trên thiết bị thật (unit test dùng fake gateway) — checklist chi tiết ở [docs/pending-device-tests.md](./pending-device-tests.md#index-forum-topic-category--hashtag-fallback-2026-08-29). `[Cần kiểm chứng thiết bị thật]`

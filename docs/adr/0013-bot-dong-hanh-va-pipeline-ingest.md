@@ -107,3 +107,22 @@ Phần probe là thứ **bắt buộc phải có ngay từ v1**; phần remux tr
 **Điều gì KHÔNG đổi:** bảng phân hạng A/B/C/D ở mục 1 (điều kiện container/codec quyết định hạng) vẫn đứng nguyên — SPIKE-08 chỉ nhắm tới việc chọn đúng *cơ chế đo* cho bước probe trình duyệt ở mục 3, không đổi *tiêu chí phân hạng*. Quy tắc "MKV/container lạ luôn Hạng C/D bất kể codec bên trong" cũng không đổi trừ khi SPIKE-08 phát hiện bằng chứng ngược lại.
 
 **Việc tiếp theo:** sau khi SPIKE-08 có số liệu thật, viết addendum kế tiếp chỉ định rõ API dùng cho Ingest Editor + `Player.checkCompat()` (`apps/web/src/app/player/player.ts`), trước khi thay 3 radio button thủ công bằng probe tự động.
+
+## Cập nhật sau khi Accepted (2026-08-29, phản biện "auto-probe-sau-khi-quét" + quyết định thứ tự xây)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định
+> đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết
+> định gốc **vẫn đứng vững**, xem lý do bên dưới.
+
+**Bác bỏ hướng "auto-probe container/codec ngay lúc `scanSource()`"** (hướng đề xuất ở addendum ngay trên, cùng ngày) — hai lỗ hổng đủ nghiêm trọng để loại bỏ hẳn, không chỉ hoãn:
+
+1. Container thật không hợp tác: `moov` atom của MP4 không-faststart nằm cuối file (bằng chứng thực nghiệm đã có sẵn ở [SPIKE-01](../spikes/README.md#spike-01) — Chrome phải nhảy tới gần cuối file để tìm `moov`), còn MKV/EBML không đảm bảo vị trí track info. Trích codec qua Range request tốn ≥2 round-trip MTProto/file, không phải một lần đọc header nhẹ nhàng như giả định ban đầu.
+2. **Nghiêm trọng hơn:** chạy việc này lúc `scanSource()` bắt **tài khoản của người xem** (bất kỳ ai mở tab Nguồn) gánh N request `upload.getFile` cho N item mới trong một kênh — rủi ro `FLOOD_WAIT` diện rộng đúng loại đã bị cấm một lần ở [ADR-0010 §3](./0010-catalog-spec-v1-va-chien-luoc-indexing.md) (tra cứu publisher theo từng item lúc quét, cùng lý do). Việc này đi ngược thẳng lý do ADR-0013 tồn tại: chi phí phân loại compat phải nằm ở **lúc upload, phía admin** — không phải lúc xem, phía người xem.
+
+**Quay lại đúng thiết kế gốc của Quyết định (mục 1):** compat được quyết định bằng `ffprobe` chạy **cục bộ trên máy admin** (không qua mạng, không qua trình duyệt), ánh xạ thẳng sang bảng A/B/C/D tĩnh — không cần bất kỳ browser API nào để "dò khả năng phát". Hệ quả trực tiếp: câu hỏi ở [SPIKE-08](../spikes/README.md#spike-08) (chọn API trình duyệt nào khớp `<video>` thật) **không còn gate đường ingest nữa**. Spike đó vẫn giữ nguyên giá trị cho một mục tiêu khác, ưu tiên thấp hơn: cảnh báo live phía `Player.checkCompat()` (`apps/web/src/app/player/player.ts`) nếu sau này muốn cá nhân hoá theo từng trình duyệt/thiết bị xem — không đóng spike, chỉ hạ mức ưu tiên và đổi lý do "vì sao quan trọng".
+
+**Đã xác nhận: nỗi đau "gõ tay metadata cho nhiều tập phim" là có thật — không phải giả định.** Chính user đã upload phim qua app Telegram gốc và phải tự tay gõ Title/Năm/Compat qua Metadata Editor (Màn hình 6) — màn hình đó chỉ sửa được **một item mỗi lần**, không có autocomplete hay kế thừa từ tập trước cùng series. Đây là input trực tiếp, không phải suy đoán trước khi có công cụ nào tồn tại.
+
+**Quyết định thứ tự xây:** xây `tsmc-ingest` CLI (mục 1 nguyên bản — Node + `ffprobe` cục bộ, upload qua MTProto/GramJS — hiện **chưa có một dòng code nào** trong repo) **trước** khi quyết định có bọc thêm GUI Tauri + Angular hay không. CLI một mình đã giải quyết dứt điểm cả hai lỗ hổng compat nêu trên với chi phí thấp nhất — không cần toolchain Rust/Tauri, không cần đóng gói/ký số đa nền tảng. Hướng GUI Tauri + Angular (autocomplete, kế thừa metadata theo season/episode) vẫn **hợp lý về nguyên tắc** (probe cục bộ, không đẩy chi phí sang người xem — cùng nguyên tắc CLI) nhưng **chưa quyết** — để ngỏ tới khi CLI chạy thật và lộ rõ đúng phần việc gõ tay nào còn đau sau khi đã có `ffprobe` tự động hoá phần compat.
+
+**Việc tiếp theo:** viết `tsmc-ingest` CLI theo đúng mục 1 (probe → phân hạng → remux nếu cần → upload → sinh entry catalog). Vì nỗi đau gõ tay đã xác nhận là thật, thiết kế UX dòng lệnh của bước nhập metadata nên tính tới khả năng "kế thừa từ tập trước cùng series" ngay từ v1 của CLI — không đợi tới khi (nếu) có GUI mới xử lý.
