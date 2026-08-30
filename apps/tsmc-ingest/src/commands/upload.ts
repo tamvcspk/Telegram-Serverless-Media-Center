@@ -22,6 +22,7 @@ import type { CatalogItemV1 } from '@tsmc/shared-models';
 import { checkFfmpegAvailable, extractSubtitles, generateThumbnail, reencodeToMp4, remuxToMp4, type ExtractedSubtitle } from '../ffmpeg';
 import { checkFfprobeAvailable, probeFile } from '../ffprobe';
 import { confirm, prompt } from '../prompt';
+import { findSidecarSubtitles } from '../sidecar-subtitles';
 
 type CatalogSubtitleRef = NonNullable<CatalogItemV1['subs']>[number];
 
@@ -139,6 +140,14 @@ export async function runUpload(gateway: IngestGateway, opts: UploadOptions): Pr
         subtitles = await extractSubtitles(filePath, probe.subtitles, join(tmpDir, stripExt(filePath)));
       }
 
+      // Phụ đề NGOÀI đặt cạnh video trên đĩa (quy ước Plex/Jellyfin/Kodi:
+      // "<tên video>.srt"/"<tên video>.<lang>.srt"/".vtt") — độc lập với hạng
+      // A/B/C/D, khác phụ đề NHÚNG rút bằng extractSubtitles() ở trên.
+      const sidecarSubs = await findSidecarSubtitles(filePath);
+      for (const sub of sidecarSubs) {
+        console.log(`Phụ đề ngoài phát hiện: ${basename(sub.path)}${sub.lang ? ` (${sub.lang})` : ''}`);
+      }
+
       const thumbnailPath = join(tmpDir, `${stripExt(filePath)}.jpg`);
       await generateThumbnail(remuxedPath, finalProbe.durationSec, thumbnailPath);
 
@@ -166,6 +175,13 @@ export async function runUpload(gateway: IngestGateway, opts: UploadOptions): Pr
           console.log(`Phụ đề ảnh (${sub.path}) — CHƯA upload, cần convert tay hoặc công cụ khác trước khi đăng.`);
           continue;
         }
+        const subUploaded = await gateway.uploadSubtitleDocument(channel.id, {
+          filePath: sub.path,
+          fileName: basename(sub.path)
+        });
+        subsRefs.push({ lang: sub.lang ?? 'und', msgId: subUploaded.msgId });
+      }
+      for (const sub of sidecarSubs) {
         const subUploaded = await gateway.uploadSubtitleDocument(channel.id, {
           filePath: sub.path,
           fileName: basename(sub.path)

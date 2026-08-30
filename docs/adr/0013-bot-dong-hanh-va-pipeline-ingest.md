@@ -219,3 +219,25 @@ Gỡ nốt mục "Còn thiếu" cuối cùng của addendum "verify Hạng C..."
 - Pipeline vẫn ổn định qua nhiều lần chạy liên tiếp trong cùng ngày: remux 52.3x (nhanh hơn lần đo đầu 40.8x — cùng cấp độ, chênh lệch hợp lý do khác file/tải máy), kết nối/ngắt kết nối DC nhiều lần không phát sinh lỗi.
 
 **Không phát sinh bug mới.** Đây là bằng chứng đóng hẳn caveat "series.name — chưa re-verify" — không cần giữ trong danh sách "Còn thiếu" nữa (đã xoá khỏi checklist tương ứng ở [docs/pending-device-tests.md](../pending-device-tests.md)).
+
+## Cập nhật sau khi Accepted (2026-08-30, phụ đề ngoài — sidecar — tự dò file .srt/.vtt cạnh video)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định
+> đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết
+> định gốc **vẫn đứng vững**, xem lý do bên dưới.
+
+**Bối cảnh:** sau khi nối dây upload phụ đề NHÚNG (addendum "nối dây subtitle upload" phía trên, cùng ngày), user đọc README mới viết và chỉ ra một khoảng trống: ví dụ lệnh `upload` trong README chỉ truyền file video, không có cách nào chỉ định phụ đề — nhưng rất nhiều file thực tế có phụ đề dưới dạng file `.srt` **RỜI** đặt cạnh video (không nhúng trong container, ví dụ scene release kèm sẵn phụ đề ngoài), CLI trước đó hoàn toàn không xử lý case này, dù `extractSubtitles()` chỉ đọc track nhúng qua ffprobe/ffmpeg. Hướng chọn: tự động dò phụ đề ngoài theo quy ước phổ biến của Plex/Jellyfin/Kodi (`<tên video>.srt` hoặc `<tên video>.<mã ngôn ngữ 2-3 ký tự>.srt`, cũng nhận `.vtt`) — **không** thêm flag CLI mới, vì `upload` hỗ trợ batch nhiều video trong một lệnh và một flag kiểu `--subs <file>` sẽ không rõ ràng ứng với video nào khi có nhiều file trên cùng dòng lệnh.
+
+**Đã làm (code, chưa verify thiết bị thật):**
+- `libs/core-ingest/src/sidecar-subtitles.ts` (mới): `matchSidecarSubtitles(videoFileName, siblingFileNames)` — logic thuần so khớp tên file bằng regex, không đọc đĩa (đúng ranh giới I/O-ngoài/logic-thuần đã có sẵn của package). Test bằng fixture (`sidecar-subtitles.spec.ts`, 8 case: có lang/không lang, `.vtt`, không tự khớp lại chính file video, không khớp file khác basename, không khớp `.ass`/`.ssa` ngoài phạm vi v1, không phân biệt hoa/thường, mảng rỗng khi không có gì cạnh video). Xuất qua `libs/core-ingest/src/index.ts`.
+- `apps/tsmc-ingest/src/sidecar-subtitles.ts` (mới): wrapper I/O — `readdir()` thư mục chứa video rồi gọi hàm thuần ở trên.
+- `apps/tsmc-ingest/src/commands/upload.ts`: gọi `findSidecarSubtitles(filePath)` cho **mọi** file (không giới hạn Hạng C như phụ đề nhúng — phụ đề ngoài độc lập với hạng compat), upload từng file tìm được qua `uploadSubtitleDocument()` đã có sẵn (addendum trước), gộp chung vào `subs[]` cùng phụ đề nhúng.
+- Chỉ nhận đuôi `.srt`/`.vtt` (text thuần, dùng ngay không cần convert) — `.ass`/`.ssa` chưa hỗ trợ, cùng lý do `.sup`/PGS không tự upload ở addendum trước.
+- Test: 291/291 qua (tăng từ 283, +8 test mới cho `sidecar-subtitles.spec.ts`). `npm run lint`, `tsc --noEmit` (apps/tsmc-ingest, core-ingest), `npm run build:ingest` đều sạch.
+- README (`apps/tsmc-ingest/README.md`, mục "Phụ đề") cập nhật giải thích rõ hai nguồn (nhúng vs ngoài) kèm ví dụ cụ thể.
+
+**Chưa kiểm chứng — để dành cho admin tự chạy:** upload một video có sẵn file `.srt` ngoài đặt đúng tên cạnh nó, xác nhận CLI tự phát hiện + upload + ghi đúng `subs[]`.
+
+**Điều gì KHÔNG đổi:** Quyết định gốc mục 1 (bảng phân hạng A/B/C/D) đứng nguyên — phụ đề ngoài không liên quan tới phân hạng compat, chỉ là một nguồn phụ đề bổ sung cạnh phụ đề nhúng đã có.
+
+**Việc tiếp theo:** admin verify thật; cân nhắc hỗ trợ `.ass`/`.ssa` sau nếu có nhu cầu thật (chưa có bằng chứng cần ngay).

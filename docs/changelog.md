@@ -4,6 +4,14 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-08-30 — `tsmc-ingest` CLI — verify thật Hạng D + phụ đề ngoài — ĐẠT
+
+Upload thật file AVI (Hạng D) kèm sidecar `.srt` cùng thư mục: phân hạng đúng D, hỏi xác nhận re-encode, `libx264` chạy thật (33.5x, ~127 MB cho ~24 phút), phụ đề ngoài được tự phát hiện + upload + ghi đúng `subs: [{ lang: "und", msgId: 19 }]`. Đóng nốt phần "Hạng D chưa verify" của addendum trước (A/B vẫn hoãn có chủ đích). Quan sát không phải bug: video phát được nhưng phụ đề không hiện — `apps/web` player chưa có code đọc `subs[]`, ghi nhận gap mới ở [docs/roadmap.md § UI theo từng màn hình](./roadmap.md#ui-theo-từng-màn-hình). Checklist cập nhật ở [docs/pending-device-tests.md](./pending-device-tests.md#kết-quả-verify-2026-08-30-hạng-d--phụ-đề-ngoài).
+
+## 2026-08-30 — `tsmc-ingest` CLI — phụ đề ngoài (sidecar) tự dò cạnh video + README
+
+Sau khi nối dây upload phụ đề NHÚNG (mục dưới cùng ngày), user chỉ ra README mới viết không có cách nào chỉ định phụ đề trên dòng lệnh — nhiều file thực tế có phụ đề dưới dạng `.srt` RỜI đặt cạnh video, chưa được xử lý. Thêm tự động dò theo quy ước Plex/Jellyfin/Kodi (`<tên video>.srt` hoặc `<tên video>.<lang>.srt`, cũng nhận `.vtt`) — không thêm flag CLI mới (batch nhiều video một lệnh khiến một flag `--subs` không rõ ứng với video nào). Logic thuần so khớp tên file ở `libs/core-ingest/src/sidecar-subtitles.ts` (8 test mới), I/O (`readdir`) ở `apps/tsmc-ingest/src/sidecar-subtitles.ts`, wire vào `commands/upload.ts` — gộp chung `subs[]` với phụ đề nhúng. 291/291 test qua (tăng từ 283), lint/tsc/build sạch — CHƯA verify thật. Cũng thêm `apps/tsmc-ingest/README.md` (chưa từng có) — hướng dẫn cài đặt, ba lệnh, bảng phân hạng A/B/C/D, hai nguồn phụ đề, troubleshooting. Chi tiết: [ADR-0013 § Cập nhật 2026-08-30, phụ đề ngoài — sidecar](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-08-30-phụ-đề-ngoài--sidecar--tự-dò-file-srtvtt-cạnh-video).
+
 ## 2026-08-30 — `tsmc-ingest` CLI — re-verify bản vá `series.name` bằng tài khoản thật — ĐẠT
 
 Upload thêm file thứ ba cùng series (`S01E08.mkv`, chọn "kế thừa") sau khi build lại CLI với bản vá `series.name` (xem mục ngay dưới cùng ngày) — `catalog.v1.json` thật ra đúng `series.name: "The big bang theory"` (khớp title), không còn lỗi ra chuỗi filename trần trụi. Catalog vẫn gộp đủ 5 item qua nhiều lần publish liên tiếp. Đóng nốt mục "Còn thiếu" cuối cùng của lần verify Hạng C — checklist đã gỡ ở [docs/pending-device-tests.md](./pending-device-tests.md#tsmc-ingest-cli--loginprobeupload-thật-2026-08-29). Chi tiết: [ADR-0013 § Cập nhật 2026-08-30, re-verify series.name — ĐẠT](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-08-30-re-verify-bản-vá-seriesname-bằng-tài-khoản-thật--đạt).

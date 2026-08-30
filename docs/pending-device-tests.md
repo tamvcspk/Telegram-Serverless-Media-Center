@@ -15,7 +15,8 @@ Liên quan: [ADR-0013 § Cập nhật 2026-08-29, lần code đầu tiên](./adr
 - [x] Cài `ffmpeg` (kèm `ffprobe`) trên PATH — `winget install ffmpeg` / `brew install ffmpeg` / `apt install ffmpeg`.
 - [x] Có `TSMC_API_ID`/`TSMC_API_HASH` (tự tạo tại https://my.telegram.org).
 - [x] Build CLI: `npm run build:ingest` (sinh `apps/tsmc-ingest/dist/cli.js`).
-- [x] Kênh test + file mẫu Hạng C thật (MKV/H.264/audio AC3) — xem kết quả 2026-08-30 bên dưới. **Còn thiếu (hoãn có chủ đích — brainstorm 2026-08-30):** file mẫu Hạng A (MP4/H.264/AAC faststart sẵn), Hạng B (HEVC/AV1 hoặc Opus/E-AC-3), Hạng D (AVI/codec không giải được) — cả ba đều chỉ là biến thể của cùng cơ chế remux/copy-stream đã verify ở Hạng C, nên không ưu tiên verify riêng ngay bây giờ.
+- [x] Kênh test + file mẫu Hạng C thật (MKV/H.264/audio AC3) — xem kết quả 2026-08-30 bên dưới.
+- [x] File mẫu Hạng D thật (AVI) — verify thật 2026-08-30, xem "Kết quả verify 2026-08-30 (Hạng D + phụ đề ngoài)" bên dưới. **Còn thiếu (hoãn có chủ đích — brainstorm 2026-08-30):** file mẫu Hạng A (MP4/H.264/AAC faststart sẵn), Hạng B (HEVC/AV1 hoặc Opus/E-AC-3) — cả hai chỉ là biến thể của cùng cơ chế remux/copy-stream đã verify ở Hạng C, nên không ưu tiên verify riêng ngay bây giờ.
 - [ ] File mẫu MKV có phụ đề TEXT nhúng (không phải PGS ảnh) — file mẫu Hạng C hiện có (`[KST.VN].The.Big.Bang.Theory...`) chưa xác nhận có track phụ đề hay không; cần để verify nhánh upload subtitle mới (xem mục dưới).
 
 ### Các bước
@@ -29,6 +30,7 @@ Liên quan: [ADR-0013 § Cập nhật 2026-08-29, lần code đầu tiên](./adr
 - [x] Xác nhận catalog sau lần upload thứ hai có ĐỦ cả hai item (không bị ghi đè mất item đầu) — verify thật 2026-08-30: catalog có đủ 3 item (msgId 3/6/9), đúng ngữ nghĩa "gộp".
 - [x] **Phát sinh từ bug vừa vá:** re-upload một file thứ hai cùng series lần nữa (sau khi đã build lại CLI với bản vá `series.name`) — verify thật 2026-08-30, **ĐẠT**: upload `S01E08.mkv` chọn "kế thừa", `series.name` ra đúng `"The big bang theory"` (khớp title), không còn ra chuỗi filename trần trụi. Catalog vẫn gộp đủ 5 item. Chi tiết: [ADR-0013 § Cập nhật 2026-08-30, re-verify series.name — ĐẠT](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-08-30-re-verify-bản-vá-seriesname-bằng-tài-khoản-thật--đạt).
 - [ ] **MỚI (2026-08-30, subtitle upload):** upload một file Hạng C có phụ đề TEXT nhúng (`.srt` sau khi rút, không phải PGS) — xác nhận: (1) `extractSubtitles()` chạy đúng như cũ, (2) mỗi phụ đề text được upload thành document rời qua `uploadSubtitleDocument()` (KHÔNG còn chỉ lưu cục bộ như hành vi cũ), (3) `catalog.v1.json` thật ghi đúng `subs: [{ lang, msgId }]` cho item đó, (4) mở message phụ đề trong Telegram app thật, xác nhận tải/xem được. Nếu file mẫu có cả track PGS (ảnh), xác nhận track đó VẪN chỉ lưu cục bộ (không upload) và log đúng thông báo "CHƯA upload" mới.
+- [x] **Phụ đề ngoài — sidecar:** verify thật 2026-08-30, **ĐẠT** — xem "Kết quả verify 2026-08-30 (Hạng D + phụ đề ngoài)" bên dưới. **Còn thiếu:** chưa thử case tên sai quy ước (đuôi khác/basename không khớp) để xác nhận CLI bỏ qua đúng, không nhầm lẫn; chưa thử nhiều phụ đề cùng lúc (đa ngôn ngữ) trên một video.
 
 ### Kết quả verify 2026-08-30 (Hạng C, lần đầu tiên trên tài khoản/kênh thật)
 
@@ -39,6 +41,16 @@ File mẫu: `[KST.VN].The.Big.Bang.Theory.S01Tap01.HD.[KSTE].mkv` (MKV/H.264 128
 - Xác nhận bằng Telegram app thật: video có mặt, phát được; `catalog.v1.json` đã ghim và tồn tại.
 - **Phát hiện phụ (không phải bug):** log GramJS in `"Running gramJS version 2.26.21"` dù `package.json`/lockfile ghim đúng `telegram@2.26.22` (đã verify lại: `node_modules/.pnpm/telegram@2.26.22.../Version.js` tự hardcode chuỗi `"2.26.21"` — lệch version nội bộ có sẵn TỪ TRƯỚC trong chính package đã archive, không phải lỗi cài đặt/lockfile của repo này). Ghi lại để không ai sau này hoảng vì tưởng cài sai version.
 - **Bug thật phát hiện khi upload file thứ hai cùng series:** `catalog.v1.json` thật cho thấy `series.name` của cả hai item episode ra `"S01E01.mp4"`/`"S01E02.mp4"` (chuỗi tên file trần trụi) thay vì tên phim, dù `title` đúng. Nguyên nhân + bản vá: xem [ADR-0013 § Cập nhật 2026-08-30](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-08-30-verify-hạng-c-bằng-tài-khoảnkênh-thật-lần-đầu). Đã vá `inheritMetadata()` (`libs/core-ingest/src/metadata-inherit.ts`) + `resolveMetadataForFile()` (`apps/tsmc-ingest/src/commands/upload.ts`), thêm 2 unit test tái hiện đúng bug — **CHƯA re-verify bằng tài khoản thật sau vá.**
+
+### Kết quả verify 2026-08-30 (Hạng D + phụ đề ngoài)
+
+File mẫu: `The Big Bang Theory S01E01.avi` (container AVI, ~24 phút) + sidecar `The Big Bang Theory S01E01.srt` (không có mã ngôn ngữ trong tên file) đặt cùng thư mục, kênh `tsmc_mediacenter`.
+
+- `probe`/phân hạng: đúng **Hạng D** ("Container AVI — luôn Hạng D bất kể codec bên trong", khớp ADR-0013), CLI hỏi xác nhận re-encode trước khi chạy — đúng thiết kế "re-encode luôn phải hỏi".
+- `re-encode`: `libx264 preset medium` chạy thật, ~24 phút nội dung xong sau ~42s (elapsed), tốc độ 33.5x, output ~127 MB. Nhanh hơn nhiều so với ước tính "hàng giờ" ở Quyết định gốc ADR-0013 (đúng bản chất — ước tính đó là cảnh báo thận trọng cho admin, không phải benchmark) — đáng ghi lại làm số liệu thật đầu tiên cho Hạng D.
+- **Phụ đề ngoài (sidecar) — ĐẠT:** CLI tự log "Phụ đề ngoài phát hiện: The Big Bang Theory S01E01.srt", upload thành công, `catalog.v1.json` thật ghi đúng `subs: [{ "lang": "und", "msgId": 19 }]` cho item (`msgId 18`) — `lang: "und"` đúng như kỳ vọng vì tên file sidecar không mang mã ngôn ngữ (`sub.lang ?? 'und'` hoạt động đúng).
+- Upload video thành công (`msgId 18`), `compat` suy đúng **"full"** (sau re-encode, H.264 + AAC). Catalog gộp đúng — đủ 6 item qua nhiều lần publish liên tiếp trong ngày.
+- **Quan sát (không phải bug):** phát video trong app thật — phát được, nhưng **không thấy phụ đề nào hiện lên**. Đây là hành vi ĐÚNG theo phạm vi hiện tại — `apps/web/src/app/player/` chưa có bất kỳ code nào đọc `subs[]`/gắn `<track>` cho `<video>`; `tsmc-ingest` chỉ có nhiệm vụ upload + ghi tham chiếu vào catalog, không phải render. Ghi nhận thành gap mới ở [docs/roadmap.md § UI theo từng màn hình](./roadmap.md#ui-theo-từng-màn-hình) (Player, Màn hình 5) — kèm lưu ý kỹ thuật: `<track>` native chỉ nhận WebVTT, phụ đề hiện tại (nhúng lẫn ngoài) đều ở dạng `.srt`, cần convert SRT→VTT khi làm tính năng này.
 
 ### Nếu có gì vỡ
 

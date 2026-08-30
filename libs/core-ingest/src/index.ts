@@ -15,3 +15,6 @@ export { seedMetadataFromFilename, inheritMetadata } from './metadata-inherit';
 
 export { assertChannelWritable, buildCatalogEnvelope, mergeCatalogItems, NotChannelOwnerError, parseExistingCatalogItems } from './catalog-merge';
 export type { CatalogChannelRef } from './catalog-merge';
+
+export { matchSidecarSubtitles } from './sidecar-subtitles';
+export type { SidecarSubtitleMatch } from './sidecar-subtitles';
