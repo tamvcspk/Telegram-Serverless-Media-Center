@@ -4,6 +4,24 @@
 >
 > **Cách cập nhật:** xong một mục → xoá khỏi đây, ghi 1-2 dòng kết quả vào [docs/changelog.md](./changelog.md), và nếu phát hiện gì lệch với thiết kế thì thêm addendum vào ADR liên quan (dùng skill `/adr`). Khi mục cuối cùng của một tính năng biến mất khỏi đây, gỡ luôn nhãn `[Cần kiểm chứng thiết bị thật]` tương ứng ở roadmap.md.
 
+## Player: hiển thị phụ đề (`subs[]`) (2026-08-31)
+
+Liên quan: [docs/changelog.md § 2026-08-31, verify — ĐẠT](./changelog.md#2026-08-31--player-verify-thật-phụ-đề-đơn-ngôn-ngữ--đạt), [docs/roadmap.md § UI theo từng màn hình](./roadmap.md#ui-theo-từng-màn-hình). Khác mục CLI ngay dưới đây — đây là tính năng web, verify trên **staging** (https://tsmc-staging.web.app) bằng trình duyệt thật, không phải máy admin.
+
+### Kết quả verify 2026-08-31 — ĐẠT (phụ đề đơn ngôn ngữ)
+
+Phát video có `subs[]` trên staging bằng tài khoản thật — phụ đề hiện đúng qua menu CC gốc của `<video controls>`, xác nhận cả pipeline: RPC `getSubtitleDocument` tải đúng document, `srtToVtt()` convert đúng (nội dung + timing khớp video). **Chưa test:** case nhiều phụ đề cùng lúc (đa ngôn ngữ) — hoãn có chủ đích, gộp chung vào khi làm UI chọn track riêng (xem [docs/roadmap.md § UI theo từng màn hình](./roadmap.md#ui-theo-từng-màn-hình)). Hai case nhỏ còn lại dưới đây vẫn chưa test tay, để ngỏ trong danh sách.
+
+### Các bước còn lại
+
+- [ ] Mở Player cho item KHÔNG có `subs[]` — xác nhận không có track/lỗi console nào phát sinh, video vẫn phát bình thường.
+- [ ] Rời Player rồi mở lại video khác vài lần liên tiếp — xác nhận không có lỗi console (Blob URL revoke đúng lúc component huỷ, xem `DestroyRef.onDestroy` trong `player.ts`).
+
+### Nếu có gì vỡ
+
+- Phụ đề hiện chữ nhưng sai encoding (ký tự lạ thay vì tiếng Việt có dấu) → `toVttText()` hiện chỉ decode UTF-8; phụ đề cũ ở encoding khác (Windows-1258/TCVN3) sẽ ra sai — ghi nhận thành gap mới ở roadmap.md nếu gặp, không phải bug của convert SRT→VTT.
+- Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0005 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
+
 ## `tsmc-ingest` CLI — login/probe/upload thật (2026-08-29)
 
 Liên quan: [ADR-0013 § Cập nhật 2026-08-29, lần code đầu tiên](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-08-29-tsmc-ingest-cli--lần-code-đầu-tiên), [docs/roadmap.md § Ingest](./roadmap.md#ingest). Khác các mục khác trong file này — đây không phải tính năng web deploy lên staging, mà một CLI chạy trên **máy admin**, nên "thiết bị thật" ở đây nghĩa là: tài khoản Telegram thật + `ffmpeg`/`ffprobe` cài thật + file video mẫu thật (không phải fixture JSON giả lập ffprobe như unit test hiện có).

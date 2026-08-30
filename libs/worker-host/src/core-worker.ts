@@ -329,6 +329,19 @@ const api = {
   async getStreamInfo(sourceId: string, msgId: number): Promise<{ size: number; mimeType: string }> {
     const channelId = await resolveChannelIdForSource(sourceId);
     return downloadEngine.getInfo(channelId, msgId);
+  },
+  // Phụ đề (Màn hình 5, roadmap.md "Player: chưa đọc/hiển thị subs[]") — tải
+  // TOÀN BỘ document một lần (không windowing như fetchChunk): phụ đề là
+  // message RIÊNG trong cùng kênh (docs/catalog-spec.md §subs, `forceDocument:
+  // true` lúc upload — gateway-ingest.ts), file thường vài trăm KB, `<video>`
+  // cần cả nội dung để convert SRT→VTT trước khi gắn `<track>`, không có lý do
+  // stream theo cửa sổ như video. `getInfo` trước để biết `size` thật (không
+  // đoán windowSize) — cùng cache `PlaybackDocumentRef` với fetchChunk phía trên.
+  async getSubtitleDocument(sourceId: string, msgId: number, correlationId: string): Promise<ArrayBuffer> {
+    const channelId = await resolveChannelIdForSource(sourceId);
+    const { size } = await downloadEngine.getInfo(channelId, msgId);
+    const buffer = await downloadEngine.fetchWindow(channelId, msgId, 0, size, correlationId);
+    return Comlink.transfer(buffer, [buffer]);
   }
 };
 

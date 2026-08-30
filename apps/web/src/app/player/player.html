@@ -19,7 +19,11 @@
       (timeupdate)="onTimeUpdate()"
       (pause)="onPause()"
       (ended)="onEnded()"
-    ></video>
+    >
+      @for (track of subs(); track track.lang + track.url) {
+        <track kind="subtitles" [srclang]="track.lang" [label]="track.label" [src]="track.url" />
+      }
+    </video>
   } @else {
     <p class="loading">Đang chuẩn bị trình phát…</p>
   }
