@@ -1,0 +1,21 @@
+{
+  "name": "@tsmc/tsmc-ingest",
+  "version": "0.0.0",
+  "private": true,
+  "description": "CLI admin: probe/phân hạng/remux/upload video vào Kho Cá Nhân + sinh catalog.json (ADR-0013 mục 1).",
+  "type": "module",
+  "bin": {
+    "tsmc-ingest": "dist/cli.js"
+  },
+  "dependencies": {
+    "@tsmc/core-ingest": "workspace:*",
+    "@tsmc/core-mtproto": "workspace:*",
+    "@tsmc/shared-models": "workspace:*",
+    "big-integer": "^1.6.52",
+    "telegram": "2.26.22"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "esbuild": "^0.28.2"
+  }
+}

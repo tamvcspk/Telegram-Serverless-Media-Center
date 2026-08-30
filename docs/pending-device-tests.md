@@ -4,6 +4,48 @@
 >
 > **Cách cập nhật:** xong một mục → xoá khỏi đây, ghi 1-2 dòng kết quả vào [docs/changelog.md](./changelog.md), và nếu phát hiện gì lệch với thiết kế thì thêm addendum vào ADR liên quan (dùng skill `/adr`). Khi mục cuối cùng của một tính năng biến mất khỏi đây, gỡ luôn nhãn `[Cần kiểm chứng thiết bị thật]` tương ứng ở roadmap.md.
 
+## `tsmc-ingest` CLI — login/probe/upload thật (2026-08-29)
+
+Liên quan: [ADR-0013 § Cập nhật 2026-08-29, lần code đầu tiên](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-08-29-tsmc-ingest-cli--lần-code-đầu-tiên), [docs/roadmap.md § Ingest](./roadmap.md#ingest). Khác các mục khác trong file này — đây không phải tính năng web deploy lên staging, mà một CLI chạy trên **máy admin**, nên "thiết bị thật" ở đây nghĩa là: tài khoản Telegram thật + `ffmpeg`/`ffprobe` cài thật + file video mẫu thật (không phải fixture JSON giả lập ffprobe như unit test hiện có).
+
+**KHÔNG chạy hộ bằng agent/Claude** — CLAUDE.md: "Không chạy đăng nhập MTProto hộ người dùng". Admin tự chạy các bước dưới trong terminal của họ.
+
+### Chuẩn bị
+
+- [x] Cài `ffmpeg` (kèm `ffprobe`) trên PATH — `winget install ffmpeg` / `brew install ffmpeg` / `apt install ffmpeg`.
+- [x] Có `TSMC_API_ID`/`TSMC_API_HASH` (tự tạo tại https://my.telegram.org).
+- [x] Build CLI: `npm run build:ingest` (sinh `apps/tsmc-ingest/dist/cli.js`).
+- [x] Kênh test + file mẫu Hạng C thật (MKV/H.264/audio AC3) — xem kết quả 2026-08-30 bên dưới. **Còn thiếu:** file mẫu Hạng A (MP4/H.264/AAC faststart sẵn), Hạng B (HEVC/AV1 hoặc Opus/E-AC-3), Hạng D (AVI/codec không giải được) — mới verify được đúng nhánh Hạng C.
+
+### Các bước
+
+- [x] `node apps/tsmc-ingest/dist/cli.js login` — verify thật 2026-08-30 (xem bên dưới).
+- [x] `restoreSession()` khôi phục đúng, KHÔNG hỏi lại phone/mã — xác nhận gián tiếp: `upload` lần chạy 2026-08-30 đi thẳng vào pipeline mà không hỏi lại phone/code, chứng tỏ session cũ được khôi phục.
+- [x] `tsmc-ingest probe <file mẫu>` — verify thật 2026-08-30, đúng Hạng C cho file MKV/H.264/AC3 (xem bên dưới). Còn thiếu probe cho mẫu A/B/D.
+- [x] `tsmc-ingest upload --channel <ref kênh test> <file mẫu>` — verify thật 2026-08-30, pipeline chạy hết (remux → prompt metadata → upload → publish), xem bên dưới.
+- [x] Mở kênh test bằng Telegram app thật — xác nhận file đã upload phát được, `catalog.v1.json` đã ghim và có nội dung. **Còn thiếu:** chưa xác nhận rõ ràng thumbnail có hiện đúng không (pipeline không báo lỗi ở bước sinh thumbnail, nhưng chưa nhìn tận mắt trong Telegram).
+- [x] Upload thêm MỘT file thứ hai cùng series (tên file dạng `S01E02`) — verify thật 2026-08-30: prompt "kế thừa metadata" hoạt động, season/episode tự tăng đúng (1→2). **Phát hiện bug thật lúc này** — xem bên dưới, đã vá, CHƯA re-verify bằng tài khoản thật sau vá (chỉ mới qua unit test).
+- [x] Xác nhận catalog sau lần upload thứ hai có ĐỦ cả hai item (không bị ghi đè mất item đầu) — verify thật 2026-08-30: catalog có đủ 3 item (msgId 3/6/9), đúng ngữ nghĩa "gộp".
+- [ ] **MỚI, phát sinh từ bug vừa vá:** re-upload một file thứ hai cùng series lần nữa (sau khi đã build lại CLI với bản vá `series.name`) — xác nhận `series.name` kế thừa đúng (không còn ra chuỗi filename trần trụi như `"S01E02.mp4"`).
+
+### Kết quả verify 2026-08-30 (Hạng C, lần đầu tiên trên tài khoản/kênh thật)
+
+File mẫu: `[KST.VN].The.Big.Bang.Theory.S01Tap01.HD.[KSTE].mkv` (MKV/H.264 1280x720/audio AC3), kênh `tsmc_mediacenter`.
+
+- `probe`: đúng Container `matroska`, Video `h264 1280x720`, Audio `ac3` → **Hạng C** (khớp bảng ADR-0013).
+- `upload`: remux copy-video + encode-audio AAC chạy thật (ffmpeg, ~33s cho ~22 phút nội dung, tốc độ 40.8x — output 412874 KiB), prompt Title/Năm hoạt động (seed từ filename, admin sửa đè được), kết nối 2 DC khác nhau lúc đăng nhập/lúc upload (bình thường — GramJS tự chọn DC theo tác vụ), upload thành công (`msgId 3`), `compat` suy ra **"full"** (đúng — sau remux, video vẫn H.264 + audio đã encode sang AAC).
+- Xác nhận bằng Telegram app thật: video có mặt, phát được; `catalog.v1.json` đã ghim và tồn tại.
+- **Phát hiện phụ (không phải bug):** log GramJS in `"Running gramJS version 2.26.21"` dù `package.json`/lockfile ghim đúng `telegram@2.26.22` (đã verify lại: `node_modules/.pnpm/telegram@2.26.22.../Version.js` tự hardcode chuỗi `"2.26.21"` — lệch version nội bộ có sẵn TỪ TRƯỚC trong chính package đã archive, không phải lỗi cài đặt/lockfile của repo này). Ghi lại để không ai sau này hoảng vì tưởng cài sai version.
+- **Bug thật phát hiện khi upload file thứ hai cùng series:** `catalog.v1.json` thật cho thấy `series.name` của cả hai item episode ra `"S01E01.mp4"`/`"S01E02.mp4"` (chuỗi tên file trần trụi) thay vì tên phim, dù `title` đúng. Nguyên nhân + bản vá: xem [ADR-0013 § Cập nhật 2026-08-30](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-08-30-verify-hạng-c-bằng-tài-khoảnkênh-thật-lần-đầu). Đã vá `inheritMetadata()` (`libs/core-ingest/src/metadata-inherit.ts`) + `resolveMetadataForFile()` (`apps/tsmc-ingest/src/commands/upload.ts`), thêm 2 unit test tái hiện đúng bug — **CHƯA re-verify bằng tài khoản thật sau vá.**
+
+### Nếu có gì vỡ
+
+- Lỗi ngay ở bước `login` (vd `AUTH_KEY` hoặc kết nối) → nghi ngờ đầu tiên là `browser-shim.ts`/nhánh Node của GramJS trong môi trường Node thật của admin (khác Vitest, vốn không có `self` lẫn `window` — môi trường Node thật của admin cũng vậy, nhưng đáng xác nhận không có gì khác biệt hệ điều hành).
+- Rank in sai so với kỳ vọng → đối chiếu trực tiếp JSON thô của `ffprobe -show_format -show_streams` với logic `compat-rank.ts` (unit test hiện tại dùng fixture tay, có thể chưa phủ đúng codec_name thật ffprobe trả về).
+- Upload thành công nhưng phát không được trên `<video>` → đối chiếu `compat` ghi trong catalog với hạng thật, và kiểm tra `+faststart` có thật sự áp dụng (dùng `ffprobe -show_format` trên file đã upload/tải lại, tìm `moov` trước `mdat`).
+- Thấy log in `"Running gramJS version 2.26.21"` khác `telegram@2.26.22` đã ghim — **bình thường, không phải bug** (xem "Phát hiện phụ" ở trên), đừng tốn thời gian điều tra lại.
+- Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0013 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
+
 ## Index: Forum Topic category + hashtag fallback (2026-08-29)
 
 Liên quan: [ADR-0010 § Cập nhật 2026-08-29](./adr/0010-catalog-spec-v1-va-chien-luoc-indexing.md#cập-nhật-sau-khi-accepted-2026-08-29-spike-07--brainstorm-cải-thiện-quét-nguồn), [docs/roadmap.md § Index / quét nguồn](./roadmap.md#index--quét-nguồn). SPIKE-07 đã verify GramJS Forum Topics API *tự nó* hoạt động bằng script rời (đã xoá) — mục này verify **code sản xuất thật** (`index-engine.ts`/`gateway-index.ts`/`hashtag-parser.ts`/`forum-topics.ts`) chạy đúng khi quét một kênh thật, không phải verify lại API.

@@ -9,6 +9,10 @@ Thumbs.db
 .firebase/
 .env
 .env.*
+# .env.* ở trên vô tình chặn luôn *.env.example (template an toàn, không
+# chứa secret thật, nên commit được) — phát hiện thật lúc thêm apps/tsmc-ingest/.env.example.
+!.env.example
+!**/.env.example
 *.key
 
 # Kết quả spike chỉ chứa số liệu tổng hợp, không bao giờ chứa session MTProto

@@ -1,0 +1,12 @@
+{
+  "name": "@tsmc/core-ingest",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "@tsmc/core-index": "workspace:*",
+    "@tsmc/shared-models": "workspace:*"
+  }
+}

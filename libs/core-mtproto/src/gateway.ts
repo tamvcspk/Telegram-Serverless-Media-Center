@@ -10,7 +10,7 @@ import type {
   TelegramCredentials,
   TelegramUserSummary
 } from '@tsmc/shared-models';
-import { deleteSessionRecord, getSessionRecord, putSessionRecord } from '@tsmc/core-storage';
+import { deleteSessionRecord, getSessionRecord, putSessionRecord, type SessionRecord } from '@tsmc/core-storage';
 import { createSyncGatewayMethods, type MinimalChannel } from './gateway-sync';
 import {
   createIndexGatewayMethods,
@@ -21,7 +21,29 @@ import {
   type ResolvedIndexChannel
 } from './gateway-index';
 import { createDownloadGatewayMethods, type PlaybackDocumentRef } from './gateway-download';
+import { createIngestGatewayMethods, type UploadedVideoRef, type VideoUploadInput } from './gateway-ingest';
 import { decryptSessionString, encryptSessionString, generateSessionKey } from './session-crypto';
+
+/**
+ * Nơi `login()`/`restoreSession()`/`logout()` đọc/ghi session mã hoá.
+ * Mặc định dùng `@tsmc/core-storage` (Dexie/IndexedDB, chỉ chạy trong trình
+ * duyệt) — đúng nhu cầu duy nhất trước đây (worker-host). Tham số hoá ra
+ * thành interface để `tsmc-ingest` (CLI, tiến trình Node — không có
+ * IndexedDB) truyền vào một adapter khác (file cục bộ mã hoá) mà không phải
+ * đụng logic login/signInUser bên dưới. Đây là RÀO CẢN DUY NHẤT từng ngăn
+ * CLI tái dùng `createTelegramGateway()` nguyên vẹn.
+ */
+export interface SessionStoragePort {
+  get(): Promise<SessionRecord | undefined>;
+  put(record: SessionRecord): Promise<void>;
+  delete(): Promise<void>;
+}
+
+const dexieSessionStorage: SessionStoragePort = {
+  get: getSessionRecord,
+  put: putSessionRecord,
+  delete: deleteSessionRecord
+};
 
 const { StringSession } = sessions;
 
@@ -64,6 +86,13 @@ export interface TelegramGateway {
   /** Ingest Editor (Màn hình 6) — xem comment đầy đủ ở gateway-index.ts. */
   publishCatalogDocument(channelId: string, json: string, previousMsgId?: number): Promise<{ msgId: number }>;
 
+  // Phần dưới đây khớp shape @tsmc/core-ingest IngestGateway (gateway-port.ts)
+  // — cùng lý do KHÔNG import type đó ở đây như các nhóm phía trên. Duy nhất
+  // dùng bởi CLI `tsmc-ingest` (ADR-0013 mục 1) — chưa có consumer trình
+  // duyệt nào cần method này.
+  /** Upload một file video cục bộ thành document mới trong kênh media. Xem comment đầy đủ ở gateway-ingest.ts. */
+  uploadVideoDocument(channelId: string, input: VideoUploadInput): Promise<UploadedVideoRef>;
+
   // Phần dưới đây khớp shape @tsmc/core-download DownloadGateway
   // (gateway-port.ts) — cùng lý do KHÔNG import type đó ở đây như hai nhóm
   // Sync/Index phía trên.
@@ -89,13 +118,21 @@ function toUserSummary(user: Api.TypeUser): TelegramUserSummary {
  * package `telegram`; không type nào của GramJS/`Api.*` rò ra ngoài package
  * này, mọi tầng khác chỉ thấy DTO từ `@tsmc/shared-models`.
  */
-export function createTelegramGateway(): TelegramGateway {
+export function createTelegramGateway(deps?: { sessionStorage?: SessionStoragePort; sessionKeyExtractable?: boolean }): TelegramGateway {
+  const sessionStorage = deps?.sessionStorage ?? dexieSessionStorage;
+  // Dexie (web/worker-host) giữ nguyên object CryptoKey qua structured clone
+  // của IndexedDB — extractable:false vẫn đọc lại dùng được, không cần export
+  // bytes. Một SessionStoragePort khác (vd file cục bộ của CLI) không có cơ
+  // chế tương đương — PHẢI export/import bytes để ghi ra đĩa, nên cần key
+  // extractable. Caller (CLI) tự khai báo qua `sessionKeyExtractable: true`
+  // khi truyền `sessionStorage` tuỳ biến (xem session-crypto.ts).
+  const sessionKeyExtractable = deps?.sessionKeyExtractable ?? false;
   let client: TelegramClient | undefined;
 
   async function persistSession(credentials: TelegramCredentials, sessionString: string): Promise<void> {
-    const cryptoKey = await generateSessionKey();
+    const cryptoKey = await generateSessionKey(sessionKeyExtractable);
     const { iv, ciphertext } = await encryptSessionString(cryptoKey, sessionString);
-    await putSessionRecord({ id: 'default', apiId: credentials.apiId, apiHash: credentials.apiHash, iv, ciphertext, cryptoKey });
+    await sessionStorage.put({ id: 'default', apiId: credentials.apiId, apiHash: credentials.apiHash, iv, ciphertext, cryptoKey });
   }
 
   function requireClient(): TelegramClient {
@@ -108,11 +145,13 @@ export function createTelegramGateway(): TelegramGateway {
   const syncMethods = createSyncGatewayMethods(requireClient);
   const indexMethods = createIndexGatewayMethods(requireClient);
   const downloadMethods = createDownloadGatewayMethods(requireClient);
+  const ingestMethods = createIngestGatewayMethods(requireClient);
 
   return {
     ...syncMethods,
     ...indexMethods,
     ...downloadMethods,
+    ...ingestMethods,
     async login(credentials, phoneNumber, callbacks) {
       const stringSession = new StringSession('');
       client = new TelegramClient(stringSession, credentials.apiId, credentials.apiHash, {
@@ -132,7 +171,7 @@ export function createTelegramGateway(): TelegramGateway {
     },
 
     async restoreSession() {
-      const record = await getSessionRecord();
+      const record = await sessionStorage.get();
       if (!record) {
         return null;
       }
@@ -147,7 +186,7 @@ export function createTelegramGateway(): TelegramGateway {
       if (!authorized) {
         // File_reference/access có thể lệch nhưng đây là AUTH_KEY chết hẳn —
         // không phải trường hợp "refresh on-demand" của ADR-0006/C5.
-        await deleteSessionRecord();
+        await sessionStorage.delete();
         return null;
       }
 
@@ -161,7 +200,7 @@ export function createTelegramGateway(): TelegramGateway {
       if (client) {
         await client.invoke(new Api.auth.LogOut());
       }
-      await deleteSessionRecord();
+      await sessionStorage.delete();
     }
   };
 }

@@ -16,6 +16,7 @@
     "lint": "eslint .",
     "test:libs": "vitest run --root libs",
     "build:worker": "node libs/worker-host/build.mjs",
+    "build:ingest": "node apps/tsmc-ingest/build.mjs",
     "build:web": "node libs/worker-host/build.mjs && pnpm --filter web run build",
     "build:sw": "node sw/build.mjs",
     "dev": "node libs/worker-host/build.mjs && pnpm --filter web run start"

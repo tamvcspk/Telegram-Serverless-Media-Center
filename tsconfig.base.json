@@ -5,6 +5,7 @@
       "@tsmc/core-mtproto": ["./libs/core-mtproto/src/index.ts"],
       "@tsmc/core-download": ["./libs/core-download/src/index.ts"],
       "@tsmc/core-index": ["./libs/core-index/src/index.ts"],
+      "@tsmc/core-ingest": ["./libs/core-ingest/src/index.ts"],
       "@tsmc/core-sync": ["./libs/core-sync/src/index.ts"],
       "@tsmc/core-storage": ["./libs/core-storage/src/index.ts"],
       "@tsmc/worker-host": ["./libs/worker-host/src/index.ts"]
