@@ -27,11 +27,18 @@ export interface IngestVideoUploadInput {
   caption?: string;
 }
 
+export interface IngestSubtitleUploadInput {
+  filePath: string;
+  fileName: string;
+}
+
 export interface IngestGateway {
   resolveIndexChannel(ref: string): Promise<IngestResolvedChannel | null>;
   getPinnedCatalogDocument(channelId: string): Promise<IngestPinnedCatalog | null>;
   /** Upload MỘT file video cục bộ thành document mới — việc thật sự mới của CLI (libs/core-mtproto/src/gateway-ingest.ts). */
   uploadVideoDocument(channelId: string, input: IngestVideoUploadInput): Promise<{ msgId: number }>;
+  /** Upload MỘT file phụ đề text (`.srt`) cục bộ thành document rời — `subs[].msgId` trong catalog trỏ tới đây. */
+  uploadSubtitleDocument(channelId: string, input: IngestSubtitleUploadInput): Promise<{ msgId: number }>;
   /** Đã có sẵn từ slice Ingest Editor (libs/core-mtproto/src/gateway-index.ts) — CLI tái dùng nguyên vẹn, không sửa. */
   publishCatalogDocument(channelId: string, json: string, previousMsgId?: number): Promise<{ msgId: number }>;
 }

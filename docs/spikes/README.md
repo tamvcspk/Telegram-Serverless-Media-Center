@@ -14,6 +14,7 @@ Quy tắc: **một spike chỉ đóng khi có số liệu từ thiết bị th�
 | [SPIKE-06](#spike-06) | Ghi `catalog.json` lên kênh media qua MTProto thật (`sendFile`→`pinMessage`→`deleteMessages`) có đúng như thiết kế không? | [0014](../adr/0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md), [0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md), [0009](../adr/0009-dong-bo-state-event-log-va-snapshot.md) | 🟢 **Đạt (2026-08-28)** — cả 5 tiêu chí A-E đạt trên tài khoản thật, publish/update/xoá đều đúng như thiết kế |
 | [SPIKE-07](#spike-07) | Forum Topics API của GramJS `2.26.22` có dùng được để categorize phim theo topic không? | [0010](../adr/0010-catalog-spec-v1-va-chien-luoc-indexing.md) | 🟢 **Đạt (2026-08-29)** — tạo nhóm forum, tạo topic, `GetForumTopics` liệt kê đúng, và quét lịch sử suy ra đúng topic mỗi message thuộc về (`replyToTopId ?? replyToMsgId` khi `forumTopic`) — cả 4 lần chạy trên tài khoản thật, lần cuối A-E đều đạt |
 | [SPIKE-08](#spike-08) | Trong 3 API dò khả năng phát (`canPlayType`/`MediaSource.isTypeSupported`/WebCodecs `isConfigSupported`), cái nào khớp đúng khả năng phát THẬT của `<video src>` theo ADR-0005 (progressive, không MSE)? | [0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md), [0005](../adr/0005-streaming-qua-service-worker-http-range.md) | ⏳ Chưa dựng |
+| [SPIKE-09](#spike-09) | `ffmpeg-next`/`ffmpeg-sys-next` (native Rust FFI) có khả thi thay shell-out CLI hiện tại của `tsmc-ingest`, với chi phí/tốc độ nào so với baseline 40.8x realtime đã đo? | [0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md) | ⏳ Chưa dựng |
 
 ---
 
@@ -654,3 +655,51 @@ Chưa dựng — khi build, theo đúng mẫu SPIKE-01: `npm run spike:auto` cho
 | Parser trích sai codec string (vd nhầm HEVC profile/level) ở một số file | Không chặn được hướng đi — dùng `canPlayType()` với MIME thô (không kèm `codecs=`) làm fallback kém chính xác hơn khi parser thất bại, ghi rõ giới hạn này trong addendum ADR-0013 |
 | `e.mkv` (nội dung WebM, đuôi/mimetype mkv) lại **phát được** trên một trình duyệt nào đó | Phát hiện ngoài dự kiến đáng giá — nghĩa là bảng phân hạng ADR-0013 "MKV luôn Hạng C/D" bảo thủ hơn cần thiết trong một ca hẹp; ghi lại làm quan sát, **không đổi** quy tắc mặc định (remux vẫn an toàn hơn phát hiện từng ca đặc biệt) |
 | Không thiết bị Safari/iOS thật nào sẵn có để chạy | Không đóng spike ở trạng thái 🟢/🟡 — giữ ⏳/🔬, vì thiếu đúng nền tảng mà câu hỏi chính nhắm tới (giống lý do SPIKE-01 bắt buộc chờ iPad thật trước khi kết luận) |
+
+---
+
+## SPIKE-09
+
+**Trạng thái:** ⏳ Chưa dựng.
+
+**Câu hỏi:** `ffmpeg-next`/`ffmpeg-sys-next` (native Rust FFI binding tới libavcodec/libavformat, kiểu binding dùng trong project tham chiếu `vid-kit-simple` mà user đưa) có khả thi **thay thế** cách shell-out hiện tại của `tsmc-ingest` (`apps/tsmc-ingest/src/ffmpeg.ts`, gọi thẳng binary `ffmpeg`/`ffprobe` hệ thống qua `child_process`) cho đúng ba việc CLI cần — remux copy-video + encode-audio-AAC với `+faststart`, sinh thumbnail JPEG, rút subtitle stream ra `.srt` — trên máy Windows thật? Với chi phí build/đóng gói nào, và tốc độ có bằng/hơn baseline **40.8x realtime** đã đo bằng shell-out (verify thật 2026-08-30, xem [ADR-0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-08-30-verify-hạng-c-bằng-tài-khoảnkênh-thật-lần-đầu)) không?
+
+**Vì sao quan trọng:** đây là điều kiện tiên quyết cho hướng "core lib Rust bọc FFmpeg" mà user muốn khám phá cho một Tauri GUI tương lai — ADR-0013 để ngỏ câu hỏi "có bọc `tsmc-ingest` bằng GUI Tauri + Angular không", chưa quyết. User yêu cầu rõ (brainstorm 2026-08-30): **thử native FFI TRƯỚC, đánh giá SAU, không quyết trước khi có số liệu** — đúng kỷ luật spike của project này. Có fallback rõ ràng nếu native không đáng công sức: Rust shell-out ra binary `ffmpeg`/`ffprobe` (port gần 1:1 `ffmpeg.ts`/`ffprobe.ts` sang `std::process::Command`, giữ nguyên hành vi đã proven, không cần toolchain vcpkg/bindgen/MSVC). Đáng chú ý: tài liệu tham chiếu của user tự thừa nhận pipeline transcode thật của chính project gốc (`vid-kit-simple`) vẫn là **scaffold chưa xong** — thiếu đúng phần lõi (`send_frame`/`receive_packet`/`write_trailer`) — nên đây thật sự là câu hỏi cần đo, không phải "chỉ cần copy pattern có sẵn".
+
+**Không liên quan tới [SPIKE-08](#spike-08)** — SPIKE-08 hỏi về browser API (`canPlayType`/`MediaSource`/WebCodecs) cho web app player, hoàn toàn khác cơ chế gọi FFmpeg phía CLI admin ở đây.
+
+### Bàn thử nghiệm
+
+Crate Rust độc lập ở `tools/spike-09/` (Cargo project, **không** nối vào pnpm workspace hiện có của repo) — cùng nguyên tắc cô lập của [SPIKE-01](#spike-01)/[SPIKE-08](#spike-08): nếu spike hỏng, biết chắc lỗi nằm ở hành vi Rust/FFmpeg-FFI, không phải ở pipeline `tsmc-ingest` thật (pipeline đó đã verify riêng, xem ADR-0013).
+
+### Cách chạy
+
+Chưa dựng. Kế hoạch khi build:
+
+1. Cài prerequisite trên máy Windows thật: `vcpkg install ffmpeg:x64-windows`, LLVM/libclang (bắt buộc cho `bindgen`), MSVC Build Tools — ghi lại version cụ thể đã dùng (khác máy khác version có thể ra kết quả khác, phải nêu rõ phạm vi bằng chứng).
+2. Viết crate tối thiểu dùng `ffmpeg-next`, implement **đầy đủ** (không dừng ở log như scaffold của project tham chiếu) một pipeline: input → decode → copy stream video + encode AAC audio → mux MP4 `+faststart`. Đây chính là phần `send_frame`/`receive_packet`/`write_trailer` mà project tham chiếu chưa làm xong — viết theo ví dụ `zmwangx/rust-ffmpeg examples/transcode-x264.rs`.
+3. Thêm hai việc còn lại CLI cần: trích 1 frame làm thumbnail JPEG (decode + scale + encode), rút subtitle stream ra `.srt` (copy/convert codec).
+4. Đo trên đúng file mẫu Hạng C đã dùng ở lần verify CLI thật (`[KST.VN].The.Big.Bang.Theory.S01Tap01.HD.[KSTE].mkv`, MKV/H.264 1280x720/audio AC3, ~22 phút) để so trực tiếp với baseline 40.8x.
+5. Không cần tài khoản Telegram/MTProto nào cho spike này — chỉ xử lý file cục bộ, không thuộc diện "spike cần login thật" ở mục Ranh giới an toàn của skill `/spike`.
+
+### Tiêu chí đạt/không đạt
+
+| Mã | Kiểm tra | Đạt khi |
+|---|---|---|
+| Build | Clean build từ máy chưa có `vcpkg`/LLVM cài sẵn tới lúc chạy được | Ghi lại thời gian thật + số bước thủ công cần làm — không có ngưỡng "đạt/không đạt" cứng, chỉ cần số liệu thật để so sánh với chi phí build gần-bằng-0 của phương án shell-out |
+| Tốc độ transcode | Remux copy-video + encode-audio-AAC trên file mẫu Hạng C | So trực tiếp với 40.8x baseline — chậm hơn rõ rệt (vd &lt;20x) là tín hiệu mạnh nghiêng về giữ shell-out |
+| Đóng gói | Tổng dung lượng DLL/asset cần bundle cùng app, số DLL | Càng gần "một binary, không DLL rời" càng tốt cho mục tiêu Tauri distributable; nhiều DLL lớn là chi phí thật phải cân nhắc |
+| Phủ đủ 3 việc | Transcode + thumbnail + subtitle extract đều chạy được bằng `ffmpeg-next`, không chỉ transcode | Thiếu một trong ba nghĩa là chưa đủ để thay thế toàn bộ `ffmpeg.ts`, phải ghi rõ phần nào còn thiếu |
+
+### Kết quả
+
+*(để trống tới khi có số liệu thiết bị thật)*
+
+### Ta sẽ làm gì với từng kết quả
+
+| Kết quả | Hành động |
+|---|---|
+| Build khả thi trong thời gian hợp lý, tốc độ transcode ≥ baseline, đóng gói gọn (ít DLL) | Native FFI đáng theo đuổi cho core lib Tauri — viết addendum [ADR-0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md) đề xuất hướng này cho quyết định GUI Tauri (vẫn để ngỏ riêng, spike này không tự quyết "có làm Tauri hay không"); đóng spike 🟢 |
+| Build khả thi nhưng tốc độ/đóng gói kém hơn rõ rệt shell-out | Ghi nhận native FFI khả thi về mặt kỹ thuật nhưng không đáng đổi chi phí — khuyến nghị phương án "Rust shell-out ra ffmpeg/ffprobe CLI" cho core lib Tauri (nếu sau này quyết làm); đóng spike 🟡 (chấp nhận rủi ro không theo đuổi tiếp, có lý do rõ) |
+| Không build được trên Windows thật trong thời gian hợp lý (vcpkg/bindgen/MSVC xung đột, lỗi khó sửa) | Bằng chứng mạnh chống lại hướng native FFI cho project này — đóng spike 🟡, ghi rõ lỗi cụ thể gặp phải để không ai lặp lại nỗ lực này mà không biết trước rào cản |
+| Build được, transcode đúng, nhưng thumbnail hoặc subtitle extract không làm được/quá phức tạp bằng `ffmpeg-next` | Phát hiện đáng giá — có thể vẫn dùng native FFI cho riêng phần transcode (việc nặng nhất) và giữ shell-out cho hai việc còn lại (hybrid); ghi lại làm quan sát, không đóng dứt khoát 🟢/🔴 |

@@ -19,9 +19,11 @@ import {
   type IngestGateway
 } from '@tsmc/core-ingest';
 import type { CatalogItemV1 } from '@tsmc/shared-models';
-import { checkFfmpegAvailable, extractSubtitles, generateThumbnail, reencodeToMp4, remuxToMp4 } from '../ffmpeg';
+import { checkFfmpegAvailable, extractSubtitles, generateThumbnail, reencodeToMp4, remuxToMp4, type ExtractedSubtitle } from '../ffmpeg';
 import { checkFfprobeAvailable, probeFile } from '../ffprobe';
 import { confirm, prompt } from '../prompt';
+
+type CatalogSubtitleRef = NonNullable<CatalogItemV1['subs']>[number];
 
 export interface UploadOptions {
   channelRef: string;
@@ -132,11 +134,9 @@ export async function runUpload(gateway: IngestGateway, opts: UploadOptions): Pr
       const finalProbe = await probeFile(remuxedPath);
       const compat = deriveCompat(finalProbe.video, finalProbe.audio);
 
+      let subtitles: ExtractedSubtitle[] = [];
       if (rank === 'C' && probe.subtitles.length > 0) {
-        const subtitles = await extractSubtitles(filePath, probe.subtitles, join(tmpDir, stripExt(filePath)));
-        if (subtitles.length > 0) {
-          console.log(`Đã rút ${subtitles.length} phụ đề cục bộ (CHƯA upload — CLI v1 chưa gửi kèm subs, chỉ để dành cho admin tự đăng riêng): ${subtitles.map((s) => s.path).join(', ')}`);
-        }
+        subtitles = await extractSubtitles(filePath, probe.subtitles, join(tmpDir, stripExt(filePath)));
       }
 
       const thumbnailPath = join(tmpDir, `${stripExt(filePath)}.jpg`);
@@ -157,10 +157,31 @@ export async function runUpload(gateway: IngestGateway, opts: UploadOptions): Pr
         caption: metadata.title
       });
 
-      const finalItem: CatalogItemV1 = { ...metadata, msgId: uploaded.msgId, compat };
+      // Chỉ upload phụ đề TEXT (.srt) — phụ đề ảnh (.sup, PGS) không có track
+      // nào trong <video> để gắn vào (trình duyệt không tự render .sup), nên
+      // v1 vẫn chỉ để lại cục bộ cho admin tự xử lý, giống hành vi cũ.
+      const subsRefs: CatalogSubtitleRef[] = [];
+      for (const sub of subtitles) {
+        if (sub.isImageBased) {
+          console.log(`Phụ đề ảnh (${sub.path}) — CHƯA upload, cần convert tay hoặc công cụ khác trước khi đăng.`);
+          continue;
+        }
+        const subUploaded = await gateway.uploadSubtitleDocument(channel.id, {
+          filePath: sub.path,
+          fileName: basename(sub.path)
+        });
+        subsRefs.push({ lang: sub.lang ?? 'und', msgId: subUploaded.msgId });
+      }
+
+      const finalItem: CatalogItemV1 = {
+        ...metadata,
+        msgId: uploaded.msgId,
+        compat,
+        ...(subsRefs.length > 0 ? { subs: subsRefs } : {})
+      };
       newItems.push(finalItem);
       previousItem = finalItem;
-      console.log(`Đã upload — msgId ${uploaded.msgId}, compat "${compat}".`);
+      console.log(`Đã upload — msgId ${uploaded.msgId}, compat "${compat}"${subsRefs.length > 0 ? `, ${subsRefs.length} phụ đề` : ''}.`);
     }
   } finally {
     await rm(tmpDir, { recursive: true, force: true });

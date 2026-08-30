@@ -15,7 +15,8 @@ Liên quan: [ADR-0013 § Cập nhật 2026-08-29, lần code đầu tiên](./adr
 - [x] Cài `ffmpeg` (kèm `ffprobe`) trên PATH — `winget install ffmpeg` / `brew install ffmpeg` / `apt install ffmpeg`.
 - [x] Có `TSMC_API_ID`/`TSMC_API_HASH` (tự tạo tại https://my.telegram.org).
 - [x] Build CLI: `npm run build:ingest` (sinh `apps/tsmc-ingest/dist/cli.js`).
-- [x] Kênh test + file mẫu Hạng C thật (MKV/H.264/audio AC3) — xem kết quả 2026-08-30 bên dưới. **Còn thiếu:** file mẫu Hạng A (MP4/H.264/AAC faststart sẵn), Hạng B (HEVC/AV1 hoặc Opus/E-AC-3), Hạng D (AVI/codec không giải được) — mới verify được đúng nhánh Hạng C.
+- [x] Kênh test + file mẫu Hạng C thật (MKV/H.264/audio AC3) — xem kết quả 2026-08-30 bên dưới. **Còn thiếu (hoãn có chủ đích — brainstorm 2026-08-30):** file mẫu Hạng A (MP4/H.264/AAC faststart sẵn), Hạng B (HEVC/AV1 hoặc Opus/E-AC-3), Hạng D (AVI/codec không giải được) — cả ba đều chỉ là biến thể của cùng cơ chế remux/copy-stream đã verify ở Hạng C, nên không ưu tiên verify riêng ngay bây giờ.
+- [ ] File mẫu MKV có phụ đề TEXT nhúng (không phải PGS ảnh) — file mẫu Hạng C hiện có (`[KST.VN].The.Big.Bang.Theory...`) chưa xác nhận có track phụ đề hay không; cần để verify nhánh upload subtitle mới (xem mục dưới).
 
 ### Các bước
 
@@ -26,7 +27,8 @@ Liên quan: [ADR-0013 § Cập nhật 2026-08-29, lần code đầu tiên](./adr
 - [x] Mở kênh test bằng Telegram app thật — xác nhận file đã upload phát được, `catalog.v1.json` đã ghim và có nội dung. **Còn thiếu:** chưa xác nhận rõ ràng thumbnail có hiện đúng không (pipeline không báo lỗi ở bước sinh thumbnail, nhưng chưa nhìn tận mắt trong Telegram).
 - [x] Upload thêm MỘT file thứ hai cùng series (tên file dạng `S01E02`) — verify thật 2026-08-30: prompt "kế thừa metadata" hoạt động, season/episode tự tăng đúng (1→2). **Phát hiện bug thật lúc này** — xem bên dưới, đã vá, CHƯA re-verify bằng tài khoản thật sau vá (chỉ mới qua unit test).
 - [x] Xác nhận catalog sau lần upload thứ hai có ĐỦ cả hai item (không bị ghi đè mất item đầu) — verify thật 2026-08-30: catalog có đủ 3 item (msgId 3/6/9), đúng ngữ nghĩa "gộp".
-- [ ] **MỚI, phát sinh từ bug vừa vá:** re-upload một file thứ hai cùng series lần nữa (sau khi đã build lại CLI với bản vá `series.name`) — xác nhận `series.name` kế thừa đúng (không còn ra chuỗi filename trần trụi như `"S01E02.mp4"`).
+- [x] **Phát sinh từ bug vừa vá:** re-upload một file thứ hai cùng series lần nữa (sau khi đã build lại CLI với bản vá `series.name`) — verify thật 2026-08-30, **ĐẠT**: upload `S01E08.mkv` chọn "kế thừa", `series.name` ra đúng `"The big bang theory"` (khớp title), không còn ra chuỗi filename trần trụi. Catalog vẫn gộp đủ 5 item. Chi tiết: [ADR-0013 § Cập nhật 2026-08-30, re-verify series.name — ĐẠT](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-08-30-re-verify-bản-vá-seriesname-bằng-tài-khoản-thật--đạt).
+- [ ] **MỚI (2026-08-30, subtitle upload):** upload một file Hạng C có phụ đề TEXT nhúng (`.srt` sau khi rút, không phải PGS) — xác nhận: (1) `extractSubtitles()` chạy đúng như cũ, (2) mỗi phụ đề text được upload thành document rời qua `uploadSubtitleDocument()` (KHÔNG còn chỉ lưu cục bộ như hành vi cũ), (3) `catalog.v1.json` thật ghi đúng `subs: [{ lang, msgId }]` cho item đó, (4) mở message phụ đề trong Telegram app thật, xác nhận tải/xem được. Nếu file mẫu có cả track PGS (ảnh), xác nhận track đó VẪN chỉ lưu cục bộ (không upload) và log đúng thông báo "CHƯA upload" mới.
 
 ### Kết quả verify 2026-08-30 (Hạng C, lần đầu tiên trên tài khoản/kênh thật)
 
@@ -44,6 +46,7 @@ File mẫu: `[KST.VN].The.Big.Bang.Theory.S01Tap01.HD.[KSTE].mkv` (MKV/H.264 128
 - Rank in sai so với kỳ vọng → đối chiếu trực tiếp JSON thô của `ffprobe -show_format -show_streams` với logic `compat-rank.ts` (unit test hiện tại dùng fixture tay, có thể chưa phủ đúng codec_name thật ffprobe trả về).
 - Upload thành công nhưng phát không được trên `<video>` → đối chiếu `compat` ghi trong catalog với hạng thật, và kiểm tra `+faststart` có thật sự áp dụng (dùng `ffprobe -show_format` trên file đã upload/tải lại, tìm `moov` trước `mdat`).
 - Thấy log in `"Running gramJS version 2.26.21"` khác `telegram@2.26.22` đã ghim — **bình thường, không phải bug** (xem "Phát hiện phụ" ở trên), đừng tốn thời gian điều tra lại.
+- `subs` không xuất hiện trong catalog dù log báo đã upload phụ đề → đối chiếu `finalItem.subs` (`apps/tsmc-ingest/src/commands/upload.ts`) có được gán trước khi push vào `newItems` không, và `buildCatalogEnvelope()`/`parseCatalogItem()` (Valibot) có drop field lạ nếu sai shape (`{ lang: string, msgId: number }`, `lang` KHÔNG optional trong schema — `sub.lang ?? 'und'` phải chạy đúng khi ffprobe không trả tag ngôn ngữ).
 - Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0013 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
 
 ## Index: Forum Topic category + hashtag fallback (2026-08-29)

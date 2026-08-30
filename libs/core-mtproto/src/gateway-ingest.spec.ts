@@ -122,4 +122,24 @@ describe('@tsmc/core-mtproto createIngestGatewayMethods', () => {
     const [, options] = mocks.sendFile.mock.calls[0] as [unknown, SendFileOptions];
     expect(options.thumb).toBeUndefined();
   });
+
+  it('uploadSubtitleDocument(): forceDocument=true (file phụ trợ, không phải media streaming), không có caption', async () => {
+    const client = await makeClient();
+    const methods = createIngestGatewayMethods(() => client);
+    mocks.getEntity.mockResolvedValueOnce({ id: { toString: () => '1' } });
+    mocks.sendFile.mockResolvedValueOnce({ id: 42 });
+
+    const result = await methods.uploadSubtitleDocument('1', {
+      filePath: '/tmp/movie.vi.srt',
+      fileName: 'Movie.2024.vi.srt'
+    });
+
+    expect(result).toEqual({ msgId: 42 });
+    const [, options] = mocks.sendFile.mock.calls[0] as [unknown, SendFileOptions];
+    expect(options.file).toBe('/tmp/movie.vi.srt');
+    expect(options.forceDocument).toBe(true);
+    expect(options.caption).toBeUndefined();
+    const filenameAttr = options.attributes.find((a) => a.fileName !== undefined);
+    expect(filenameAttr).toMatchObject({ fileName: 'Movie.2024.vi.srt' });
+  });
 });

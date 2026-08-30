@@ -24,6 +24,12 @@ export interface UploadedVideoRef {
   msgId: number;
 }
 
+export interface SubtitleUploadInput {
+  filePath: string;
+  /** Tên hiển thị trong Telegram, vd `"Movie.vi.srt"` — khác `filePath` (đường dẫn tmp cục bộ). */
+  fileName: string;
+}
+
 /**
  * Nhóm RPC upload — cùng quy ước `getClient` (không tự giữ `client`) với
  * gateway-index.ts/gateway-sync.ts: dùng chung đúng một session với
@@ -61,6 +67,27 @@ export function createIngestGatewayMethods(getClient: () => TelegramClient) {
         attributes,
         caption: input.caption,
         forceDocument: false
+      });
+
+      return { msgId: message.id };
+    },
+
+    /**
+     * Phụ đề text (`.srt`) rút bằng `extractSubtitles()` — khác
+     * `uploadVideoDocument()`: `forceDocument: true` (đây là file phụ trợ,
+     * không phải media cần `DocumentAttributeVideo`/streaming), cùng cách
+     * `publishCatalogDocument()` (`gateway-index.ts`) xử lý `catalog.v1.json`.
+     * Không gán `caption` — phụ đề không cần mô tả riêng, item trong catalog
+     * đã tham chiếu qua `subs[].msgId`.
+     */
+    async uploadSubtitleDocument(channelId: string, input: SubtitleUploadInput): Promise<UploadedVideoRef> {
+      const client = getClient();
+      const channel = await client.getEntity(Number(channelId));
+
+      const message = await client.sendFile(channel, {
+        file: input.filePath,
+        attributes: [new Api.DocumentAttributeFilename({ fileName: input.fileName })],
+        forceDocument: true
       });
 
       return { msgId: message.id };

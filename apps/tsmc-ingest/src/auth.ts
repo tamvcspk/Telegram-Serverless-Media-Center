@@ -1,9 +1,9 @@
 // Dựng TelegramGateway đã đăng nhập — tách khỏi commands/upload.ts để lệnh
 // đó chỉ cầm interface hẹp IngestGateway (@tsmc/core-ingest), không tự lo
 // việc khôi phục session. TelegramGateway (core-mtproto) THOẢ MÃN cấu trúc
-// IngestGateway (đủ 4 method: resolveIndexChannel/getPinnedCatalogDocument/
-// uploadVideoDocument/publishCatalogDocument) nên truyền thẳng được, không
-// cần adapter thủ công.
+// IngestGateway (đủ 5 method: resolveIndexChannel/getPinnedCatalogDocument/
+// uploadVideoDocument/uploadSubtitleDocument/publishCatalogDocument) nên
+// truyền thẳng được, không cần adapter thủ công.
 import { createTelegramGateway, type TelegramGateway } from '@tsmc/core-mtproto';
 import { createNodeSessionStorage } from './session-storage-node';
 

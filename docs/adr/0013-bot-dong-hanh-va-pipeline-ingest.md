@@ -185,3 +185,37 @@ Admin tự chạy `tsmc-ingest` **thật** lần đầu (tài khoản Telegram t
 - File mẫu Hạng A (MP4/H.264/AAC đã faststart)/Hạng B (HEVC hoặc audio Opus/E-AC-3)/Hạng D (AVI hoặc codec không giải được) thật.
 - Xác nhận thumbnail hiển thị đúng trong Telegram (pipeline không báo lỗi ở bước sinh thumbnail nhưng chưa nhìn tận mắt kết quả).
 - Re-verify "kế thừa metadata" một lần nữa SAU khi vá bug `series.name` ở trên (lần verify vừa rồi phát hiện bug TRƯỚC khi có bản vá — chưa có lần chạy thật nào xác nhận bản vá đúng trên tài khoản thật, chỉ mới qua unit test).
+
+## Cập nhật sau khi Accepted (2026-08-30, nối dây subtitle upload — phụ đề text không còn bị bỏ phí)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định
+> đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết
+> định gốc **vẫn đứng vững**, xem lý do bên dưới.
+
+**Bối cảnh:** `apps/tsmc-ingest/src/commands/upload.ts` trước đây rút phụ đề ra file cục bộ bằng `extractSubtitles()` (cho Hạng C) rồi **bỏ luôn** — tự log "CHƯA upload — CLI v1 chưa gửi kèm subs, chỉ để dành cho admin tự đăng riêng". Schema catalog (`libs/shared-models/src/catalog.ts`, field `subs: { lang, msgId }[]`) đã có sẵn chỗ cho subtitle từ trước nhưng chưa có gì ghi vào đó. Brainstorm cùng ngày với addendum verify Hạng C ở trên: user đánh giá đây là gap **quan trọng hơn** việc verify Hạng A/B/D bằng file mẫu thật — cả ba hạng đó chỉ là biến thể của cùng cơ chế remux/copy-stream đã verify, còn subtitle upload là một tính năng **hoàn toàn chưa nối dây**, không phải "chưa verify". Hạng A/B/D vì vậy bị hoãn có chủ đích, subtitle được ưu tiên làm trước.
+
+**Đã làm (code, chưa verify thiết bị thật):**
+- `libs/core-mtproto/src/gateway-ingest.ts`: thêm `uploadSubtitleDocument(channelId, { filePath, fileName })` — cùng pattern `uploadVideoDocument()` nhưng `forceDocument: true` (file phụ trợ, không phải media cần `DocumentAttributeVideo`/streaming), không gán `caption`. Thêm method này vào interface `TelegramGateway` (`gateway.ts`).
+- `libs/core-ingest/src/gateway-port.ts`: mở rộng interface `IngestGateway` với method tương ứng (`IngestSubtitleUploadInput`).
+- `apps/tsmc-ingest/src/commands/upload.ts`: sau khi upload video, loop qua các phụ đề đã rút — **chỉ** upload phụ đề TEXT (`.srt`, `isImageBased === false`). Phụ đề ảnh (`.sup`, PGS) **vẫn** giữ hành vi cũ — chỉ lưu cục bộ, log riêng — vì trình duyệt không tự render `.sup` như một text track; đây là quyết định nhỏ khi code, không đổi bảng phân hạng A/B/C/D đã Accepted. Kết quả upload (`{ lang, msgId }`, `lang` fallback `'und'` khi ffprobe không trả tag ngôn ngữ) được gán vào `finalItem.subs` trước khi push vào catalog.
+- Test: thêm 1 unit test cho `uploadSubtitleDocument()` (`libs/core-mtproto/src/gateway-ingest.spec.ts`) — 283/283 test qua (tăng từ 282). `npm run lint`, `tsc --noEmit` (apps/tsmc-ingest, core-mtproto, core-ingest), `npm run build:ingest` đều sạch.
+
+**Chưa kiểm chứng — để dành cho admin tự chạy** (CLAUDE.md: không chạy đăng nhập MTProto hộ người dùng): upload thật một file Hạng C có phụ đề text nhúng, xác nhận `catalog.v1.json` thật ghi đúng `subs[]`, và mở message phụ đề trong Telegram app thật để xác nhận tải được — checklist mới ở [docs/pending-device-tests.md](../pending-device-tests.md#tsmc-ingest-cli--loginprobeupload-thật-2026-08-29).
+
+**Điều gì KHÔNG đổi:** bảng phân hạng A/B/C/D và toàn bộ Quyết định gốc mục 1 đứng nguyên — đây chỉ là hoàn thiện một bước đã có tên trong pipeline gốc ("rút phụ đề") nhưng trước đó dừng ở "rút", chưa "gửi kèm".
+
+**Việc tiếp theo:** admin verify thật theo checklist mới; Hạng A/B/D vẫn hoãn có chủ đích như addendum trên.
+
+## Cập nhật sau khi Accepted (2026-08-30, re-verify bản vá `series.name` bằng tài khoản thật — ĐẠT)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định
+> đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết
+> định gốc **vẫn đứng vững**, xem lý do bên dưới.
+
+Gỡ nốt mục "Còn thiếu" cuối cùng của addendum "verify Hạng C..." phía trên: **"Re-verify kế thừa metadata một lần nữa SAU khi vá bug `series.name`"** — admin build lại CLI (đã có bản vá) rồi upload thêm một file thứ ba cùng series (`S01E08.mkv`, chọn "kế thừa" từ item trước), kết quả **ĐẠT**:
+
+- `catalog.v1.json` thật (5 item, `msgId 15`) có `series: { name: "The big bang theory", season: 1, episode: 8 }` — `series.name` khớp đúng tên phim (đồng bộ với `title` sau khi admin gõ lại qua prompt), **không còn** ra chuỗi filename trần trụi (`"S01E08.mkv"`) như bug đã ghi ở addendum trên.
+- Catalog vẫn **gộp** đúng — đủ cả 5 item cũ + mới (`msgId` 3/6/9/12/15), không mất item nào qua nhiều lần publish liên tiếp (`generatedAt` cập nhật mỗi lần, `msgId` catalog document tự tăng 13→16 qua các lần ghi/xoá-bản-cũ của `publishCatalogDocument()`).
+- Pipeline vẫn ổn định qua nhiều lần chạy liên tiếp trong cùng ngày: remux 52.3x (nhanh hơn lần đo đầu 40.8x — cùng cấp độ, chênh lệch hợp lý do khác file/tải máy), kết nối/ngắt kết nối DC nhiều lần không phát sinh lỗi.
+
+**Không phát sinh bug mới.** Đây là bằng chứng đóng hẳn caveat "series.name — chưa re-verify" — không cần giữ trong danh sách "Còn thiếu" nữa (đã xoá khỏi checklist tương ứng ở [docs/pending-device-tests.md](../pending-device-tests.md)).

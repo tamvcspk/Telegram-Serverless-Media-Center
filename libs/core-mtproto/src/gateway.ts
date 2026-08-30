@@ -21,7 +21,7 @@ import {
   type ResolvedIndexChannel
 } from './gateway-index';
 import { createDownloadGatewayMethods, type PlaybackDocumentRef } from './gateway-download';
-import { createIngestGatewayMethods, type UploadedVideoRef, type VideoUploadInput } from './gateway-ingest';
+import { createIngestGatewayMethods, type SubtitleUploadInput, type UploadedVideoRef, type VideoUploadInput } from './gateway-ingest';
 import { decryptSessionString, encryptSessionString, generateSessionKey } from './session-crypto';
 
 /**
@@ -92,6 +92,8 @@ export interface TelegramGateway {
   // duyệt nào cần method này.
   /** Upload một file video cục bộ thành document mới trong kênh media. Xem comment đầy đủ ở gateway-ingest.ts. */
   uploadVideoDocument(channelId: string, input: VideoUploadInput): Promise<UploadedVideoRef>;
+  /** Upload một file phụ đề text (`.srt`) cục bộ thành document rời. Xem comment đầy đủ ở gateway-ingest.ts. */
+  uploadSubtitleDocument(channelId: string, input: SubtitleUploadInput): Promise<UploadedVideoRef>;
 
   // Phần dưới đây khớp shape @tsmc/core-download DownloadGateway
   // (gateway-port.ts) — cùng lý do KHÔNG import type đó ở đây như hai nhóm
