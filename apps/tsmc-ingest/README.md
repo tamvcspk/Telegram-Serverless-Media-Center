@@ -112,6 +112,30 @@ Cả hai nguồn đều gộp chung vào `subs[]` của catalog item — không 
 
 Khi upload nhiều tập cùng series (không dùng `--yes`), CLI hỏi có muốn "kế thừa metadata" từ item vừa upload trước đó không — nếu có, `season`/`episode` tự tăng, `title`/`series.name`/năm/thể loại giữ nguyên từ item trước, chỉ cần xác nhận hoặc sửa đè Title/Năm nếu sai. Việc "gộp" catalog (không ghi đè mất item cũ) đã verify đúng trên tài khoản thật với nhiều lần upload liên tiếp.
 
+## Backend ffmpeg thử nghiệm (SPIKE-09 — CHỈ để đo số liệu, không phải production)
+
+Mặc định `upload` shell-out `ffmpeg`/`ffprobe` hệ thống (Quyết định gốc [ADR-0013](../../docs/adr/0013-bot-dong-hanh-va-pipeline-ingest.md) mục 1). Để so sánh với native Rust FFI (`tools/spike-09/`, xem [SPIKE-09](../../docs/spikes/README.md#spike-09)) trên file thật của bạn:
+
+```bash
+cd tools/spike-09 && cargo build --release   # build spike09.exe nếu chưa có
+
+# BẮT BUỘC — copy đủ 7 DLL cạnh spike09.exe (thiếu 1 file → 0xC0000135
+# DLL_NOT_FOUND, đã gặp thật lần đầu chạy qua CLI này — xem tools/spike-09/README.md):
+DLLS="C:/vcpkg/installed/x64-windows/bin"; OUT="tools/spike-09/target/release"
+for f in avcodec-61.dll avdevice-61.dll avfilter-10.dll avformat-61.dll avutil-59.dll swscale-8.dll swresample-5.dll; do
+  cp "$DLLS/$f" "$OUT/$f"
+done
+
+# quay lại apps/tsmc-ingest, chạy upload như bình thường nhưng thêm 2 biến:
+TSMC_INGEST_FFMPEG_BACKEND=native \
+TSMC_INGEST_NATIVE_FFMPEG_BIN="<đường dẫn tới tools/spike-09/target/release/spike09.exe>" \
+  node dist/cli.js upload --channel <ref> <file...>
+```
+
+Đã copy đủ DLL cạnh `.exe` thì không cần set `PATH` (xem `tools/spike-09/README.md`). Mỗi lần remux, CLI in `[timing] remux: Xms (backend=...)` — nhãn phản ánh backend THẬT SỰ vừa chạy (Hạng D luôn `shell` dù có bật `native`, vì `spike09.exe` chưa cài re-encode video) — chạy cùng file với cả hai backend rồi so dòng đó là đủ để có số liệu thật quyết định hướng Tauri/Electron.
+
+**Giới hạn đã biết của backend native:** Hạng D (re-encode video) và phụ đề ảnh (PGS/DVD) luôn rơi về shell-out dù có set biến — `spike09.exe` chưa cài hai việc đó. Nếu `spike09.exe` thoát mã khác 0, lỗi in ra sẽ tự giải mã vài mã Windows hay gặp (`ffmpeg-native.ts::describeWindowsExitCode()`): `0xC0000135` là **thiếu DLL** (xem copy DLL ở trên, không phải bug); `0xC0000005` mới đúng nghĩa **segfault** — rủi ro đã ghi ở [ADR-0013 § Cập nhật 2026-09-03](../../docs/adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-09-03-spike-09--native-rust-ffi-cho-core-lib-tauri-tương-lai), không phải bug cần báo — ghi lại file nào gây ra để bổ sung vào spike log.
+
 ## Bảo mật & nơi lưu dữ liệu
 
 - Session MTProto mã hoá: `~/.tsmc-ingest/session.local.json` — ngoài repo, không commit được dù có lỡ tay.

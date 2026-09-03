@@ -19,7 +19,7 @@ import {
   type IngestGateway
 } from '@tsmc/core-ingest';
 import type { CatalogItemV1 } from '@tsmc/shared-models';
-import { checkFfmpegAvailable, extractSubtitles, generateThumbnail, reencodeToMp4, remuxToMp4, type ExtractedSubtitle } from '../ffmpeg';
+import { checkFfmpegAvailable, extractSubtitles, generateThumbnail, reencodeToMp4, remuxToMp4, type ExtractedSubtitle } from '../ffmpeg-backend';
 import { checkFfprobeAvailable, probeFile } from '../ffprobe';
 import { confirm, prompt } from '../prompt';
 import { findSidecarSubtitles } from '../sidecar-subtitles';
@@ -123,12 +123,22 @@ export async function runUpload(gateway: IngestGateway, opts: UploadOptions): Pr
 
       const remuxedPath = join(tmpDir, `${stripExt(filePath)}.mp4`);
       const onProgress = (line: string) => process.stdout.write(`\r  ${line}`);
+      const remuxT0 = Date.now();
       if (rank === 'D') {
         await reencodeToMp4(filePath, remuxedPath, onProgress);
       } else {
         await remuxToMp4(filePath, remuxedPath, { reencodeAudioToAac: rank === 'C' }, onProgress);
       }
       process.stdout.write('\n');
+      // Timing thô — CHỈ để so sánh backend shell-out vs native (SPIKE-09),
+      // không phải chỉ số production. Xem ffmpeg-backend.ts. Hạng D LUÔN dùng
+      // shell-out (reencodeToMp4 chưa có bản native, xem ffmpeg-backend.ts)
+      // bất kể TSMC_INGEST_FFMPEG_BACKEND — nhãn phải phản ánh đúng cái vừa
+      // chạy, không phải suy thẳng từ biến môi trường (phát hiện thật
+      // 2026-09-04: log từng in "backend=native" sai cho một lần chạy Hạng D
+      // thực chất đang chạy shell-out).
+      const remuxBackendUsed = rank === 'D' ? 'shell' : process.env['TSMC_INGEST_FFMPEG_BACKEND'] === 'native' ? 'native' : 'shell';
+      console.log(`  [timing] remux: ${Date.now() - remuxT0}ms (backend=${remuxBackendUsed})`);
 
       // ffprobe lại file ĐÃ xử lý — compat ghi vào catalog phải phản ánh
       // codec THẬT SỰ đã upload, không phải codec gốc trước remux/re-encode.

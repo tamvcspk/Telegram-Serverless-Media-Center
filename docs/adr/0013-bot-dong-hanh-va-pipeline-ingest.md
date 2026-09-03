@@ -241,3 +241,156 @@ Gỡ nốt mục "Còn thiếu" cuối cùng của addendum "verify Hạng C..."
 **Điều gì KHÔNG đổi:** Quyết định gốc mục 1 (bảng phân hạng A/B/C/D) đứng nguyên — phụ đề ngoài không liên quan tới phân hạng compat, chỉ là một nguồn phụ đề bổ sung cạnh phụ đề nhúng đã có.
 
 **Việc tiếp theo:** admin verify thật; cân nhắc hỗ trợ `.ass`/`.ssa` sau nếu có nhu cầu thật (chưa có bằng chứng cần ngay).
+
+## Cập nhật sau khi Accepted (2026-09-03, SPIKE-09 — native Rust FFI cho core lib Tauri tương lai)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định
+> đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết
+> định gốc (ba thành phần CLI/bot/chế độ admin web, bảng phân hạng A/B/C/D)
+> **vẫn đứng vững**. Hướng "core lib Rust bọc FFmpeg cho một Tauri GUI tương
+> lai" vẫn **để ngỏ**, addendum này KHÔNG tự quyết có làm Tauri hay không —
+> chỉ ghi nhận số liệu và rủi ro mới cho lần quyết định đó khi nó thật sự tới.
+
+[SPIKE-09](../spikes/README.md#spike-09) đã chạy thật (2026-09-03, máy Windows
+11 thật) — dựng crate Rust độc lập ở `tools/spike-09/` dùng `ffmpeg-next`
+(native FFI qua `ffmpeg-sys-next` + FFmpeg 7.1.1 từ `vcpkg`), cài đủ 3 việc
+`tsmc-ingest` CLI cần: remux copy-video + encode-audio AAC + faststart,
+thumbnail JPEG, rút subtitle ra `.srt`. Kết quả 🟢 **có điều kiện**:
+
+- **Tốc độ:** 72.1x realtime (file mẫu tổng hợp cùng profile Hạng C — MKV/H.264
+  1280x720/AC3 stereo — KHÔNG phải file thật đã dùng cho baseline 40.8x, vì
+  file thật là file thiết bị thật của admin, không có trong repo). Đọc là "cùng
+  cấp độ nhanh, không chậm hơn hẳn", không phải "nhanh gấp 1.77 lần" theo nghĩa
+  đo khoa học chặt chẽ — xem "Phạm vi bằng chứng" ở SPIKE-09.
+- **Đóng gói:** 6 DLL runtime thật cần phân phối (`avcodec-61`, `avfilter-10`,
+  `avformat-61`, `avutil-59`, `swscale-8`, `avdevice-61`), tổng ~21.2 MB — đo
+  bằng `llvm-objdump -p` trên chính binary, không suy đoán.
+- **Build:** `cargo build --release` sạch, 14.2s cho crate — nhưng đây chỉ là
+  chi phí build Rust, KHÔNG phải chi phí cài `vcpkg`/LLVM/MSVC Build Tools lần
+  đầu (đã có sẵn trên máy chạy spike từ trước, không đo được từ máy sạch).
+
+**Phát hiện quan trọng hơn cả ba con số trên — rủi ro loại khác với shell-out
+hiện tại, không chỉ mức độ khác:** trong lúc code, một lỗi tầm thường (buffer
+audio cấp cho encoder AAC không khớp số kênh thật của decoder — bắt nguồn từ
+một fixture test vô tình mono trong khi code giả định stereo) làm
+`avcodec_send_frame()` **segfault thẳng tiến trình** (exit code 139), không
+phải panic Rust có backtrace, càng không phải `Result::Err` bắt được bằng
+`match`/`?`. Sau khi sửa đúng số kênh, cùng đường code chạy sạch — xác nhận
+nguyên nhân đúng là mismatch buffer/channel-count, không phải bug ẩn khác.
+
+So với shell-out CLI hiện tại (`apps/tsmc-ingest/src/ffmpeg.ts` gọi `ffmpeg`/
+`ffprobe` qua `child_process`): cùng loại lỗi tham số sai ở đó chỉ làm **tiến
+trình con** `ffmpeg.exe` thoát mã lỗi — CLI cha (Node) vẫn sống, báo lỗi rõ
+ràng, xử lý file tiếp theo trong batch bình thường. Native FFI in-process thì
+**không có ranh giới tiến trình nào bảo vệ** — một bug tương tự trong core lib
+sẽ giết chết luôn tiến trình gọi nó. Nếu tiến trình đó là một Tauri desktop
+app, hệ quả là **cả ứng dụng crash**, không chỉ một job ingest thất bại. Đây
+là chi phí ẩn của việc thay `child_process.spawn()` bằng FFI trực tiếp mà
+không ADR/spike nào trước đó liệt kê, vì trước SPIKE-09 câu hỏi "sai tham số
+thì hậu quả tới đâu" chưa từng được đặt ra một cách cụ thể.
+
+**Điều gì KHÔNG đổi:** ba thành phần Quyết định gốc và bảng phân hạng A/B/C/D
+đứng nguyên. Quyết định "có làm Tauri hay không" (đã để ngỏ từ addendum
+2026-08-29) **vẫn để ngỏ** — SPIKE-09 chỉ cung cấp số liệu cho lần quyết định
+đó, không tự chọn hướng.
+
+**Điều kiện áp dụng nếu sau này chọn hướng native FFI cho core lib Tauri**
+(không phải quyết định ngay bây giờ, chỉ ghi nhận ràng buộc phải giải quyết
+khi tới lúc): pipeline FFmpeg native **không được chạy in-process cùng luồng
+chính của Tauri app** — hoặc tách sang tiến trình/task riêng có thể crash độc
+lập mà không kéo sập UI, hoặc validate nghiêm ngặt format/channel-layout của
+mọi frame/buffer trước khi gọi bất kỳ `avcodec_send_*`/`avcodec_receive_*` nào
+(không chỉ dựa vào kiểu `Result` của `ffmpeg-next`, vì chính lớp bọc đó cũng
+không chặn được lỗi này ở đây). Phương án fallback "Rust shell-out ra
+`ffmpeg`/`ffprobe` CLI" (đã nêu ở addendum 2026-08-29) giữ nguyên ranh giới
+tiến trình an toàn của kiến trúc hiện tại và không có rủi ro này — vẫn là lựa
+chọn hợp lệ, không bị SPIKE-09 loại bỏ, chỉ là chậm hơn theo lý thuyết (chưa
+đo trực tiếp).
+
+**Việc tiếp theo:** không có việc bắt buộc ngay — hướng GUI Tauri vẫn để ngỏ
+như addendum 2026-08-29. Khi (nếu) quyết định làm Tauri, đọc SPIKE-09 đầy đủ
+(`docs/spikes/README.md#spike-09` + `tools/spike-09/README.md`) trước khi
+chọn giữa native FFI (nhanh hơn, cần giải quyết ranh giới crash) và shell-out
+Rust (an toàn hơn, chưa đo tốc độ thật).
+
+## Cập nhật sau khi Accepted (2026-09-04, tích hợp thật vào `tsmc-ingest` + sửa số liệu "Đóng gói" ở addendum trên)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định
+> đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết
+> định gốc **vẫn đứng vững**. Addendum này KHÔNG sửa lại nội dung addendum
+> 2026-09-03 ngay trên (lịch sử phải giữ nguyên) — chỉ ghi chú số liệu ở đó
+> đã sai và cách sửa, đúng tinh thần "Sửa lại một kết luận ở trên" đã dùng ở
+> [ADR-0003](./0003-chon-thu-vien-mtproto-gramjs.md#cập-nhật-sau-khi-accepted-2026-08-24-slice-auth-f11).
+
+**Bối cảnh:** theo yêu cầu "test trên số liệu thực để quyết định hướng
+Tauri/Electron", đã nối `apps/tsmc-ingest` gọi thẳng `spike09.exe` qua một
+backend chọn được (`TSMC_INGEST_FFMPEG_BACKEND=native`, mặc định vẫn shell-out
+— không đổi hành vi production) — `ffmpeg-native.ts` + `ffmpeg-backend.ts`
+mới, `upload.ts` chỉ đổi 1 dòng import. Admin chạy thật `upload` trên file AVI
+thật (Hạng D, ~21 phút) với biến `TSMC_INGEST_FFMPEG_BACKEND=native`.
+
+**⚠️ Sửa số liệu "Đóng gói" ở addendum 2026-09-03: 6 DLL là SAI, thiếu 1.**
+Lần chạy thật lộ ra `spike09.exe` thoát mã `3221225781` (`0xC0000135`,
+`STATUS_DLL_NOT_FOUND`) ngay ở bước `generateThumbnail()` — **không phải
+segfault** như log lúc đó tự đoán ("có thể là segfault/SIGSEGV", suy diễn quá
+tay từ phát hiện segfault THẬT của addendum trên, áp nhầm sang một lỗi hoàn
+toàn khác). Nguyên nhân: `llvm-objdump -p` chạy trên CHÍNH `spike09.exe` ở
+addendum trước chỉ thấy **import trực tiếp** của binary — bỏ sót rằng
+`avcodec-61.dll` tự nó phụ thuộc **transitive** vào `swresample-5.dll` (dùng
+nội bộ cho vài codec, dù code Rust không gọi thẳng API `swresample` nào).
+Addendum trước đọc sai thành "swresample KHÔNG bị kéo vào" — chỉ đúng cho
+*code do ta viết*, sai cho *toàn bộ cây phụ thuộc DLL thật phải có để nạp
+được*. Con số đúng: **7 DLL, ~21.3 MB** (thêm `swresample-5.dll`, 124 KB).
+Verify lại bằng `System.Diagnostics.ProcessStartInfo` (PowerShell, giả lập
+đúng cách `child_process.spawn` của Node gọi tiến trình), PATH đã lọc sạch
+`vcpkg`, cwd cố ý đặt khác thư mục exe (`C:\Windows\System32`) để loại trừ
+may rủi "chạy đúng nhờ cwd tình cờ đúng" — copy đủ 7 DLL cạnh `spike09.exe`
+thì chạy sạch (exit 0) không cần PATH; thiếu `swresample-5.dll` thì luôn
+`0xC0000135` bất kể PATH/cwd.
+
+**Bài học đóng gói, áp dụng cho bất kỳ native FFI nào sau này:** đo dependency
+DLL bằng `objdump -p`/`dumpbin` trên chỉ MỘT binary không đủ — phải đệ quy
+qua toàn bộ DLL nó tải, hoặc đơn giản hơn: xoá sạch `PATH` liên quan, copy
+đúng bộ file dự định phân phối, chạy thật trên máy sạch. "Build sạch, chạy
+được trên máy có sẵn `vcpkg`" (đã kiểm chứng ở addendum 2026-09-03) và "chạy
+được trên máy KHÔNG có `vcpkg`/không có PATH đúng" (chỉ kiểm chứng ở đây,
+2026-09-04) là hai bằng chứng khác nhau — thiếu cái sau thì "đóng gói gọn"
+vẫn chỉ là giả thuyết.
+
+**Tin tốt sau khi sửa:** đủ 7 DLL thì `spike09.exe` **hoàn toàn tự chứa** —
+không cần biến `PATH` nào, chạy đúng từ bất kỳ thư mục nào (đúng chuẩn tìm DLL
+mặc định của Windows: thư mục chứa `.exe` được ưu tiên trước `PATH`). Đây là
+tín hiệu đóng gói TỐT hơn addendum trước tưởng (dù thêm đúng 1 file, không đổi
+kết luận "quản lý được cho một Tauri installer").
+
+**Hai bug code thật lộ ra cùng lần chạy này (đã sửa, không phải phát hiện về
+FFmpeg/Rust):**
+1. `ffmpeg-native.ts`: thông điệp lỗi khi `spike09.exe` thoát mã khác 0 LUÔN
+   đoán "có thể là segfault/SIGSEGV" — sai cho đúng ca `0xC0000135` ở trên.
+   Đã thêm `describeWindowsExitCode()` giải mã riêng `0xC0000005`
+   (`STATUS_ACCESS_VIOLATION` — đúng nghĩa segfault) và `0xC0000135`
+   (`STATUS_DLL_NOT_FOUND` — thiếu DLL, không phải crash bộ nhớ).
+2. `upload.ts`: dòng log `[timing] remux: ...ms (backend=...)` suy thẳng
+   `backend` từ biến môi trường `TSMC_INGEST_FFMPEG_BACKEND` — sai cho nhánh
+   Hạng D, vì `reencodeToMp4` LUÔN dùng shell-out (`ffmpeg-backend.ts` chưa
+   có bản native cho re-encode video) bất kể biến đó. Lần chạy thật in
+   `backend=native` cho một bước thực chất đang chạy shell-out `ffmpeg` CLI
+   (nhận ra được nhờ định dạng dòng tiến trình `frame=...fps=...speed=...`
+   đúng kiểu `ffmpeg` CLI thật, không phải output của `spike09.exe`). Đã sửa
+   để nhãn phản ánh đúng cái vừa chạy, không suy từ biến môi trường.
+
+**Quan sát phụ, không phải bug:** trong lúc `ffmpeg` CLI re-encode Hạng D
+chạy (~40 giây thật), kết nối MTProto rớt một lần ("Not connected" /
+"Connection closed while receiving data") rồi GramJS tự `reconnect` thành
+công, không ảnh hưởng kết quả cuối. Chưa đủ bằng chứng để kết luận có liên
+quan tới việc CLI bận chạy tiến trình con nặng hay chỉ là trục trặc mạng
+thường — không mở gap mới, chỉ ghi lại phòng khi lặp lại.
+
+**Điều gì KHÔNG đổi:** kết luận chính của addendum 2026-09-03 vẫn đứng —
+native FFI khả thi về tốc độ, rủi ro segfault khi sai tham số FFI (khác hẳn
+lỗi thiếu DLL ở đây) vẫn là điều kiện phải giải quyết nếu chọn hướng Tauri.
+Quyết định GUI Tauri vẫn để ngỏ.
+
+**Việc tiếp theo:** không có việc bắt buộc ngay. Khi build/đóng gói
+`spike09.exe` (hoặc core lib kế thừa từ nó) cho phân phối thật, nhớ copy đủ 7
+DLL — xem `tools/spike-09/README.md`.

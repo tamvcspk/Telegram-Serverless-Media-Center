@@ -14,7 +14,7 @@ Quy tắc: **một spike chỉ đóng khi có số liệu từ thiết bị th�
 | [SPIKE-06](#spike-06) | Ghi `catalog.json` lên kênh media qua MTProto thật (`sendFile`→`pinMessage`→`deleteMessages`) có đúng như thiết kế không? | [0014](../adr/0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md), [0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md), [0009](../adr/0009-dong-bo-state-event-log-va-snapshot.md) | 🟢 **Đạt (2026-08-28)** — cả 5 tiêu chí A-E đạt trên tài khoản thật, publish/update/xoá đều đúng như thiết kế |
 | [SPIKE-07](#spike-07) | Forum Topics API của GramJS `2.26.22` có dùng được để categorize phim theo topic không? | [0010](../adr/0010-catalog-spec-v1-va-chien-luoc-indexing.md) | 🟢 **Đạt (2026-08-29)** — tạo nhóm forum, tạo topic, `GetForumTopics` liệt kê đúng, và quét lịch sử suy ra đúng topic mỗi message thuộc về (`replyToTopId ?? replyToMsgId` khi `forumTopic`) — cả 4 lần chạy trên tài khoản thật, lần cuối A-E đều đạt |
 | [SPIKE-08](#spike-08) | Trong 3 API dò khả năng phát (`canPlayType`/`MediaSource.isTypeSupported`/WebCodecs `isConfigSupported`), cái nào khớp đúng khả năng phát THẬT của `<video src>` theo ADR-0005 (progressive, không MSE)? | [0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md), [0005](../adr/0005-streaming-qua-service-worker-http-range.md) | ⏳ Chưa dựng |
-| [SPIKE-09](#spike-09) | `ffmpeg-next`/`ffmpeg-sys-next` (native Rust FFI) có khả thi thay shell-out CLI hiện tại của `tsmc-ingest`, với chi phí/tốc độ nào so với baseline 40.8x realtime đã đo? | [0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md) | ⏳ Chưa dựng |
+| [SPIKE-09](#spike-09) | `ffmpeg-next`/`ffmpeg-sys-next` (native Rust FFI) có khả thi thay shell-out CLI hiện tại của `tsmc-ingest`, với chi phí/tốc độ nào so với baseline 40.8x realtime đã đo? | [0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md) | 🟢 **Đạt, có caveat (2026-09-03, tích hợp thật + sửa số liệu 2026-09-04)** — cả 3 việc chạy được, 72.1x realtime (file mẫu tổng hợp), 7 DLL ~21.3 MB tự chứa (không cần PATH); hai rủi ro khác hẳn nhau đã đo được thật: sai tham số FFI → **segfault**, thiếu DLL → **DLL_NOT_FOUND** (không phải segfault) |
 
 ---
 
@@ -660,7 +660,7 @@ Chưa dựng — khi build, theo đúng mẫu SPIKE-01: `npm run spike:auto` cho
 
 ## SPIKE-09
 
-**Trạng thái:** ⏳ Chưa dựng.
+**Trạng thái:** 🟢 **Đạt, có caveat rõ (2026-09-03, tích hợp thật vào `apps/tsmc-ingest` + sửa số liệu "Đóng gói" ngày 2026-09-04)** — dựng thật, chạy thật trên máy Windows 11 thật (máy dùng cho toàn bộ session này, không phải CI/VM giả lập) với `vcpkg`/LLVM/MSVC đã cài sẵn. Xem "Kết quả" và "Phạm vi bằng chứng — đọc cho đúng" bên dưới trước khi dùng số liệu này quyết định gì. **Số "6 DLL" ở lần đo đầu (2026-09-03) SAI — đúng là 7 DLL, xem ghi chú sửa trong mục "Đóng gói" và [ADR-0013 § Cập nhật 2026-09-04](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-09-04-tích-hợp-thật-vào-tsmc-ingest--sửa-số-liệu-đóng-gói-ở-addendum-trên).**
 
 **Câu hỏi:** `ffmpeg-next`/`ffmpeg-sys-next` (native Rust FFI binding tới libavcodec/libavformat, kiểu binding dùng trong project tham chiếu `vid-kit-simple` mà user đưa) có khả thi **thay thế** cách shell-out hiện tại của `tsmc-ingest` (`apps/tsmc-ingest/src/ffmpeg.ts`, gọi thẳng binary `ffmpeg`/`ffprobe` hệ thống qua `child_process`) cho đúng ba việc CLI cần — remux copy-video + encode-audio-AAC với `+faststart`, sinh thumbnail JPEG, rút subtitle stream ra `.srt` — trên máy Windows thật? Với chi phí build/đóng gói nào, và tốc độ có bằng/hơn baseline **40.8x realtime** đã đo bằng shell-out (verify thật 2026-08-30, xem [ADR-0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-08-30-verify-hạng-c-bằng-tài-khoảnkênh-thật-lần-đầu)) không?
 
@@ -693,9 +693,52 @@ Chưa dựng. Kế hoạch khi build:
 
 ### Kết quả
 
-*(để trống tới khi có số liệu thiết bị thật)*
+**Máy chạy:** Windows 11 Home Single Language 10.0.26200 thật (không phải VM/CI giả lập) — `cargo 1.90.0`/`rustc 1.90.0`, `ffmpeg-next = "7"` (khoá về `7.1.0`, kéo `ffmpeg-sys-next 7.1.3`), FFmpeg qua `vcpkg install ffmpeg:x64-windows` (**đã có sẵn từ trước, không phải cài mới cho spike này** — xem caveat "Build" bên dưới) — `avcodec`/`avformat`/`avutil`/`avfilter`/`swresample`/`swscale` 7.1.1, triplet dynamic. LLVM/libclang cho `bindgen` cũng đã có sẵn.
 
-### Ta sẽ làm gì với từng kết quả
+**Build:** `cargo build --release` sạch, không lỗi bindgen/linker, **14.2s** cho một crate mới hoàn toàn (`cargo clean` trước đó). **Caveat quan trọng:** đây CHỈ là chi phí build crate Rust — `vcpkg`/LLVM/MSVC Build Tools đã có sẵn trên máy này từ trước (không rõ tại sao, có thể từ việc khác), spike **không đo được** chi phí cài đặt lần đầu từ máy sạch hoàn toàn (bước 1 của kế hoạch gốc). Đây là gap thật của bằng chứng, không phải "coi như bằng 0" — `vcpkg install ffmpeg:x64-windows` trên máy sạch nổi tiếng là chậm (build FFmpeg từ source, kéo theo `abseil`/`protobuf` cho vài feature phụ), có thể tính bằng chục phút tới vài giờ tuỳ máy, KHÔNG được suy diễn từ con số 14.2s này.
+
+**Tốc độ transcode (remux copy-video + encode-audio AAC + faststart):** **72.1x realtime** tổng cho cả pipeline (`all`: remux 73.5x + thumb 0.03s + subs 0.05s, tổng 4.16s cho clip 300.006s) — build release. **Caveat quan trọng:** đo trên **file mẫu tổng hợp** (`testsrc2` 1280x720 25fps + `sine` stereo + `ffmpeg -c:a ac3`), KHÔNG phải file thật `[KST.VN].The.Big.Bang.Theory...mkv` đã dùng cho baseline 40.8x ([ADR-0013 § verify Hạng C](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-08-30-verify-hạng-c-bằng-tài-khoảnkênh-thật-lần-đầu)) — file thật không có trong repo (đúng quy tắc CLAUDE.md, không commit media). Nội dung tổng hợp (test pattern) nén dễ hơn nội dung quay thật, nên **72.1x so 40.8x không phải so sánh ngang hàng tuyệt đối** — chỉ đủ để kết luận "cùng cấp độ nhanh, không chậm hơn hẳn", không đủ để khẳng định "nhanh gấp 1.77 lần" theo nghĩa chặt.
+
+**Đóng gói:** ~~6 DLL~~ **7 DLL runtime thật cần phân phối cùng app** — `avcodec-61.dll` (13.5 MB), `avfilter-10.dll` (3.78 MB), `avformat-61.dll` (2.36 MB), `avutil-59.dll` (0.9 MB), `swscale-8.dll` (0.62 MB), `avdevice-61.dll` (75 KB), `swresample-5.dll` (124 KB) — **tổng ~21.3 MB**. Cộng `VCRUNTIME140.dll` + vài `api-ms-win-crt-*.dll` (runtime MSVC chuẩn, thường có sẵn Windows 10/11). Không phải "một binary không DLL" như kỳ vọng tốt nhất, nhưng 7 DLL + ~21.3 MB là con số quản lý được cho một Tauri installer — và verify thật (2026-09-04): copy đủ 7 file này cạnh `spike09.exe` là **chạy được không cần set `PATH`** (Windows tự ưu tiên tìm DLL cùng thư mục `.exe`).
+
+> ⚠️ **Sửa lại một kết luận ở trên (2026-09-04):** phép đo ban đầu chỉ chạy `llvm-objdump -p` trên **chính `spike09.exe`**, đọc được đúng 6 DLL nó **gọi trực tiếp** — kết luận "swresample KHÔNG bị kéo vào" từ đó **sai**: `avcodec-61.dll` tự nó phụ thuộc **transitive** vào `swresample-5.dll` (dùng nội bộ cho một số codec, dù code Rust ở đây không gọi API `swresample` nào thẳng). Thiếu đúng 1 file này khiến `spike09.exe` thoát `0xC0000135` (`STATUS_DLL_NOT_FOUND`) — phát hiện thật khi chạy qua `apps/tsmc-ingest` lần đầu trên file thật, xem [ADR-0013 § Cập nhật 2026-09-04](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-09-04-tích-hợp-thật-vào-tsmc-ingest--sửa-số-liệu-đóng-gói-ở-addendum-trên). **Bài học chung:** `objdump`/`dumpbin` trên một binary chỉ cho import trực tiếp — đo dependency DLL đầy đủ phải đệ quy qua toàn bộ cây, hoặc đơn giản hơn: xoá `PATH` liên quan rồi chạy thật trên đúng bộ file dự định phân phối.
+
+**Phủ đủ 3 việc:** cả ba chạy đúng, verify bằng `ffprobe` chứ không chỉ "không crash":
+- `remux`: `moov` box nằm ở offset 40 (trước `mdat` ở offset ~355 KB) — **faststart xác nhận đúng bằng cách đọc box order thật**, không chỉ tin cờ đã set. Video H.264 1280x720 giữ nguyên (stream copy, không decode), audio AAC 44100 stereo đúng.
+- `thumb`: JPEG hợp lệ (`ffd8` magic bytes, `ffprobe` đọc đúng `mjpeg` 1280x720).
+- `subs`: đúng 2 cue, **đúng thời gian, đúng nội dung** khớp 100% với `sub.srt` gốc đưa vào fixture.
+
+### Ba bug thật gặp phải khi code — giá trị hơn cả con số tốc độ
+
+1. **MKV→MP4 stream-copy video cần `fflags=+genpts` lúc mở input**, nếu không mp4 muxer lỗi `Invalid argument` do vài packet đầu của stream có B-frame bị demuxer Matroska để `dts=None` (chưa đủ lookahead để tính reorder). Đây là hành vi FFmpeg chuẩn (chính `ffmpeg` CLI thật cũng in cảnh báo tương tự với input tương tự), không phải bug riêng của `ffmpeg-next` — nhưng **không tự động, phải biết mà bật**, khác hẳn giả định ban đầu "remux chỉ là copy packet".
+2. **AAC encoder đòi đúng `frame_size` (1024 sample/frame), không chấp nhận nhiều hơn** — `filter::Graph` phải gọi `sink().set_frame_size(encoder.frame_size())` (đúng pattern ở ví dụ chính thức `transcode-audio.rs` mà lúc đầu tôi bỏ sót một dòng) nếu không encoder trả `Invalid argument` ngay frame đầu.
+3. **🔴 Quan trọng nhất — sai số kênh audio làm CRASH tiến trình (segfault), không trả lỗi Rust:** khi buffer frame cấp cho encoder (channel_layout STEREO, 2 kênh) chỉ được điền dữ liệu thật ở kênh 0 (do code đọc nhầm `dec.channel_layout().channels()` = 1 từ một fixture vô tình mono trong khi encoder đã chọn STEREO), `avcodec_send_frame()` **segfault thẳng** (exit code 139), không phải panic Rust có backtrace, không phải `Result::Err`. Sau khi sửa fixture thành stereo đúng, cùng đường code chạy sạch — xác nhận nguyên nhân đúng là buffer/channel-count không khớp, không phải bug ẩn khác của crate.
+
+   **Hệ quả thiết kế, không phải chi tiết vụn:** đây là khác biệt về **loại rủi ro**, không chỉ mức độ, so với shell-out hiện tại. Một bug tương đương ở `apps/tsmc-ingest/src/ffmpeg.ts` (gọi sai tham số `ffmpeg` CLI) chỉ làm **tiến trình con** thoát mã lỗi — CLI cha vẫn sống, báo lỗi rõ ràng, xử lý file tiếp theo bình thường. Cùng loại bug ở native FFI **giết luôn tiến trình cha** — nếu tiến trình đó là một Tauri desktop app, nghĩa là **cả ứng dụng crash**, không chỉ một job ingest thất bại. Đây là chi phí ẩn (Rust `unsafe`/C ABI không có validation nào giữa Rust code gọi sai và C library segfault) mà bảng tiêu chí gốc của spike này (viết trước khi chạy) không liệt kê — bảng gốc chỉ hỏi "build được không/nhanh không/gọn không", không hỏi "sai một tham số thì hậu quả tới đâu". Ghi nhận đây là **quan sát quan trọng hơn cả số liệu đạt/không đạt**, đúng tinh thần mục "Ghi kết quả" của skill `/spike`.
+
+### Phạm vi bằng chứng — đọc cho đúng trước khi dùng số liệu này
+
+- **Không phải máy sạch:** toolchain (`vcpkg`/LLVM/MSVC) đã có sẵn — chi phí "cài lần đầu" chưa được đo, xem "Build" ở trên.
+- **Không phải file thật:** file mẫu là test pattern tổng hợp, không phải file media thật admin từng dùng cho baseline 40.8x — số so sánh tốc độ mang tính chỉ dấu ("cùng cấp độ"), không phải phép đo khoa học ngang hàng.
+- **Chỉ một lần chạy, một loại nội dung** (H.264 1280x720 + AC3 stereo, Hạng C) — chưa thử HEVC/AV1 (Hạng B) hay codec cần re-encode video thật (Hạng D), nơi native FFI có thể lộ thêm vấn đề khác (ví dụ hardware-accel, hoặc CPU cost thật của encode video thay vì chỉ audio).
+
+### Tích hợp thật vào `apps/tsmc-ingest` (2026-09-04) — gỡ một phần caveat "chưa test qua CLI thật"
+
+Sau lần chạy độc lập ở `tools/spike-09/` (trên), đã nối `apps/tsmc-ingest` gọi được `spike09.exe` thật qua một backend chọn được (`TSMC_INGEST_FFMPEG_BACKEND=native`, mặc định vẫn giữ shell-out — không đổi hành vi production) — `ffmpeg-native.ts`/`ffmpeg-backend.ts` mới, `upload.ts` đổi đúng 1 dòng import. Admin chạy thật lệnh `upload` trên file AVI thật (Hạng D, ~21 phút) với biến bật native:
+
+- Hạng D đúng như thiết kế (`ffmpeg-backend.ts`: `reencodeToMp4` LUÔN shell-out, `spike09.exe` chưa cài re-encode video) — remux rơi về `ffmpeg` CLI thật, chạy đúng (~40s, 30x realtime).
+- Bước `generateThumbnail()` (unconditional, chạy cho mọi hạng) gọi `spike09.exe` thật lần đầu qua CLI production — và lộ ra bug đóng gói thật: thiếu `swresample-5.dll` (xem "Đóng gói" ở trên) làm `spike09.exe` thoát `0xC0000135`. Đã sửa (copy đủ 7 DLL) và verify lại sạch qua `ProcessStartInfo` giả lập đúng cách Node gọi tiến trình con.
+- Lần chạy thật này còn lộ 2 bug code (không phải bug FFmpeg/Rust): thông điệp lỗi đoán nhầm "có thể segfault" cho một lỗi DLL_NOT_FOUND, và nhãn timing log sai backend cho nhánh Hạng D — cả hai đã sửa. Chi tiết đầy đủ: [ADR-0013 § Cập nhật 2026-09-04](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-09-04-tích-hợp-thật-vào-tsmc-ingest--sửa-số-liệu-đóng-gói-ở-addendum-trên).
+
+**Vẫn CHƯA test:** đường native cho chính bước remux nặng nhất (Hạng A/B/C) qua CLI thật — lần chạy 2026-09-04 dùng file Hạng D nên chỉ native-path cho `generateThumbnail()` được thực thi qua production, chưa phải `remuxToMp4`. Cách chạy để tự bổ sung bằng chứng này: `apps/tsmc-ingest/README.md` § "Backend ffmpeg thử nghiệm".
+
+### Quyết định — khớp nhánh đầu của bảng "Ta sẽ làm gì" gốc, có sửa đổi
+
+Kết quả khớp nhánh 1 của bảng gốc bên dưới ("Build khả thi, tốc độ ≥ baseline, đóng gói gọn") — nhưng phát hiện #3 ở trên (rủi ro segfault) là thông tin MỚI mà bảng gốc chưa lường tới khi viết trước khi chạy. **Quyết định: đóng spike 🟢 với điều kiện** — native FFI đáng theo đuổi cho core lib Tauri VỀ MẶT hiệu năng/đóng gói, NHƯNG bất kỳ addendum ADR-0013 nào đề xuất hướng này bắt buộc phải giải quyết rủi ro process-crash (ví dụ: chạy pipeline FFmpeg trong tiến trình con/tác vụ tách biệt trong Tauri thay vì in-process, hoặc validate nghiêm ngặt format/channel trước mọi lệnh gọi `avcodec_send_*`) — không được mang nguyên trạng thái "một sai lầm ở tầng dữ liệu = segfault cả app" vào một GUI người dùng cuối. Xem addendum tương ứng ở [ADR-0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md).
+
+Mã nguồn giữ nguyên ở `tools/spike-09/` (không xoá như các spike xác nhận-rồi-bỏ khác) vì kết quả 🟢 nghĩa là code này có giá trị làm điểm khởi đầu thật cho core lib Tauri nếu hướng đó được chọn sau này — xem `tools/spike-09/README.md` cho cách build lại.
+
+### Ta sẽ làm gì với từng kết quả (bảng gốc, viết trước khi chạy — giữ nguyên để đối chiếu)
 
 | Kết quả | Hành động |
 |---|---|
