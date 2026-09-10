@@ -6,10 +6,17 @@ import { MatStepperModule } from '@angular/material/stepper';
 import { checkSession, describeIngestError, requestLoginCode, submitOtp, submitPassword, toIngestRpcError } from '../core/ingest-rpc';
 import { COUNTRY_DIAL_CODES, toE164 } from './country-codes';
 
-type LoginStatus = 'form' | 'code' | 'password' | 'done';
+type LoginStatus = 'checking' | 'form' | 'code' | 'password' | 'done';
 
 const API_ID_PATTERN = /^\d+$/;
 const API_HASH_PATTERN = /^[0-9a-fA-F]{32}$/;
+
+// KHÔNG phải secret bí mật server (CLAUDE.md bất biến #1) — API_ID là
+// credential người dùng tự cấp cho chính họ tại my.telegram.org. Chỉ nhớ
+// API_ID (đủ cho check_session()), KHÔNG nhớ API_HASH/số điện thoại — giữ
+// đúng phạm vi nhỏ nhất cần để tự nhận ra "đã đăng nhập" lúc mở app, không
+// mở rộng thành lưu toàn bộ credential.
+const SAVED_API_ID_KEY = 'tsmc-ingest-desktop:api-id';
 
 /**
  * Màn đăng nhập của tsmc-ingest-desktop (docs/ux-design.md § Phụ lục A.4,
@@ -23,6 +30,12 @@ const API_HASH_PATTERN = /^[0-9a-fA-F]{32}$/;
  * "linear" gốc của CdkStepper — race điều kiện thật khi lái selectedIndex/
  * completed bằng binding qua signal (ADR-0016 addendum 2026-08-27, đã tái
  * hiện ở chính apps/web).
+ *
+ * `tryAutoLogin()` (thêm 2026-09-10 sau verify thiết bị thật): backend
+ * `check_session()` KHÔI PHỤC session đúng ngay từ lần verify đầu — cái
+ * thiếu chỉ là UI không tự gọi lúc mở app, bắt user gõ lại cả Bước 1 để xác
+ * nhận điều app đã biết. Vá bằng cách nhớ mỗi API_ID (không nhớ API_HASH)
+ * ở `localStorage`, tự thử `check_session()` một lần trong constructor.
  */
 @Component({
   selector: 'app-login',
@@ -37,10 +50,15 @@ export class Login {
   protected readonly countryDialCodes = COUNTRY_DIAL_CODES;
   protected readonly defaultDialCode = COUNTRY_DIAL_CODES[0].dialCode;
 
-  protected readonly status = signal<LoginStatus>('form');
+  protected readonly status = signal<LoginStatus>('checking');
   protected readonly errorMessage = signal<string | null>(null);
   protected readonly submitting = signal(false);
   protected readonly floodWaitRemaining = signal<number | null>(null);
+
+  // API_ID đã nhớ từ lần trước (nếu có) — chỉ dùng để set giá trị ban đầu
+  // cho input (template ref, không phải reactive form) lúc chuyển từ
+  // 'checking' sang 'form'. Rỗng nếu chưa từng đăng nhập trên máy này.
+  protected readonly savedApiIdPrefill = signal('');
 
   // Giá trị sống của API_ID/API_HASH — CHỈ để tính credentialsValid (khoá/mở
   // nhãn Bước 2), KHÔNG dùng để submit (submit đọc thẳng từ template ref).
@@ -71,6 +89,56 @@ export class Login {
 
   constructor() {
     this.destroyRef.onDestroy(() => this.clearFloodWaitTimer());
+    void this.tryAutoLogin();
+  }
+
+  /** Lúc mở app: nếu máy này từng đăng nhập (có API_ID nhớ ở localStorage),
+   * tự gọi `check_session()` một lần — thành công thì nhảy thẳng 'done',
+   * không bắt user gõ lại cả 3 ô Bước 1 chỉ để xác nhận điều app đã biết.
+   * Không có API_ID nhớ, hoặc check_session() lỗi (session chết/hết hạn) →
+   * coi như chưa đăng nhập, không hiện lỗi ngay (không chặn onboarding) —
+   * cùng tinh thần `restore()` của apps/web/src/app/login/login.ts. */
+  private async tryAutoLogin(): Promise<void> {
+    const savedApiId = this.loadSavedApiId();
+    if (savedApiId === null) {
+      this.status.set('form');
+      return;
+    }
+    try {
+      const authorized = await checkSession(savedApiId);
+      this.lastApiId = savedApiId;
+      if (authorized) {
+        this.status.set('done');
+        return;
+      }
+    } catch {
+      // Session cũ lỗi/hết hạn — không chặn onboarding, coi như chưa đăng
+      // nhập, không phải lỗi cần hiển thị ngay.
+    }
+    this.savedApiIdPrefill.set(String(savedApiId));
+    this.apiIdLive.set(String(savedApiId));
+    this.status.set('form');
+  }
+
+  private loadSavedApiId(): number | null {
+    try {
+      const raw = localStorage.getItem(SAVED_API_ID_KEY);
+      const parsed = raw === null ? NaN : Number(raw);
+      return Number.isFinite(parsed) ? parsed : null;
+    } catch {
+      // localStorage có thể ném lỗi (private mode chặn, site data bị tắt) —
+      // coi như không có gì nhớ, không phải lỗi cần chặn onboarding.
+      return null;
+    }
+  }
+
+  private saveApiId(apiId: number): void {
+    try {
+      localStorage.setItem(SAVED_API_ID_KEY, String(apiId));
+    } catch {
+      // Không critical — chỉ mất tiện nghi "tự nhận ra đã đăng nhập" lần
+      // sau, không ảnh hưởng luồng đăng nhập hiện tại.
+    }
   }
 
   protected onApiIdInput(value: string): void {
@@ -106,6 +174,7 @@ export class Login {
     try {
       const authorized = await checkSession(apiId);
       this.lastApiId = apiId;
+      this.saveApiId(apiId);
       if (authorized) {
         this.status.set('done');
         return;

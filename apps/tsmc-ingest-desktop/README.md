@@ -44,7 +44,7 @@ Chạy riêng UI Angular (không mở cửa sổ Tauri, vd để xem layout nhan
 cd ui && pnpm run start     # http://localhost:4300/login
 ```
 
-Trong cửa sổ app: nhập API ID + API Hash + số điện thoại (Bước 1) → app tự gọi **check_session**, nếu `false` thì gọi tiếp **request_login_code** → nhập mã OTP vừa nhận (Bước 2) → **submit_otp** (nếu tài khoản có 2FA, nhập thêm mật khẩu ở Bước 3 → **submit_password**). Sai OTP/mật khẩu: UI tự gọi lại `check_session()` bằng API_ID đã nhập rồi đưa bạn về lại Bước 1 với ô API_HASH/số điện thoại còn giữ nguyên giá trị — bấm "Tiếp tục" lại là đủ, không cần gõ lại từ đầu (xem "Đơn giản hoá có chủ đích" trong `commands.rs`). Màn Chọn kênh (**resolve_channel**) và các màn sau chưa có UI.
+Mở app lần đầu: nhập API ID + API Hash + số điện thoại (Bước 1) → app tự gọi **check_session**, nếu `false` thì gọi tiếp **request_login_code** → nhập mã OTP vừa nhận (Bước 2) → **submit_otp** (nếu tài khoản có 2FA, nhập thêm mật khẩu ở Bước 3 → **submit_password**). Sai OTP/mật khẩu: UI tự gọi lại `check_session()` bằng API_ID đã nhập rồi đưa bạn về lại Bước 1 với ô API_HASH/số điện thoại còn giữ nguyên giá trị — bấm "Tiếp tục" lại là đủ, không cần gõ lại từ đầu (xem "Đơn giản hoá có chủ đích" trong `commands.rs`). Mở app lần sau: UI tự nhớ API_ID ở `localStorage` (không nhớ API_HASH/số điện thoại) và tự gọi lại `check_session()` — nếu session cũ còn hợp lệ, nhảy thẳng "Đã đăng nhập", không hỏi lại OTP. Màn Chọn kênh (**resolve_channel**) và các màn sau chưa có UI.
 
 ## Năm command đã wire (`src-tauri/src/commands.rs`)
 

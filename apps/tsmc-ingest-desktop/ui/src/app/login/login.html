@@ -1,146 +1,162 @@
 <section class="login">
-  <h1 class="brand">
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="M3 9.5h18" />
-      <path d="M4.5 6.5 6.5 9.5M9 5.5 11 9.5M13.5 4.5 15.5 9.5" />
-      <rect x="3" y="9.5" width="18" height="10" rx="1.5" />
-    </svg>
-    TSMC Ingest Desktop
-  </h1>
-
-  <!-- Bắt buộc theo ADR-0011 §5 + docs/ux-design.md § Phụ lục A.4 ("giữ
-       NGUYÊN cảnh báo bắt buộc — desktop app không được nhẹ tay hơn web"):
-       cảnh báo tài khoản thật PHẢI hiện trước ô nhập đầu tiên. -->
-  <div class="risk-banner" role="alert">
-    ⚠️ Đây là tài khoản Telegram <strong>THẬT</strong> của bạn — đăng nhập ở đây tạo session MTProto có
-    toàn quyền tài khoản (đọc/gửi tin nhắn, xoá tài khoản). Chỉ tự chạy công cụ này trên máy của chính
-    bạn từ mã nguồn đã kiểm tra. Tải/đăng quá nhiều liên tục có thể khiến Telegram tạm hạn chế tài khoản
-    (<code>FLOOD_WAIT</code>).
-  </div>
-
-  @if (status() === 'done') {
-    <div class="done-panel">
-      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <circle cx="12" cy="12" r="10" />
-        <path d="M8 12l3 3 5-6" stroke-linecap="round" stroke-linejoin="round" />
-      </svg>
-      <p>Đã đăng nhập.</p>
-      <p class="hint">
-        Các màn tiếp theo (chọn kênh, workspace hàng đợi) chưa có ở slice này — xem
-        <code>docs/ux-design.md</code> § Phụ lục A.4.
-      </p>
-    </div>
+  @if (status() === 'checking') {
+    <!-- Chỉ hiện khi CÓ api_id nhớ từ lần trước (tryAutoLogin() trong
+         login.ts) — không có gì nhớ thì bỏ qua thẳng 'form', không có gì để
+         "đang kiểm tra". Chưa render input nào ở đây nên chưa cần cảnh báo
+         ADR-0011 §5 (cảnh báo đó bắt buộc TRƯỚC Ô NHẬP ĐẦU TIÊN, không phải
+         trước mọi pixel của trang). -->
+    <p class="checking">Đang kiểm tra phiên đăng nhập…</p>
   } @else {
-    <!-- linear=false: xem chú thích ADR-0016 addendum ở login.ts — race điều
-         kiện thật giữa selectedIndex và completed khi lái bằng signal. -->
-    <mat-stepper [linear]="false" [selectedIndex]="stepIndex()" orientation="vertical">
-      <!-- Ghi đè icon "done" mặc định của Material bằng SVG inline — dự án
-           không nhúng font icon ligature (bất biến #8). -->
-      <ng-template matStepperIcon="done">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M4 12l5 5L20 6" stroke-linecap="round" stroke-linejoin="round" />
+    <h1 class="brand">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 9.5h18" />
+        <path d="M4.5 6.5 6.5 9.5M9 5.5 11 9.5M13.5 4.5 15.5 9.5" />
+        <rect x="3" y="9.5" width="18" height="10" rx="1.5" />
+      </svg>
+      TSMC Ingest Desktop
+    </h1>
+
+    <!-- Bắt buộc theo ADR-0011 §5 + docs/ux-design.md § Phụ lục A.4 ("giữ
+         NGUYÊN cảnh báo bắt buộc — desktop app không được nhẹ tay hơn web"):
+         cảnh báo tài khoản thật PHẢI hiện trước ô nhập đầu tiên. -->
+    <div class="risk-banner" role="alert">
+      ⚠️ Đây là tài khoản Telegram <strong>THẬT</strong> của bạn — đăng nhập ở đây tạo session MTProto có
+      toàn quyền tài khoản (đọc/gửi tin nhắn, xoá tài khoản). Chỉ tự chạy công cụ này trên máy của chính
+      bạn từ mã nguồn đã kiểm tra. Tải/đăng quá nhiều liên tục có thể khiến Telegram tạm hạn chế tài khoản
+      (<code>FLOOD_WAIT</code>).
+    </div>
+
+    @if (status() === 'done') {
+      <div class="done-panel">
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" />
+          <path d="M8 12l3 3 5-6" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
-      </ng-template>
-
-      <mat-step [editable]="false" [completed]="stepIndex() > 0">
-        <ng-template matStepLabel>
-          <svg class="step-dot" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor" /></svg>
-          Bước 1: API Credential
-        </ng-template>
+        <p>Đã đăng nhập.</p>
         <p class="hint">
-          Nhập key từ <a href="https://my.telegram.org" target="_blank" rel="noopener">my.telegram.org</a> — dự án
-          không nhúng credential nào của riêng ai.
+          Các màn tiếp theo (chọn kênh, workspace hàng đợi) chưa có ở slice này — xem
+          <code>docs/ux-design.md</code> § Phụ lục A.4.
         </p>
-        <form
-          (submit)="onSubmitCredentials($event, apiIdInput.value, apiHashInput.value, dialCodeSelect.value, phoneInput.value)"
-        >
-          <mat-form-field appearance="outline">
-            <mat-label>API_ID</mat-label>
-            <input matInput type="number" #apiIdInput required (input)="onApiIdInput(apiIdInput.value)" />
-            <mat-hint>Chỉ số</mat-hint>
-          </mat-form-field>
-          <mat-form-field appearance="outline">
-            <mat-label>API_HASH</mat-label>
-            <input
-              matInput
-              #apiHashInput
-              required
-              pattern="[0-9a-fA-F]{32}"
-              (input)="onApiHashInput(apiHashInput.value)"
-            />
-            <mat-hint>Chuỗi hexa 32 ký tự</mat-hint>
-          </mat-form-field>
-          <div class="phone-row">
-            <mat-form-field appearance="outline" class="dial-code">
-              <mat-label>Mã vùng</mat-label>
-              <select matNativeControl #dialCodeSelect required [value]="defaultDialCode">
-                @for (country of countryDialCodes; track country.iso2) {
-                  <option [value]="country.dialCode">+{{ country.dialCode }} {{ country.name }}</option>
-                }
-              </select>
-            </mat-form-field>
-            <mat-form-field appearance="outline" class="national-number">
-              <mat-label>Số điện thoại</mat-label>
-              <input matInput type="tel" inputmode="numeric" #phoneInput placeholder="912345678" required />
-            </mat-form-field>
-          </div>
-          <button mat-flat-button color="primary" type="submit" [disabled]="submitting() || floodWaitRemaining() !== null">
-            Tiếp tục
-          </button>
-        </form>
-      </mat-step>
-
-      <mat-step [editable]="false" [completed]="stepIndex() > 1">
-        <ng-template matStepLabel>
-          @if (credentialsValid()) {
-            <svg class="step-dot" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor" /></svg>
-          } @else {
-            <svg class="step-dot" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9" /></svg>
-          }
-          Bước 2: Mã xác nhận
-          @if (!credentialsValid()) {
-            <span class="lock-hint">(khoá — hoàn tất Bước 1 hợp lệ)</span>
-          }
+      </div>
+    } @else {
+      <!-- linear=false: xem chú thích ADR-0016 addendum ở login.ts — race điều
+           kiện thật giữa selectedIndex và completed khi lái bằng signal. -->
+      <mat-stepper [linear]="false" [selectedIndex]="stepIndex()" orientation="vertical">
+        <!-- Ghi đè icon "done" mặc định của Material bằng SVG inline — dự án
+             không nhúng font icon ligature (bất biến #8). -->
+        <ng-template matStepperIcon="done">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 12l5 5L20 6" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
         </ng-template>
-        <form (submit)="onSubmitCode($event, codeInput.value)">
-          <p>Telegram đã gửi mã xác nhận đến số điện thoại bạn vừa nhập.</p>
-          <mat-form-field appearance="outline">
-            <mat-label>Mã xác nhận</mat-label>
-            <input matInput #codeInput required />
-          </mat-form-field>
-          <button mat-flat-button color="primary" type="submit" [disabled]="submitting() || floodWaitRemaining() !== null">
-            Xác nhận
-          </button>
-        </form>
-      </mat-step>
 
-      @if (status() === 'password') {
-        <mat-step [editable]="false">
+        <mat-step [editable]="false" [completed]="stepIndex() > 0">
           <ng-template matStepLabel>
             <svg class="step-dot" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor" /></svg>
-            Bước 3: Mật khẩu 2FA
+            Bước 1: API Credential
           </ng-template>
-          <form (submit)="onSubmitPassword($event, passwordInput.value)">
-            <p>Tài khoản có bật xác thực 2 bước (Cloud Password).</p>
+          <p class="hint">
+            Nhập key từ <a href="https://my.telegram.org" target="_blank" rel="noopener">my.telegram.org</a> — dự án
+            không nhúng credential nào của riêng ai.
+          </p>
+          <form
+            (submit)="onSubmitCredentials($event, apiIdInput.value, apiHashInput.value, dialCodeSelect.value, phoneInput.value)"
+          >
             <mat-form-field appearance="outline">
-              <mat-label>Mật khẩu 2FA</mat-label>
-              <input matInput type="password" #passwordInput required />
+              <mat-label>API_ID</mat-label>
+              <input
+                matInput
+                type="number"
+                #apiIdInput
+                required
+                [value]="savedApiIdPrefill()"
+                (input)="onApiIdInput(apiIdInput.value)"
+              />
+              <mat-hint>Chỉ số</mat-hint>
+            </mat-form-field>
+            <mat-form-field appearance="outline">
+              <mat-label>API_HASH</mat-label>
+              <input
+                matInput
+                #apiHashInput
+                required
+                pattern="[0-9a-fA-F]{32}"
+                (input)="onApiHashInput(apiHashInput.value)"
+              />
+              <mat-hint>Chuỗi hexa 32 ký tự</mat-hint>
+            </mat-form-field>
+            <div class="phone-row">
+              <mat-form-field appearance="outline" class="dial-code">
+                <mat-label>Mã vùng</mat-label>
+                <select matNativeControl #dialCodeSelect required [value]="defaultDialCode">
+                  @for (country of countryDialCodes; track country.iso2) {
+                    <option [value]="country.dialCode">+{{ country.dialCode }} {{ country.name }}</option>
+                  }
+                </select>
+              </mat-form-field>
+              <mat-form-field appearance="outline" class="national-number">
+                <mat-label>Số điện thoại</mat-label>
+                <input matInput type="tel" inputmode="numeric" #phoneInput placeholder="912345678" required />
+              </mat-form-field>
+            </div>
+            <button mat-flat-button color="primary" type="submit" [disabled]="submitting() || floodWaitRemaining() !== null">
+              Tiếp tục
+            </button>
+          </form>
+        </mat-step>
+
+        <mat-step [editable]="false" [completed]="stepIndex() > 1">
+          <ng-template matStepLabel>
+            @if (credentialsValid()) {
+              <svg class="step-dot" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor" /></svg>
+            } @else {
+              <svg class="step-dot" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9" /></svg>
+            }
+            Bước 2: Mã xác nhận
+            @if (!credentialsValid()) {
+              <span class="lock-hint">(khoá — hoàn tất Bước 1 hợp lệ)</span>
+            }
+          </ng-template>
+          <form (submit)="onSubmitCode($event, codeInput.value)">
+            <p>Telegram đã gửi mã xác nhận đến số điện thoại bạn vừa nhập.</p>
+            <mat-form-field appearance="outline">
+              <mat-label>Mã xác nhận</mat-label>
+              <input matInput #codeInput required />
             </mat-form-field>
             <button mat-flat-button color="primary" type="submit" [disabled]="submitting() || floodWaitRemaining() !== null">
               Xác nhận
             </button>
           </form>
         </mat-step>
-      }
-    </mat-stepper>
-  }
 
-  @if (errorMessage(); as message) {
-    <p class="error">
-      {{ message }}
-      @if (floodWaitRemaining(); as remaining) {
-        <span class="countdown">Còn {{ remaining }}s.</span>
-      }
-    </p>
+        @if (status() === 'password') {
+          <mat-step [editable]="false">
+            <ng-template matStepLabel>
+              <svg class="step-dot" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor" /></svg>
+              Bước 3: Mật khẩu 2FA
+            </ng-template>
+            <form (submit)="onSubmitPassword($event, passwordInput.value)">
+              <p>Tài khoản có bật xác thực 2 bước (Cloud Password).</p>
+              <mat-form-field appearance="outline">
+                <mat-label>Mật khẩu 2FA</mat-label>
+                <input matInput type="password" #passwordInput required />
+              </mat-form-field>
+              <button mat-flat-button color="primary" type="submit" [disabled]="submitting() || floodWaitRemaining() !== null">
+                Xác nhận
+              </button>
+            </form>
+          </mat-step>
+        }
+      </mat-stepper>
+    }
+
+    @if (errorMessage(); as message) {
+      <p class="error">
+        {{ message }}
+        @if (floodWaitRemaining(); as remaining) {
+          <span class="countdown">Còn {{ remaining }}s.</span>
+        }
+      </p>
+    }
   }
 </section>
