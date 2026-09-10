@@ -4,6 +4,36 @@
 >
 > **Cách cập nhật:** xong một mục → xoá khỏi đây, ghi 1-2 dòng kết quả vào [docs/changelog.md](./changelog.md), và nếu phát hiện gì lệch với thiết kế thì thêm addendum vào ADR liên quan (dùng skill `/adr`). Khi mục cuối cùng của một tính năng biến mất khỏi đây, gỡ luôn nhãn `[Cần kiểm chứng thiết bị thật]` tương ứng ở roadmap.md.
 
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — khung sườn đăng nhập + resolve kênh (2026-09-10)
+
+Liên quan: [ADR-0017 § Cập nhật 2026-09-10, khung sườn](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-10-khung-sườn-appstsmc-ingest-desktop--code-thật-lần-đầu), [docs/roadmap.md § Ingest](./roadmap.md#ingest). Khác các mục CLI/web khác trong file này — đây là app desktop Tauri, "thiết bị thật" nghĩa là: tài khoản Telegram thật + `cargo tauri dev` chạy trên máy thật (không phải `cargo build`/`cargo clippy`, vốn đã sạch và không cần MTProto).
+
+**KHÔNG chạy hộ bằng agent/Claude** — CLAUDE.md: "Không chạy đăng nhập MTProto hộ người dùng". Admin tự chạy trong `apps/tsmc-ingest-desktop/` (`cargo tauri dev`).
+
+### Chuẩn bị
+
+- [x] `cargo build --workspace` sạch, không warning — verify 2026-09-10.
+- [x] `cargo clippy --workspace` sạch, không warning — verify 2026-09-10.
+- [x] `cargo tauri dev` boot được cửa sổ WebView2 thật, chạy ổn định tới khi dừng chủ động, không panic — verify 2026-09-10 (không phải trên máy admin, môi trường dựng khung sườn).
+- [ ] `TSMC_API_ID`/`TSMC_API_HASH` thật (tự tạo tại https://my.telegram.org).
+
+### Các bước
+
+- [ ] `check_session` — lần đầu (chưa có session) trả `false`, không lỗi.
+- [ ] `request_login_code` → nhận được OTP qua Telegram/SMS.
+- [ ] `submit_otp` với mã đúng — tài khoản KHÔNG có 2FA: trả `LoggedIn` ngay.
+- [ ] `submit_otp` với mã đúng — tài khoản CÓ 2FA: trả `PasswordRequired`, sau đó `submit_password` với mật khẩu đúng trả thành công.
+- [ ] Đóng app, mở lại, `check_session` lần hai — xác nhận trả `true` (khôi phục session SQLite ở thư mục app-data của HĐH, KHÔNG hỏi lại OTP) — đúng tiêu chí M1 đã verify ở SPIKE-10 cho CLI, nhưng đường dẫn session khác (app-data thay vì cwd), cần verify riêng.
+- [ ] `resolve_channel` với username một kênh do chính tài khoản đăng nhập sở hữu — trả đúng `id`/`title`, `is_own: true`.
+- [ ] `resolve_channel` với username một kênh KHÔNG phải của tài khoản đăng nhập — trả `is_own: false`, không lỗi.
+- [ ] `submit_otp` với mã SAI — xác nhận lỗi trả về đúng, state reset về `Disconnected` như thiết kế (xem README "Đơn giản hoá có chủ đích") — phải bấm lại từ `request_login_code`, không kẹt ở trạng thái lỡ dở.
+
+### Nếu có gì vỡ
+
+- `invoke()` không trả gì / lỗi "command not found" → kiểm `capabilities/default.json` (`core:default`) và tên command trong `generate_handler!` (`src-tauri/src/lib.rs`) khớp đúng `#[tauri::command]` fn name.
+- Lỗi ngay ở `request_login_code`/`submit_otp` (không phải do gõ sai) → đối chiếu với `docs/spikes/README.md#spike-10` (cùng `grammers-client` 0.10.0, đã verify thật qua CLI) — nếu CLI cũ (`tools/spike-10/r3-grammers`) vẫn chạy đúng nhưng app desktop mới lỗi, nghi ngờ đầu tiên là khác biệt session path (app-data dir vs cwd) hoặc state machine mới viết ở `commands.rs`, không phải bug thư viện.
+- Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0017 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
+
 ## Player: hiển thị phụ đề (`subs[]`) (2026-08-31)
 
 Liên quan: [docs/changelog.md § 2026-08-31, verify — ĐẠT](./changelog.md#2026-08-31--player-verify-thật-phụ-đề-đơn-ngôn-ngữ--đạt), [docs/roadmap.md § UI theo từng màn hình](./roadmap.md#ui-theo-từng-màn-hình). Khác mục CLI ngay dưới đây — đây là tính năng web, verify trên **staging** (https://tsmc-staging.web.app) bằng trình duyệt thật, không phải máy admin.

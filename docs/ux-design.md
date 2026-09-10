@@ -361,7 +361,7 @@ Trên mobile, Cài đặt **không** nên chiếm một tab dưới Bottom Nav �
 >
 > **Không thuộc 7 màn hình mobile-first ở trên.** Khác đối tượng (người **đăng** nội dung, không phải người xem), khác thiết bị (desktop), khác ngôn ngữ thiết kế (dày đặc, bàn phím trước, bảng thay vì card). Ba nguyên tắc chuyển đổi mobile-first ở đầu tài liệu **không áp dụng** cho phụ lục này.
 >
-> **Kiến trúc runtime CHƯA quyết** — đặc biệt tầng MTProto, đang bị gate bởi [SPIKE-10](./spikes/README.md#spike-10). Phụ lục này cố ý chỉ mô tả **chức năng, giao diện và hành trình người dùng**, không mô tả tiến trình/thư viện nào chạy cái gì. Nếu spike cho kết quả buộc phải đổi thiết kế (ví dụ tầng MTProto được chọn không báo được tiến trình hoặc không huỷ được giữa chừng, tiêu chí M5), thì mục A.2 nguyên tắc 4 và mockup A.3 phải sửa lại — **ghi rõ ở đây khi điều đó xảy ra**, đừng để mockup mô tả một thứ không dựng được.
+> **Kiến trúc runtime đã chốt (2026-09-07).** [SPIKE-10](./spikes/README.md#spike-10) đóng 🟡 (chấp nhận rủi ro, M6 để ngỏ có chủ đích) — [ADR-0017](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md) chọn `grammers-client` 0.10.0 (Rust) làm MTProto library, tách biệt hoàn toàn khỏi GramJS của `apps/web`. Với thiết kế ở phụ lục này cụ thể: **tiến trình + huỷ giữa chừng (nguyên tắc UX 4, mockup A.3) đã ĐẠT thật (M5)**, không cần sửa lại; thông lượng upload tuyệt đối (M4) mới tới 24.4% baseline Telegram Desktop, chưa tối ưu hết — không chặn thiết kế, chỉ khiến UX thật chậm hơn kỳ vọng cho tới khi tối ưu thêm. Chi tiết đầy đủ ở A.6.
 >
 > **Không vi phạm [ADR-0001](./adr/0001-kien-truc-client-heavy-khong-backend.md):** công cụ này nằm phía **tác giả nội dung**, ngoài đường chạy của người xem — cùng vị trí với `tsmc-ingest` CLI và `@tsmc_bot`. Người xem vẫn không cài gì.
 
@@ -456,15 +456,15 @@ Khi đang chạy, vùng bảng đổi sang chế độ theo dõi: mỗi dòng hi
 
 ### A.6 Ghi chú đối chiếu và câu hỏi còn mở
 
-**Ba chi tiết trong thiết kế trên đang chờ [SPIKE-10](./spikes/README.md#spike-10), không được coi là đã chốt:**
+**[SPIKE-10](./spikes/README.md#spike-10) đã đóng (2026-09-07, 🟡 chấp nhận rủi ro, [ADR-0017](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md)) — ba chi tiết dưới đây giờ có số liệu thật, không còn "đang chờ":**
 
-- **Tiến trình + huỷ giữa chừng** (nguyên tắc UX 4, mockup A.3, bảng đường hỏng) — phụ thuộc tiêu chí M5. Nếu tầng MTProto được chọn không báo được tiến trình dưới 2s/lần hoặc không huỷ được trong 3s, phải thiết kế lại phần theo dõi tiến trình.
-- **Nối lại upload sau khi mất mạng** — phụ thuộc M5/M6. Có thư viện hỗ trợ, có thư viện không; chưa đo.
-- **Remux song song với upload** (bước 4 đường hạnh phúc) — chỉ an toàn nếu `FLOOD_WAIT` được xử lý ở một chỗ tập trung; chưa đo.
+- **Tiến trình + huỷ giữa chừng** (nguyên tắc UX 4, mockup A.3, bảng đường hỏng) — ✅ **ĐẠT thật** (M5, `grammers-client`): tiến trình báo được, huỷ dừng lưu lượng ngay không cần kill tay. Thiết kế A.2/A.3 giữ nguyên, không cần sửa lại.
+- **Nối lại upload sau khi mất mạng** — phụ thuộc M6 (`FLOOD_WAIT`), và M6 **để ngỏ có chủ đích** ở ADR-0017 (không chủ động ép né `FLOOD_WAIT` để đo — CLAUDE.md + SPIKE-04 đã là nơi dò ngưỡng). Chưa có số liệu thật riêng cho ca "mất mạng giữa upload" — bảng đường hỏng ở A.5 giữ nguyên làm mục tiêu thiết kế, chưa xác nhận khả thi khi code thật.
+- **Remux song song với upload** (bước 4 đường hạnh phúc) — vẫn chưa đo. An toàn của mục này phụ thuộc `FLOOD_WAIT` được xử lý ở một chỗ tập trung — phần đó chưa thiết kế, để dành cho lúc code hàng đợi bền (A.1 mục 1).
 
 **Trùng vai với Màn hình 6 (Ingest Editor web).** "Trình quản lý catalog" ở A.4 làm đúng việc mà Màn hình 6 đang làm, nhưng đầy đủ hơn (đối soát, sửa hàng loạt). Nếu công cụ desktop chạy thật và tốt hơn hẳn, nên cân nhắc **thu hẹp Màn hình 6** về đúng "sửa nhanh một item" thay vì cố làm trình quản lý đầy đủ — quyết định này để dành cho lúc GUI chạy thật, không quyết trước.
 
-**Ba câu hỏi sản phẩm còn treo** (ghi ở đây để không trôi mất; quyết trong ADR sau spike, xem "Plan sau spike" của SPIKE-10):
+**Ba câu hỏi sản phẩm còn treo** (ghi ở đây để không trôi mất — [ADR-0017 §"Việc để ngỏ"](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#việc-để-ngỏ-ghi-thẳng-thay-vì-để-trôi) xác nhận cả ba vẫn chưa quyết, không phải quyết định của phụ lục này):
 
 - Số phận `tsmc-ingest` CLI: giữ song song làm đường headless/batch, hay khai tử sau khi GUI đạt parity?
 - Tra metadata online (TMDB/OMDb): về kiến trúc **được phép** (nằm phía admin, ngoài đường chạy người xem — bất biến #8 nói về app web), và nó giết nỗi đau gõ tay triệt để hơn "điền xuống". Đổi lại: gửi tên phim trong kho của admin sang bên thứ ba + thêm một API key. Nếu làm thì **opt-in, mặc định tắt**.

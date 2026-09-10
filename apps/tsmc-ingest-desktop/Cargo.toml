@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = ["ingest-rpc-trait", "ingest-grammers", "src-tauri"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+
+# ADR-0017 điều kiện bắt buộc #1: ghim cứng grammers-client (không "^") — cùng
+# lý do CLAUDE.md bất biến #9 ghim `telegram@2.26.22`. Ghim CẢ NĂM crate
+# grammers-*, không chỉ grammers-client — tools/spike-10/r3-grammers/Cargo.toml
+# chỉ ghim lỏng "0.10.0" (chấp nhận được cho spike, không chấp nhận được cho
+# app thật). Mọi crate thành viên tham chiếu qua `{ workspace = true }` để
+# không ai vô tình gõ lại pin sai khi thêm crate mới.
+[workspace.dependencies]
+grammers-client = { version = "=0.10.0", features = ["fs"] }
+grammers-session = { version = "=0.10.0", features = ["sqlite-storage"] }
+grammers-mtsender = "=0.10.0"
+grammers-mtproto = "=0.10.0"
+grammers-tl-types = "=0.10.0"
+async-trait = "0.1"
+thiserror = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "fs", "sync", "time"] }
+serde = { version = "1", features = ["derive"] }

@@ -1,0 +1,18 @@
+[package]
+name = "ingest-grammers"
+version.workspace = true
+edition.workspace = true
+publish = false
+description = "Implementation IngestRpc bằng grammers-client 0.10.0 (ADR-0017)."
+
+[dependencies]
+ingest-rpc-trait = { path = "../ingest-rpc-trait" }
+grammers-client = { workspace = true }
+grammers-session = { workspace = true }
+grammers-mtsender = { workspace = true }
+grammers-mtproto = { workspace = true }
+grammers-tl-types = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures-util = "0.3"
+rand = "0.8"

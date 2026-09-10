@@ -1,0 +1,10 @@
+[package]
+name = "ingest-rpc-trait"
+version.workspace = true
+edition.workspace = true
+publish = false
+description = "Hợp đồng RPC MTProto dùng chung cho công cụ ingest desktop (ADR-0017)."
+
+[dependencies]
+async-trait = { workspace = true }
+thiserror = { workspace = true }

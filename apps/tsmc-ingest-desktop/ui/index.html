@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>TSMC Ingest Desktop — khung sườn</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.1rem; }
+  fieldset { margin-bottom: 1rem; }
+  label { display: block; margin: 0.4rem 0 0.15rem; }
+  input { width: 100%; box-sizing: border-box; padding: 0.3rem; }
+  button { margin-top: 0.5rem; }
+  pre { background: #f3f3f3; padding: 0.6rem; white-space: pre-wrap; word-break: break-word; }
+</style>
+</head>
+<body>
+<h1>TSMC Ingest Desktop — khung sườn IPC (chưa phải UI thật)</h1>
+<p>
+  Trang này KHÔNG phải giao diện thật của công cụ ingest desktop — xem
+  <code>docs/ux-design.md</code> § Phụ lục A cho mockup thật (workspace ba
+  vùng). Trang này chỉ tồn tại để chứng minh đường Tauri IPC → Rust →
+  <code>grammers-client</code> chạy đúng, với đúng 5 command đã wire ở
+  <code>src-tauri/src/commands.rs</code>.
+</p>
+<p><strong>Cảnh báo (ADR-0011 §5):</strong> đăng nhập ở đây là đăng nhập MTProto
+  THẬT bằng tài khoản Telegram thật của bạn — toàn quyền đọc/gửi tin
+  nhắn/xoá tài khoản. Chỉ dùng tài khoản test nếu đang thử nghiệm.</p>
+
+<fieldset>
+  <legend>1. Kiểm tra session</legend>
+  <label>API ID</label>
+  <input id="apiId" type="number" placeholder="12345" />
+  <button id="btnCheckSession">check_session</button>
+</fieldset>
+
+<fieldset>
+  <legend>2. Đăng nhập (nếu check_session trả false)</legend>
+  <label>API Hash</label>
+  <input id="apiHash" type="text" />
+  <label>Số điện thoại (+84...)</label>
+  <input id="phone" type="text" />
+  <button id="btnRequestCode">request_login_code</button>
+
+  <label>Mã OTP</label>
+  <input id="otp" type="text" />
+  <button id="btnSubmitOtp">submit_otp</button>
+
+  <label>Mật khẩu 2FA (chỉ khi submit_otp trả PasswordRequired)</label>
+  <input id="password" type="password" />
+  <button id="btnSubmitPassword">submit_password</button>
+</fieldset>
+
+<fieldset>
+  <legend>3. Resolve kênh (chỉ khi đã đăng nhập xong)</legend>
+  <label>Username kênh (không có @)</label>
+  <input id="channelRef" type="text" />
+  <button id="btnResolveChannel">resolve_channel</button>
+</fieldset>
+
+<h2>Kết quả</h2>
+<pre id="out">(chưa gọi gì)</pre>
+
+<script>
+  const { invoke } = window.__TAURI__.core;
+  const out = document.getElementById("out");
+  const show = (label, value) => {
+    out.textContent = `${label}\n${JSON.stringify(value, null, 2)}`;
+  };
+  const run = (label, fn) => fn().then((v) => show(label + " OK", v)).catch((e) => show(label + " LỖI", e));
+
+  document.getElementById("btnCheckSession").onclick = () =>
+    run("check_session", () => invoke("check_session", { apiId: Number(document.getElementById("apiId").value) }));
+
+  document.getElementById("btnRequestCode").onclick = () =>
+    run("request_login_code", () =>
+      invoke("request_login_code", {
+        apiHash: document.getElementById("apiHash").value,
+        phone: document.getElementById("phone").value,
+      }),
+    );
+
+  document.getElementById("btnSubmitOtp").onclick = () =>
+    run("submit_otp", () => invoke("submit_otp", { code: document.getElementById("otp").value }));
+
+  document.getElementById("btnSubmitPassword").onclick = () =>
+    run("submit_password", () => invoke("submit_password", { password: document.getElementById("password").value }));
+
+  document.getElementById("btnResolveChannel").onclick = () =>
+    run("resolve_channel", () => invoke("resolve_channel", { channelRef: document.getElementById("channelRef").value }));
+</script>
+</body>
+</html>

@@ -85,3 +85,95 @@ ADR-0003 chọn GramJS với lý do "bọc sau `TelegramGateway`, giữ chi phí
 - **R1 (GramJS trong webview) vẫn là hướng hấp dẫn về nguyên tắc**, chỉ bị hoãn vì chi phí viết mới — không bị đóng dứt khoát. Nếu áp lực "chỉ một thư viện MTProto" tăng lên (vd sau khi thấy chi phí bảo trì hai thư viện thật), đây là hướng quay lại đầu tiên.
 - **Đặt tên/vị trí code thật** cho công cụ ingest desktop (`apps/tsmc-ingest-desktop`? tên khác?) và cấu trúc package Rust/Tauri — chưa quyết, xem addendum [ADR-0012](./0012-trien-khai-static-pwa-va-cau-truc-workspace.md#cập-nhật-sau-khi-accepted-2026-09-07-adr-0017--ranh-giới-workspace-cho-công-cụ-ingest-desktop).
 - **Số phận `tsmc-ingest` CLI hiện tại** (giữ song song hay khai tử sau khi GUI đạt parity), tra cứu metadata online (TMDB, opt-in), và `@tsmc_bot` có còn cần không khi GUI làm được `/publish`/`/check` — đều vẫn để ngỏ, chưa phải việc của ADR này (xem addendum [ADR-0013](./0013-bot-dong-hanh-va-pipeline-ingest.md) tương ứng).
+
+## Cập nhật sau khi Accepted (2026-09-10, tên/vị trí code thật — gỡ một mục "để ngỏ")
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định
+> đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết
+> định gốc (`grammers-client` 0.10.0, bốn điều kiện bắt buộc) **vẫn đứng vững**.
+> Mục này GỠ đúng một dòng "để ngỏ" ở trên: "đặt tên/vị trí code thật... chưa
+> quyết".
+
+**Chốt: `apps/tsmc-ingest-desktop`.** Đúng tiền lệ đặt tên đã có (`apps/web`,
+`apps/tsmc-ingest`) — rõ ràng đây là bản GUI song song với CLI hiện có, không
+phải một pipeline ingest riêng biệt hay bản thay thế tức thời.
+
+**Thứ tự scaffold trong lần code đầu tiên:** bắt đầu bằng khung sườn tối
+thiểu — Cargo workspace của `apps/tsmc-ingest-desktop` (ranh giới ngoài
+`pnpm`/ESLint, đúng nguyên tắc đã ghi ở [ADR-0012 § Cập nhật
+2026-09-07](./0012-trien-khai-static-pwa-va-cau-truc-workspace.md#cập-nhật-sau-khi-accepted-2026-09-07-adr-0017--ranh-giới-workspace-cho-công-cụ-ingest-desktop)),
+trait `IngestRpc` (điều kiện bắt buộc #2 ở Quyết định gốc), và một impl
+`grammers-client` tối thiểu (login + resolve kênh) **tái dùng trực tiếp code
+đã chạy thật ở `tools/spike-10/r3-grammers`** — không viết lại từ đầu. UI thật
+(webview/Angular cho mockup A.3 ở
+[docs/ux-design.md § Phụ lục A](../ux-design.md#phụ-lục-a-công-cụ-ingest-desktop-gui-tauri))
+**chưa làm ở bước này** — quyết định riêng, để dành cho slice kế tiếp sau khi
+khung sườn Rust/Tauri chạy được.
+
+**Việc tiếp theo:** scaffold khung sườn theo đúng thứ tự trên; cập nhật
+[docs/roadmap.md](../roadmap.md) khi khung sườn chạy được lần đầu (đúng quy
+ước "xoá khỏi roadmap khi bắt đầu, thêm changelog khi xong" — ở đây là cập
+nhật trạng thái, chưa xong hẳn).
+
+## Cập nhật sau khi Accepted (2026-09-10, khung sườn `apps/tsmc-ingest-desktop` — code thật lần đầu)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định
+> đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết
+> định gốc **vẫn đứng vững**.
+
+Khung sườn `apps/tsmc-ingest-desktop` đã dựng và build sạch thật (không phải
+giả định): `cargo build --workspace` và `cargo clippy --workspace` (3 crate:
+`ingest-rpc-trait`, `ingest-grammers`, `src-tauri`) đều 0 warning; `cargo
+tauri dev` boot được, tạo cửa sổ WebView2 thật, chạy ổn định (không panic)
+cho tới khi bị dừng chủ động — chưa test luồng đăng nhập MTProto thật (CLAUDE.md:
+không chạy đăng nhập hộ người dùng), xem checklist mới ở
+[docs/pending-device-tests.md](../pending-device-tests.md).
+
+**Đúng như dự kiến — trait + toàn bộ 7 method của `IngestRpc` (bao gồm
+`multi_connection_upload()` đã verify M4 ở SPIKE-10) ported gần như nguyên
+vẹn** từ `tools/spike-10/rpc-trait` + `tools/spike-10/r3-grammers/src/{rpc,session}.rs`
+— chỉ 5 Tauri command wire thật (`check_session`, `request_login_code`,
+`submit_otp`, `submit_password` bootstrap phiên đăng nhập, KHÔNG thuộc 7
+method của trait; `resolve_channel` là method DUY NHẤT của `IngestRpc` được
+wire ở khung sườn này). 6 method còn lại của trait
+(`check_write_permission`, `read_pinned_catalog`, `download_document`,
+`upload_video`, `upload_subtitle`, `publish_catalog`) đã có implementation
+đầy đủ nhưng chưa wire — để dành slice UI thật.
+
+**Một phát hiện thật ngoài dự kiến — không phải giả định trước khi code:**
+`session.rs::ensure_logged_in()` của spike (chặn stdin cho phone/OTP/2FA) **không
+port được nguyên vẹn** — một webview không có terminal đính kèm để chặn chờ
+input. Phải tách thành state machine 4 trạng thái
+(`Disconnected → Connected → AwaitingOtp → AwaitingPassword → Ready`,
+`src-tauri/src/state.rs`) trải qua nhiều lần round-trip Tauri command thay vì
+một hàm chặn. Đây là khác biệt kiến trúc thật giữa "CLI one-shot" và "GUI"
+mà không addendum nào trước đó của ADR-0013/ADR-0017 liệt kê — đáng ghi lại
+vì bất kỳ implementation MTProto nào khác (R4/ferogram nếu quay lại sau này)
+cũng sẽ gặp đúng vấn đề này, không riêng gì `grammers-client`.
+
+**Một bug môi trường thật lặp lại đúng như SPIKE-10 đã ghi, không phải phát
+hiện mới:** `grammers-crypto` không build "out of the box" — `num-bigint`
+xung đột kiểu qua `glass_pumpkin` (pin lỏng tự trôi lên `2.0.0-rc1`). Vá bằng
+đúng lệnh SPIKE-10 đã ghi: `cargo update -p glass_pumpkin --precise
+2.0.0-rc0`. Ghi lại lần thứ hai (SPIKE-10 + ở đây) là tín hiệu đáng cân nhắc
+ghim `glass_pumpkin` luôn trong `[workspace.dependencies]` nếu điều này còn
+gây bất ngờ cho ai khác dựng lại từ đầu — chưa làm ở lần này, chỉ áp dụng
+đúng bản vá đã biết.
+
+**Hai fix nhỏ do `cargo clippy` bắt được** (không phải bug chức năng):
+`ConnState` đổi từ `impl Default` thủ công sang `#[derive(Default)]` +
+`#[default]`; field `password_token` ở biến thể `AwaitingPassword` đổi sang
+`Box<PasswordToken>` (`clippy::large_enum_variant` — biến thể đó nặng hơn hẳn
+các biến thể khác của enum).
+
+**Điều gì KHÔNG đổi:** bốn điều kiện bắt buộc ở Quyết định gốc đứng nguyên —
+đã áp dụng đúng: cả 5 crate `grammers-*` ghim `=0.10.0` (không chỉ
+`grammers-client`) trong `[workspace.dependencies]` của
+`apps/tsmc-ingest-desktop/Cargo.toml`; toàn bộ RPC sau trait `IngestRpc`;
+không nạp cả file vào RAM (`multi_connection_upload()` giữ nguyên cơ chế
+đọc theo `PART_SIZE`); không port luật nghiệp vụ sang Rust.
+
+**Việc tiếp theo:** slice UI thật (mockup A.3, `docs/ux-design.md` § Phụ lục
+A) thay cho `ui/index.html` placeholder hiện tại; wire 6 method `IngestRpc`
+còn lại thành command khi UI cần tới; admin tự verify luồng đăng nhập +
+resolve kênh thật (checklist [docs/pending-device-tests.md](../pending-device-tests.md)).
