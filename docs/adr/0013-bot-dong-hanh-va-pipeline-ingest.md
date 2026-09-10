@@ -2,7 +2,7 @@
 
 - **Trạng thái:** Accepted
 - **Ngày:** 2026-08-23
-- **Liên quan:** [ADR-0001](./0001-kien-truc-client-heavy-khong-backend.md), [ADR-0010](./0010-catalog-spec-v1-va-chien-luoc-indexing.md), [ADR-0014](./0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md)
+- **Liên quan:** [ADR-0001](./0001-kien-truc-client-heavy-khong-backend.md), [ADR-0010](./0010-catalog-spec-v1-va-chien-luoc-indexing.md), [ADR-0014](./0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md), [ADR-0017](./0017-grammers-cho-cong-cu-ingest-desktop.md) (chốt hướng GUI Tauri, gỡ "để ngỏ" ở addendum 2026-08-29)
 
 ## Bối cảnh
 
@@ -394,3 +394,17 @@ Quyết định GUI Tauri vẫn để ngỏ.
 **Việc tiếp theo:** không có việc bắt buộc ngay. Khi build/đóng gói
 `spike09.exe` (hoặc core lib kế thừa từ nó) cho phân phối thật, nhớ copy đủ 7
 DLL — xem `tools/spike-09/README.md`.
+
+## Cập nhật sau khi Accepted (2026-09-07, ADR-0017 — chốt hướng GUI Tauri)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định
+> đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết
+> định gốc (ba thành phần CLI/bot/chế độ admin web, bảng phân hạng A/B/C/D)
+> **vẫn đứng vững**. Mục này GỠ câu "để ngỏ" về hướng GUI Tauri đã lặp lại ở
+> nhiều addendum trước (2026-08-29, 2026-09-03, 2026-09-04).
+
+**Chốt: làm GUI Tauri.** [SPIKE-10](../spikes/README.md#spike-10) đã đo bốn tổ hợp runtime MTProto khả dĩ cho GUI đó trên tài khoản Telegram thật — kết luận và số liệu đầy đủ ở [ADR-0017](./0017-grammers-cho-cong-cu-ingest-desktop.md): dùng `grammers-client` 0.10.0 (Rust) làm MTProto library, tách biệt hoàn toàn khỏi GramJS của `apps/web`. FFmpeg native ([SPIKE-09](../spikes/README.md#spike-09)) đã verify riêng, không đổi.
+
+**Điều gì KHÔNG đổi:** bảng phân hạng A/B/C/D và toàn bộ luật nghiệp vụ ở `libs/core-ingest` (TypeScript) vẫn là nguồn sự thật duy nhất — GUI Tauri KHÔNG port luật đó sang Rust, chỉ gọi Rust để thực thi RPC MTProto (điều kiện bắt buộc #4 của ADR-0017). `tsmc-ingest` CLI hiện tại (`apps/tsmc-ingest`) **chưa bị khai tử** — số phận của nó (giữ song song hay thay thế hoàn toàn bởi GUI) vẫn để ngỏ, xem ADR-0017 §"Việc để ngỏ".
+
+**Việc tiếp theo:** đặt tên/vị trí code thật cho app GUI (chưa quyết, xem ADR-0017 + addendum [ADR-0012](./0012-trien-khai-static-pwa-va-cau-truc-workspace.md#cập-nhật-sau-khi-accepted-2026-09-07-adr-0017--ranh-giới-workspace-cho-công-cụ-ingest-desktop)); cập nhật `docs/ux-design.md` (mục mới cho công cụ desktop, ngôn ngữ thiết kế khác 7 màn hình mobile-first) và `docs/roadmap.md` (nhóm việc GUI ingest) trước khi scaffold code thật — đúng thứ tự "Plan sau spike" đã ghi ở [docs/spikes/README.md#spike-10](../spikes/README.md#spike-10).

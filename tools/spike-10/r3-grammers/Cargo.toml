@@ -1,0 +1,20 @@
+[package]
+name = "r3-grammers"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "SPIKE-10 nhánh R3 — IngestRpc bằng grammers (docs/spikes/README.md#spike-10)."
+
+[dependencies]
+ingest-rpc-trait = { path = "../rpc-trait" }
+grammers-client = { version = "0.10.0", features = ["fs"] }
+grammers-session = { version = "0.10.0", features = ["sqlite-storage"] }
+grammers-mtsender = "0.10.0"
+grammers-mtproto = "0.10.0"
+grammers-tl-types = "0.10.0"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "fs", "signal", "sync", "time"] }
+async-trait = "0.1"
+clap = { version = "4", features = ["derive"] }
+rpassword = "7"
+futures-util = "0.3"
+rand = "0.8"

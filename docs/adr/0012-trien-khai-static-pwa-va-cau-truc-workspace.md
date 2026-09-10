@@ -2,7 +2,7 @@
 
 - **Trạng thái:** Accepted
 - **Ngày:** 2026-08-23
-- **Liên quan:** [ADR-0001](./0001-kien-truc-client-heavy-khong-backend.md), [ADR-0005](./0005-streaming-qua-service-worker-http-range.md), [ADR-0011](./0011-bao-mat-session-va-noi-dung-khong-tin-cay.md)
+- **Liên quan:** [ADR-0001](./0001-kien-truc-client-heavy-khong-backend.md), [ADR-0005](./0005-streaming-qua-service-worker-http-range.md), [ADR-0011](./0011-bao-mat-session-va-noi-dung-khong-tin-cay.md), [ADR-0017](./0017-grammers-cho-cong-cu-ingest-desktop.md)
 
 ## Bối cảnh
 
@@ -87,3 +87,15 @@ Khi `libs/worker-host/src/core-worker.ts` bắt đầu import `@tsmc/core-mtprot
 
 - **`polyfillNode()` mặc định KHÔNG polyfill `crypto`.** `esbuild-plugin-polyfill-node` để `polyfills.crypto = "empty"` theo mặc định — build vẫn thành công (không lỗi build-time) nhưng GramJS vỡ ngay lúc chạy (`randomBytes is not a function`, chi tiết ở [ADR-0003 § Cập nhật 2026-08-24](./0003-chon-thu-vien-mtproto-gramjs.md#cập-nhật-sau-khi-accepted-2026-08-24-slice-auth-f11)). Đã bật tường minh `polyfills: { crypto: true }` trong `libs/worker-host/build.mjs`. Con số **266.6 KB brotli** ghi ở trên đã đổi thành **422.9 KB brotli** sau khi bật — chênh lệch chấp nhận được (polyfill crypto nền WebCrypto qua `@jspm/core`, không phải lỗi cấu hình), không tính vào ngân sách app shell 300 KB vì Core Worker vẫn lazy-load riêng ([ADR-0004](./0004-mo-hinh-da-luong.md)).
 - **Hệ quả kéo theo cho Service Worker**: `core-worker.js` tăng từ ~1.09 MB lên ~3.15 MB raw, vượt ngưỡng mặc định 2 MB của Workbox `injectManifest` — bị **âm thầm loại khỏi precache manifest** (chỉ in cảnh báo, không lỗi build) nếu không xử lý, khiến app mất khả năng chạy offline cho đúng phần quan trọng nhất. Đã nới `maximumFileSizeToCacheInBytes: 5 * 1024 * 1024` trong `sw/build.mjs`.
+
+## Cập nhật sau khi Accepted (2026-09-07, ADR-0017 — ranh giới workspace cho công cụ ingest desktop)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**, chỉ thêm một nguyên tắc ranh giới mới cho một loại package chưa từng có trong workspace.
+
+[ADR-0017](./0017-grammers-cho-cong-cu-ingest-desktop.md) chọn `grammers-client` (Rust) làm MTProto library cho một công cụ ingest desktop (Tauri) — package đầu tiên trong repo **không phải TypeScript/Angular**. `tools/spike-10/r3-grammers` (crate Rust, Cargo workspace riêng) là bằng chứng-khái-niệm, chưa phải app thật.
+
+**Nguyên tắc ranh giới quyết định trước (áp dụng khi scaffold app thật, tên/vị trí thư mục cụ thể chưa chốt — xem "Việc để ngỏ" ở ADR-0017):**
+
+- **Code Rust (Tauri backend + `grammers-client`) nằm HOÀN TOÀN NGOÀI hệ thống `pnpm`/`eslint-plugin-boundaries`/TypeScript** — đúng tiền lệ đã có ở `tools/spike-09/` và `tools/spike-10/*-grammers`/`*-ferogram` (Cargo workspace riêng, `cargo build`/`cargo clippy`, không phải `npm run lint`/`tsc`). `eslint-plugin-boundaries` chỉ hiểu file `.ts`/`.js` — không có gì để cấu hình cho Rust, không cần thêm `type` mới vào `eslint.config.mjs` cho phần này.
+- **Nếu Tauri dùng frontend Angular cho webview UI** (chưa quyết có làm hay không — có thể chỉ là HTML/JS tối giản như `tools/spike-10/r1-webview` dự kiến), phần đó SẼ gia nhập `pnpm`/ESLint workspace dưới `apps/*`, và cần một `type` boundary MỚI (tương tự `app-ingest` đã thêm cho `apps/tsmc-ingest` ở addendum [ADR-0013](./0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-08-29-tsmc-ingest-cli--lần-code-đầu-tiên)) — quyết định `type` cụ thể để dành tới khi frontend đó thật sự được viết, không đoán trước hình dạng.
+- **`libs/core-ingest` không đổi vai trò** — vẫn là nguồn sự thật duy nhất cho luật nghiệp vụ ingest (bảng phân hạng A/B/C/D...), dùng chung bởi cả `apps/tsmc-ingest` (Node/CLI) lẫn app desktop tương lai (qua Tauri IPC gọi vào một binding Node hoặc tương đương — cơ chế cụ thể chưa quyết, xem ADR-0017 §"Việc để ngỏ"). Rust/`grammers-client` không bao giờ chứa luật nghiệp vụ này, chỉ nhận lệnh thực thi (điều kiện bắt buộc #4 của ADR-0017).

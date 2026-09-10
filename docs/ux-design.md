@@ -7,6 +7,8 @@
 > **Redesign kiểu Netflix (2026-08-28):** Màn hình 2 đổi từ list sang **lưới card** (CDK virtual scroll virtualize THEO HÀNG, không theo từng phim — xem "Ghi chú đối chiếu" ở Màn hình 2 dưới), tap card mở `MatBottomSheet` chi tiết (`ItemDetailSheet`) thay vì thao tác rời rạc trên từng row/hành động trực tiếp. Màn hình 3 tách thành 2 tầng: danh sách bộ sưu tập dạng tile (`home/collections`) → chi tiết một bộ sưu tập (`home/collections/:id`, route con MỚI, vẫn dưới Bottom Nav). Màn hình 4 đổi `AddSourceSheet` từ toggle-mở-rộng-tại-chỗ sang 3 "bước" điều hướng bên trong cùng một sheet (menu chọn → nhập thủ công/chọn từ chat, có mũi tên quay lại). Cả 3 màn đều dùng poster PLACEHOLDER (gradient + chữ cái đầu, component `apps/web/src/app/shared/poster-tile/`) — `MediaRecord.poster` vẫn chỉ là `{msgId}`, chưa có pipeline tải ảnh thật.
 >
 > Hai điểm **vi phạm bất biến ADR** đã được sửa trực tiếp trong tài liệu này, giữ nguyên qua bản mobile-first — xem ghi chú "**[Đã sửa]**" ở Màn hình 1 và Màn hình 3.
+>
+> **Ngoài 7 màn hình của app xem, tài liệu này còn [Phụ lục A](#phụ-lục-a-công-cụ-ingest-desktop-gui-tauri)** — bản vẽ cho công cụ ingest desktop (GUI Tauri) dành cho người **đăng** nội dung. Phụ lục đó là desktop, không mobile-first, và ba nguyên tắc chuyển đổi ngay dưới đây **không áp dụng** cho nó.
 
 ## Nguyên tắc chuyển đổi Mobile-First
 
@@ -352,3 +354,118 @@ Trên mobile, Cài đặt **không** nên chiếm một tab dưới Bottom Nav �
    - **Thất bại** (mất mạng, lỗi Telegram) → sheet hiện lỗi tương tự bước 3, **không** xoá bất kỳ dữ liệu cục bộ nào cho tới khi `auth.LogOut` xác nhận thành công — tránh trạng thái nửa vời (đã mất session cục bộ nhưng server vẫn còn phiên sống, hoặc ngược lại).
 
 **[Đã chạy thật, 2026-08-28]** Toàn bộ 4 bước — `logout-confirm-sheet.ts` đọc `pendingOutboxCount()` từ `liveQuery` (`countOutbox()`) trước khi mở, chọn đúng nội dung sheet theo hai nhánh trên; bấm nút gọi MỘT RPC `client.logout()` duy nhất (xem "Chi tiết kỹ thuật (Đăng xuất)" phía trên) — không có RPC rời cho từng bước, vì §Bước 3/4 vốn phải nguyên tử (không thể flush xong rồi mới quyết định có gọi `auth.LogOut` hay không ở một round-trip riêng).
+
+## Phụ lục A: Công cụ ingest desktop (GUI Tauri)
+
+> **Trạng thái: bản vẽ, chưa có một dòng code nào.** Nguồn gốc: brainstorm 2026-09-05, sau khi [SPIKE-09](./spikes/README.md#spike-09) đóng 🟢 và user quyết định hướng GUI Tauri (quyết định này ADR-0013 để ngỏ từ 2026-08-29 — xem [ADR-0013](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md)).
+>
+> **Không thuộc 7 màn hình mobile-first ở trên.** Khác đối tượng (người **đăng** nội dung, không phải người xem), khác thiết bị (desktop), khác ngôn ngữ thiết kế (dày đặc, bàn phím trước, bảng thay vì card). Ba nguyên tắc chuyển đổi mobile-first ở đầu tài liệu **không áp dụng** cho phụ lục này.
+>
+> **Kiến trúc runtime CHƯA quyết** — đặc biệt tầng MTProto, đang bị gate bởi [SPIKE-10](./spikes/README.md#spike-10). Phụ lục này cố ý chỉ mô tả **chức năng, giao diện và hành trình người dùng**, không mô tả tiến trình/thư viện nào chạy cái gì. Nếu spike cho kết quả buộc phải đổi thiết kế (ví dụ tầng MTProto được chọn không báo được tiến trình hoặc không huỷ được giữa chừng, tiêu chí M5), thì mục A.2 nguyên tắc 4 và mockup A.3 phải sửa lại — **ghi rõ ở đây khi điều đó xảy ra**, đừng để mockup mô tả một thứ không dựng được.
+>
+> **Không vi phạm [ADR-0001](./adr/0001-kien-truc-client-heavy-khong-backend.md):** công cụ này nằm phía **tác giả nội dung**, ngoài đường chạy của người xem — cùng vị trí với `tsmc-ingest` CLI và `@tsmc_bot`. Người xem vẫn không cài gì.
+
+### A.1 Phạm vi chức năng
+
+**Định vị:** công cụ của người đăng nội dung. Nó không phát phim, không phải bản desktop của app xem.
+
+Sáu năng lực dưới đây là **lý do GUI đáng làm** — chúng không phải "CLI nhưng có nút bấm", mà là những thứ một CLI one-shot về nguyên tắc không làm được:
+
+1. **Hàng đợi bền qua lần chạy.** Batch 20 file đóng app giữa chừng thì mở lại chạy tiếp. Gap "retry/rollback khi `FLOOD_WAIT` rơi giữa chuỗi 3 RPC của `publishCatalogDocument()`" (đang nằm ở [roadmap](./roadmap.md), chưa ai làm) chỉ giải được đàng hoàng khi có chỗ giữ trạng thái bền — CLI one-shot không có chỗ đó.
+2. **`FLOOD_WAIT` nhìn thấy được.** CLI hiện tại đứng im, không ai biết còn bao lâu. GUI đếm ngược, tự chạy tiếp, ghi log.
+3. **Sửa metadata theo lô kiểu bảng tính.** Nỗi đau "gõ tay metadata cho nhiều tập" đã xác nhận là thật (ADR-0013, 2026-08-29 — chính user gặp phải). `inheritMetadata()` chỉ chữa được một nửa vì vẫn tuần tự từng file; công cụ đúng là **chọn nhiều dòng, gõ một lần, điền xuống cả season**.
+4. **Đối soát catalog ↔ kênh.** Đọc `catalog.v1.json` đã ghim + quét message thật trong kênh để tìm: file đã upload nhưng thiếu trong catalog (đúng ca "admin up bằng app Telegram gốc" đã xảy ra thật), item trỏ tới message đã xoá, item thiếu `compat`/`subs`/poster.
+5. **Poster thật.** [roadmap](./roadmap.md) ghi `MediaRecord.poster` mới chỉ là `{msgId}` placeholder, chưa có pipeline ảnh. Chỗ đúng để chọn/cắt/upload poster là công cụ desktop của admin, không phải app xem (tải ảnh hàng loạt lúc duyệt dễ dính `FLOOD_WAIT`).
+6. **Chống trùng.** Quét folder rồi đối chiếu catalog để biết file nào đã có, hỏi bỏ qua hay thay thế.
+
+**Cố ý KHÔNG làm** (giữ phạm vi, và giữ bất biến): không phát phim; **không đụng tới kênh state riêng tư** (bất biến #5 — công cụ ingest không có việc gì ở đó); không transcode farm; không thay `@tsmc_bot` ở phần hậu kiểm file do admin **khác** đăng bằng app Telegram gốc.
+
+**Hai ràng buộc dùng chung, không thương lượng:**
+
+- **Bảng phân hạng A/B/C/D là của [ADR-0013](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md).** UI không được có nhãn/ngưỡng riêng lệch khỏi bảng đó.
+- **Logic thuần dùng lại `libs/core-ingest`** (phân hạng, `inheritMetadata`, `mergeCatalogItems`, sidecar subs) — không viết lại ở tầng UI, và (theo ràng buộc đã ghi ở [SPIKE-10](./spikes/README.md#spike-10)) không port sang ngôn ngữ khác dù kiến trúc runtime chọn nhánh nào.
+
+### A.2 Bốn nguyên tắc UX
+
+1. **Hiện giá trước khi làm.** Thanh dưới cùng luôn nói sẽ tốn bao nhiêu: số byte, thời gian remux/upload ước tính, và cảnh báo Hạng D **bằng số phút cụ thể**, không phải chữ "đắt". Đây là bản GUI của đúng nguyên tắc CLI đã có: remux là mặc định, re-encode video **luôn phải hỏi**.
+2. **Phân hạng là màu, hiện ngay khi thả file — trước một byte upload nào.** 🟢A / 🟡B / 🟠C / 🔴D.
+3. **Bảng, không phải form từng file.** `inheritMetadata()` lùi xuống làm **giá trị gợi ý sẵn** trong ô, không còn là một câu hỏi tuần tự chặn luồng.
+4. **Tiến trình phải nói đang ở stage nào.** Pipeline có 6 bước chênh nhau hàng chục lần về thời gian (`probe → remux → thumb → subs → upload → publish`) — một thanh phần trăm tổng là nói dối. `FLOOD_WAIT` hiện thành **hàng riêng có đồng hồ đếm ngược**, không phải một dòng log lướt qua.
+
+### A.3 Màn hình chính — workspace ba vùng
+
+Không phải wizard nhiều bước: người dùng cần thấy hàng đợi, bảng metadata và chi phí **cùng lúc**.
+
+```text
+┌────────────────────────────────────────────────────────────────────┐
+│ Kênh: @tsmc_mediacenter ▾    catalog: 5 item · ghim OK      ⚙ 👤   │
+├──────────────┬─────────────────────────────────────────────────────┤
+│ HÀNG ĐỢI     │ BẢNG METADATA (chọn nhiều dòng, gõ 1 lần, điền xuống)│
+│              │                                                     │
+│ ▸ S01E01 🟠C │  ☑ Tên file        Title        Season Ep  Năm  🚦   │
+│   S01E02 🟠C │  ☑ S01E01.mkv      The Big B…    1     1  2007  🟠C  │
+│   S01E03 🟢A │  ☑ S01E02.mkv      The Big B…    1     2  2007  🟠C  │
+│   trailer 🔴D│  ☑ S01E03.mp4      The Big B…    1     3  2007  🟢A  │
+│              │  ☐ trailer.avi     —             —     —   —    🔴D  │
+│ + Thả file   │                                                     │
+│   hoặc folder│  [Điền xuống ▼] [Đánh số tập tự động] [Xoá khỏi hàng]│
+├──────────────┴─────────────────────────────────────────────────────┤
+│ TRƯỚC KHI CHẠY:  3 file · 12.4 GB · remux ~4 phút · upload ~28 phút │
+│ ⚠ trailer.avi Hạng D — cần RE-ENCODE ~21 phút. Bỏ chọn hoặc xác nhận│
+│                                        [Xem lại]  [Bắt đầu upload] │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+Khi đang chạy, vùng bảng đổi sang chế độ theo dõi: mỗi dòng hiện **stage hiện tại** (không phải phần trăm tổng), và `FLOOD_WAIT` chiếm một hàng riêng có đếm ngược.
+
+**Vẫn dùng Angular Material + CDK** ([ADR-0016](./adr/0016-angular-material-va-cdk.md)) để dùng lại theme và component đã có, nhưng ở density compact — và **CDK Virtual Scroll vẫn bắt buộc** cho bảng nếu hàng đợi có thể dài (thả nguyên một season nhiều chục tập).
+
+### A.4 Các màn còn lại
+
+| Màn | Nội dung | Ràng buộc bắt buộc |
+|---|---|---|
+| Đăng nhập | `API_ID`/`API_HASH` → số điện thoại → OTP → 2FA | Giữ **nguyên** cảnh báo bắt buộc của [ADR-0011 §5](./adr/0011-bao-mat-session-va-noi-dung-khong-tin-cay.md) trước ô nhập đầu tiên — desktop app không được nhẹ tay hơn web |
+| Chọn kênh | Danh sách kênh **ghi được**, kèm tình trạng catalog đã ghim | Chặn id thô ngay tại form (bất biến #10 — `access_hash` khác nhau theo tài khoản); không bao giờ ghi vào kênh của người khác (bất biến #5) |
+| Trình quản lý catalog | Bảng toàn bộ item đang có, đối soát với message thật trong kênh, sửa/xoá/re-publish | Mọi dữ liệu đọc từ Telegram là **không tin cậy** — validate schema + kẹp độ dài như Màn hình 6 ([ADR-0011 §3](./adr/0011-bao-mat-session-va-noi-dung-khong-tin-cay.md)) |
+| Nhật ký | Log kỹ thuật, copy được | Chỗ để dán khi báo lỗi; không log session/token |
+
+### A.5 User journey
+
+**Lần đầu (một lần duy nhất):** cài → đọc cảnh báo tài khoản thật → dán `API_ID`/`API_HASH` → số điện thoại → OTP (+2FA) → chọn kênh ghi được → app tự kiểm: quyền đăng ✓, catalog đã ghim ✓ (chưa có thì đề nghị tạo) → sẵn sàng. **Không có bước cài `ffmpeg`** — đây là điểm khác biệt chính so với `tsmc-ingest` CLI, vốn bắt admin tự cài `ffmpeg`/`ffprobe` lên PATH.
+
+**Đường hạnh phúc (thả cả một season):**
+
+1. Kéo nguyên folder vào → app parse tên file, **tự gom theo series/season**, hiện bảng kèm hạng màu.
+2. Admin gõ Title một lần → điền xuống → kiểm tra số tập tự động.
+3. Thanh dưới báo giá (byte, phút remux, phút upload, cảnh báo Hạng D).
+4. Bấm Bắt đầu → theo dõi theo stage; remux file kế tiếp **chạy song song** với upload file trước (CLI hiện tại tuần tự — đây là chỗ tiết kiệm thời gian thật, nhưng **phụ thuộc kết quả SPIKE-10**, xem A.6).
+5. Xong: publish catalog **đúng một lần cho cả batch** — giữ nguyên hành vi CLI, giảm cửa sổ `FLOOD_WAIT` giữa chuỗi 3 RPC.
+6. Hiện tóm tắt + link mở kênh trên Telegram và mở app web để tự kiểm chứng.
+
+**Các đường hỏng — đây mới là phần GUI phải làm tốt hơn CLI:**
+
+| Tình huống | Hành vi thiết kế |
+|---|---|
+| `FLOOD_WAIT` | Hàng đợi tạm dừng, **đếm ngược hiện rõ**, tự chạy tiếp. Không né bằng đổi DC ([ADR-0006](./adr/0006-download-pipeline-dc-pool-flood-wait.md)) |
+| Pipeline FFmpeg crash | File đó đánh dấu `Lỗi`, **batch chạy tiếp**, log giữ nguyên stderr + mã thoát đã giải nghĩa (bài học `0xC0000005` vs `0xC0000135` của [SPIKE-09](./spikes/README.md#spike-09)) |
+| Đóng app giữa batch | Mở lại: "Còn N file dở dang — chạy tiếp?" |
+| File Hạng D | Không bao giờ tự chạy; hiện phút ước tính, **mặc định bỏ chọn** |
+| File đã có trong catalog | Đánh dấu trùng, mặc định bỏ qua, cho chọn "thay thế" |
+| Mất mạng giữa upload | Nối lại thay vì up lại từ đầu — **khả thi hay không phụ thuộc SPIKE-10 (M5/M6)**, xem A.6 |
+| Remux xong vượt trần kích thước | Chặn **trước** khi upload kèm gợi ý (giảm bitrate audio, cắt tập) — thà biết sớm còn hơn hỏng ở part cuối sau 40 phút. Trần thật (2 GB hay 4 GB Premium) do SPIKE-10 tiêu chí M7 xác định |
+
+### A.6 Ghi chú đối chiếu và câu hỏi còn mở
+
+**Ba chi tiết trong thiết kế trên đang chờ [SPIKE-10](./spikes/README.md#spike-10), không được coi là đã chốt:**
+
+- **Tiến trình + huỷ giữa chừng** (nguyên tắc UX 4, mockup A.3, bảng đường hỏng) — phụ thuộc tiêu chí M5. Nếu tầng MTProto được chọn không báo được tiến trình dưới 2s/lần hoặc không huỷ được trong 3s, phải thiết kế lại phần theo dõi tiến trình.
+- **Nối lại upload sau khi mất mạng** — phụ thuộc M5/M6. Có thư viện hỗ trợ, có thư viện không; chưa đo.
+- **Remux song song với upload** (bước 4 đường hạnh phúc) — chỉ an toàn nếu `FLOOD_WAIT` được xử lý ở một chỗ tập trung; chưa đo.
+
+**Trùng vai với Màn hình 6 (Ingest Editor web).** "Trình quản lý catalog" ở A.4 làm đúng việc mà Màn hình 6 đang làm, nhưng đầy đủ hơn (đối soát, sửa hàng loạt). Nếu công cụ desktop chạy thật và tốt hơn hẳn, nên cân nhắc **thu hẹp Màn hình 6** về đúng "sửa nhanh một item" thay vì cố làm trình quản lý đầy đủ — quyết định này để dành cho lúc GUI chạy thật, không quyết trước.
+
+**Ba câu hỏi sản phẩm còn treo** (ghi ở đây để không trôi mất; quyết trong ADR sau spike, xem "Plan sau spike" của SPIKE-10):
+
+- Số phận `tsmc-ingest` CLI: giữ song song làm đường headless/batch, hay khai tử sau khi GUI đạt parity?
+- Tra metadata online (TMDB/OMDb): về kiến trúc **được phép** (nằm phía admin, ngoài đường chạy người xem — bất biến #8 nói về app web), và nó giết nỗi đau gõ tay triệt để hơn "điền xuống". Đổi lại: gửi tên phim trong kho của admin sang bên thứ ba + thêm một API key. Nếu làm thì **opt-in, mặc định tắt**.
+- `@tsmc_bot` ([ADR-0013](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md) mục 2) có còn cần không khi GUI làm được `/publish` và `/check`? Phần còn giá trị riêng của bot: hậu kiểm file do admin **khác** đăng bằng app Telegram gốc.

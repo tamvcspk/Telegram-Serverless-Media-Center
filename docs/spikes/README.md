@@ -15,6 +15,7 @@ Quy tắc: **một spike chỉ đóng khi có số liệu từ thiết bị th�
 | [SPIKE-07](#spike-07) | Forum Topics API của GramJS `2.26.22` có dùng được để categorize phim theo topic không? | [0010](../adr/0010-catalog-spec-v1-va-chien-luoc-indexing.md) | 🟢 **Đạt (2026-08-29)** — tạo nhóm forum, tạo topic, `GetForumTopics` liệt kê đúng, và quét lịch sử suy ra đúng topic mỗi message thuộc về (`replyToTopId ?? replyToMsgId` khi `forumTopic`) — cả 4 lần chạy trên tài khoản thật, lần cuối A-E đều đạt |
 | [SPIKE-08](#spike-08) | Trong 3 API dò khả năng phát (`canPlayType`/`MediaSource.isTypeSupported`/WebCodecs `isConfigSupported`), cái nào khớp đúng khả năng phát THẬT của `<video src>` theo ADR-0005 (progressive, không MSE)? | [0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md), [0005](../adr/0005-streaming-qua-service-worker-http-range.md) | ⏳ Chưa dựng |
 | [SPIKE-09](#spike-09) | `ffmpeg-next`/`ffmpeg-sys-next` (native Rust FFI) có khả thi thay shell-out CLI hiện tại của `tsmc-ingest`, với chi phí/tốc độ nào so với baseline 40.8x realtime đã đo? | [0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md) | 🟢 **Đạt, có caveat (2026-09-03, tích hợp thật + sửa số liệu 2026-09-04)** — cả 3 việc chạy được, 72.1x realtime (file mẫu tổng hợp), 7 DLL ~21.3 MB tự chứa (không cần PATH); hai rủi ro khác hẳn nhau đã đo được thật: sai tham số FFI → **segfault**, thiếu DLL → **DLL_NOT_FOUND** (không phải segfault) |
+| [SPIKE-10](#spike-10) | Trong 4 tổ hợp runtime khả dĩ cho GUI ingest desktop (Tauri), tổ hợp nào chịu được upload file ≥2 GB với RAM phẳng + có tiến trình/huỷ + không mất việc khi `FLOOD_WAIT` + crash FFmpeg không giết UI, với chi phí viết mới và đóng gói thấp nhất? | [0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md), [0003](../adr/0003-chon-thu-vien-mtproto-gramjs.md), [0012](../adr/0012-trien-khai-static-pwa-va-cau-truc-workspace.md), [0017](../adr/0017-grammers-cho-cong-cu-ingest-desktop.md) | 🟡 **Đã đóng, chấp nhận rủi ro (2026-09-07)** — chọn R3 (`grammers-client`), xem [ADR-0017](../adr/0017-grammers-cho-cong-cu-ingest-desktop.md). M1/M2/M3/M5/M7/M8/P1 ĐẠT thật trên tài khoản Telegram thật; R4 (ferogram) trượt M2 dứt khoát (transfer pool riêng, không public). M4 cải thiện 13.5%→24.4% nhưng chưa qua ngưỡng pass 80% (chấp nhận, không phải trần kiến trúc); **M6 (`FLOOD_WAIT`) để ngỏ có chủ đích, không chủ động ép** — đây là lý do đóng 🟡 thay vì 🟢 |
 
 ---
 
@@ -746,3 +747,234 @@ Mã nguồn giữ nguyên ở `tools/spike-09/` (không xoá như các spike xá
 | Build khả thi nhưng tốc độ/đóng gói kém hơn rõ rệt shell-out | Ghi nhận native FFI khả thi về mặt kỹ thuật nhưng không đáng đổi chi phí — khuyến nghị phương án "Rust shell-out ra ffmpeg/ffprobe CLI" cho core lib Tauri (nếu sau này quyết làm); đóng spike 🟡 (chấp nhận rủi ro không theo đuổi tiếp, có lý do rõ) |
 | Không build được trên Windows thật trong thời gian hợp lý (vcpkg/bindgen/MSVC xung đột, lỗi khó sửa) | Bằng chứng mạnh chống lại hướng native FFI cho project này — đóng spike 🟡, ghi rõ lỗi cụ thể gặp phải để không ai lặp lại nỗ lực này mà không biết trước rào cản |
 | Build được, transcode đúng, nhưng thumbnail hoặc subtitle extract không làm được/quá phức tạp bằng `ffmpeg-next` | Phát hiện đáng giá — có thể vẫn dùng native FFI cho riêng phần transcode (việc nặng nhất) và giữ shell-out cho hai việc còn lại (hybrid); ghi lại làm quan sát, không đóng dứt khoát 🟢/🔴 |
+
+---
+
+## SPIKE-10
+
+**Trạng thái:** 🟡 **Đã đóng, chấp nhận rủi ro (2026-09-07)** (mở 2026-09-05). `r3-grammers`/`r4-ferogram` đã chạy thật nhiều lần trên kênh `tsmc_mediacenter`. `r1-webview`/`r2-sidecar` **chưa dựng**, và người quyết định (user) đã chọn KHÔNG gate qua R1 trước khi đánh giá R3/R4 (khác cây quyết định gốc bên dưới — xem ghi chú ngay trước mục "Cây quyết định"). Cho R3: **M1/M2/M3/M5/M7/M8/P1 ĐẠT** trên tài khoản thật, **M4** cải thiện đáng kể (13.5%→24.4%) nhưng chưa qua ngưỡng pass 80% (không phải trần kiến trúc, xem "Kết quả"), **M6 để ngỏ có chủ đích** (không chủ động ép FLOOD_WAIT — CLAUDE.md + SPIKE-04 đã là nơi dò ngưỡng) — **đây là lý do đóng 🟡 chứ không phải 🟢 sạch**. R4 trượt M2 dứt khoát — không còn là ứng viên khả thi dù M4 nhỉnh hơn R3 một chút. Đ1-Đ3 (đóng gói/giấy phép/chi phí) chưa đo — chỉ áp dụng khi thật sự đóng gói app, để dành cho lúc đó.
+
+**Quyết định:** chọn R3 (`grammers-client` 0.10.0) làm MTProto library cho công cụ ingest desktop — xem [ADR-0017](../adr/0017-grammers-cho-cong-cu-ingest-desktop.md) cho quyết định đầy đủ, bốn điều kiện bắt buộc, và các việc để ngỏ. Addendum tương ứng đã ghi ở [ADR-0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-09-07-adr-0017--chốt-hướng-gui-tauri) (chốt hướng Tauri) và [ADR-0012](../adr/0012-trien-khai-static-pwa-va-cau-truc-workspace.md#cập-nhật-sau-khi-accepted-2026-09-07-adr-0017--ranh-giới-workspace-cho-công-cụ-ingest-desktop) (ranh giới workspace).
+
+**Câu hỏi:** Trong **bốn tổ hợp runtime** khả dĩ cho GUI ingest desktop bằng Tauri, tổ hợp nào đáp ứng đủ bốn ràng buộc đo được — (1) upload file ≥2 GB với RAM tiến trình phẳng, (2) báo tiến trình và huỷ được giữa chừng, (3) `FLOOD_WAIT` không làm mất việc đang dở, (4) crash của pipeline FFmpeg không giết UI — với **chi phí viết mới + đóng gói thấp nhất**?
+
+Bốn ứng viên (khác nhau **chỉ ở tầng MTProto**; mọi tầng khác giữ nguyên, xem "Tech stack" bên dưới):
+
+| Mã | Tổ hợp | Ý tưởng | Rủi ro chính chưa biết |
+|---|---|---|---|
+| **R1** | GramJS chạy trong webview + upload theo chunk | Giữ đúng một implementation MTProto. Thay `sendFile(path)` (vốn cần `fs` của Node) bằng vòng lặp raw-API `upload.saveBigFilePart`, mỗi part đọc từ đĩa qua Tauri command trả `ArrayBuffer` | Thông lượng IPC Tauri chưa ai đo; trần 2 GB/4 GB của `saveBigFilePart`; lượng code raw-API phải tự viết |
+| **R2** | Node sidecar | Đóng gói `apps/tsmc-ingest` hiện tại (đã verify thật nhiều vòng) thành sidecar binary, Tauri chỉ làm vỏ UI | Ship 2 runtime JS trong 1 app (~50-80 MB Node **cộng** 7 DLL FFmpeg) — gần như xoá sạch lý do chọn Tauri thay Electron |
+| **R3** | `grammers` (Rust MTProto) | Rust làm cả FFmpeg lẫn MTProto; webview thuần UI, không giữ session | `upload_file`/`upload_stream` **không có** progress/cancel/pause sẵn (đọc docs.rs 0.10.0) → phải tự viết adapter `AsyncRead` đếm byte + cờ huỷ |
+| **R4** | `ferogram` (Rust MTProto) | Như R3 nhưng thư viện có `TransferHandle` (progress + pause + cancel) và `upload_sequential` (RAM ≈ một chunk) sẵn theo docs | Thư viện mới (bản đầu 2026-03-29, 23 phiên bản trong 5 tháng, một người bảo trì); bằng chứng production nằm ở **cuộc gọi thoại/video**, không phải upload file lớn |
+
+**Vì sao quan trọng:** ba lý do, mỗi lý do đủ để không được đoán:
+
+1. **ADR-0013 đang để ngỏ đúng câu hỏi này.** Addendum 2026-09-03 và 2026-09-04 đều kết bằng "quyết định GUI Tauri vẫn để ngỏ". SPIKE-09 chỉ trả lời phần FFmpeg — phần khó hơn (MTProto trong môi trường không có Node) chưa ai đo.
+2. **R3/R4 phá vụ cược trung tâm của [ADR-0003](../adr/0003-chon-thu-vien-mtproto-gramjs.md)** ("chi phí đổi thư viện MTProto giữ ở mức một package"). Chọn Rust MTProto **không phải là thay GramJS** — `apps/web` chạy trong trình duyệt, cả `grammers` lẫn `ferogram` lẫn `tellers-mtproto` đều dùng `tokio` + TCP, không có transport WASM/WebSocket. Nên app xem giữ GramJS **vĩnh viễn**; R3/R4 nghĩa là repo có **hai** implementation MTProto song song. Đó là một ADR mới, không phải một addendum — và không được viết trước khi có số liệu.
+3. **Rủi ro lặp lại đúng sai lầm đã trả giá.** Bất biến #9 (ghim cứng `telegram@2.26.22`) tồn tại vì repo lỡ phụ thuộc vào một package sau đó bị archive. R4 đặt stack **mới** lên một thư viện 5 tháng tuổi, một người bảo trì. Nếu chọn R4 thì phải chọn **bằng số đo**, không phải bằng bảng tính năng đẹp trong docs.
+
+**Không thay thế [SPIKE-09](#spike-09)** — SPIKE-09 đã đóng 🟢 cho câu hỏi FFmpeg native FFI. Spike này *kế thừa* kết quả đó (dùng lại `tools/spike-09/` làm media worker) và chỉ kiểm chứng thêm **điều kiện áp dụng** mà SPIKE-09 ghi lại: "pipeline FFmpeg native không được chạy in-process cùng luồng chính của Tauri app" — ở đây là tiêu chí P1.
+
+### Trạng thái dựng (2026-09-05) — code thật, chưa phải số đo M1-M8
+
+`tools/spike-10/` đã có: workspace Cargo (`rpc-trait` + `r3-grammers` + `r4-ferogram`), CLI `login`/`upload` đối xứng cho cả hai nhánh Rust, `shared/generate-sample.mjs` (đã smoke-test clip 2 giây, chưa sinh bản đầy đủ ≥2 GB). `cargo build --workspace` sạch, không warning. `r1-webview`/`r2-sidecar` chưa có một dòng code nào.
+
+**Phát hiện thật khi dựng** (đọc trực tiếp mã nguồn `grammers-client-0.10.0`/`ferogram-0.6.5` tải về `~/.cargo/registry/src/...` — không đoán từ README/docs.rs, cùng phương pháp `tools/spike-09/`; chi tiết đầy đủ ở [tools/spike-10/README.md](../../tools/spike-10/README.md)):
+
+1. `grammers-client` 0.10.0 không build "out of the box": `grammers-crypto` pin `num-bigint ^0.4.6` nhưng bắc cầu qua `glass_pumpkin` (pin lỏng, tự trôi lên `2.0.0-rc1`) kéo theo `num-bigint 0.5.1` xung đột kiểu. Vá được (`cargo update -p glass_pumpkin --precise 2.0.0-rc0`) nhưng là tín hiệu thật về chi phí bảo trì.
+2. API `grammers-client` 0.10.0 khác hẳn tutorial cũ — không có `Client::connect(Config)`, phải tự dựng `SenderPool` + `Client::new(handle)`. `upload_stream`/`upload_file` xác nhận đúng rủi ro đã liệt kê trước khi dựng: không có progress/cancel, phải tự bọc `AsyncRead`.
+3. `ferogram` 0.6.5 có sẵn `TransferHandle` (progress/pause/cancel) + `upload_sequential()` (RAM ≈ một chunk, kiểm tra huỷ ở MỖI part) — tốt hơn thực tế grammers ở đúng hai tiêu chí M3/M5, đúng như kỳ vọng ban đầu.
+4. **🔴 Rủi ro THẬT mới, chưa từng liệt kê trước khi dựng:** `ferogram::media::UploadedFile` (kết quả upload) không có API công khai nào để gắn `DocumentAttributeVideo(supportsStreaming)` hay `thumb` — field `inner: InputFile` cần để tự xây `InputMedia` là `pub(crate)`. Nếu đúng vậy khi chạy M2 thật, **R4 có thể không đáp ứng được điều kiện cốt lõi của [ADR-0005](../adr/0005-streaming-qua-service-worker-http-range.md)** (progressive playback cần `supportsStreaming: true`) bằng API công khai hiện tại — ứng viên hàng đầu để loại R4 nếu M2 thật xác nhận đúng.
+5. `ferogram::Client::delete_messages()` public chỉ gọi `messages.deleteMessages` (không nhận peer) — không đúng cho supergroup/channel (cần `channels.deleteMessages` + access_hash). Đã vá bằng cách tự trích access_hash từ `get_chat_full()` rồi `invoke()` raw.
+
+**Việc tiếp theo:** chạy `login`/`upload` thật (người dùng tự chạy, xem "Ranh giới an toàn" dưới) — ưu tiên xác nhận/bác bỏ phát hiện #4 trước, vì nó quyết định R4 có đáng đo tiếp M3-M8 hay không.
+
+### Tech stack — cái gì đã chắc, cái gì spike này phải quyết
+
+| Tầng | Chọn | Trạng thái bằng chứng |
+|---|---|---|
+| Vỏ desktop | Tauri v2 | **Chưa dùng trong repo.** Spike phải xác nhận: webview có mở được WebSocket tới DC Telegram không (cho R1), và `invoke` trả `ArrayBuffer` nhanh tới đâu |
+| UI | Angular 22.1 zoneless + signals + Material/CDK | 🟢 Đã chứng minh ở `apps/web` ([ADR-0002](../adr/0002-angular-zoneless-signals-va-signalstore.md), [ADR-0016](../adr/0016-angular-material-va-cdk.md)). Spike **không** dựng UI thật — chỉ harness đo, xem "Bàn thử nghiệm" |
+| Logic ingest thuần | `libs/core-ingest` (TypeScript) — phân hạng A/B/C/D, `inheritMetadata`, `mergeCatalogItems`, sidecar subs | 🟢 Có test, đã verify thật. **Ràng buộc thiết kế: KHÔNG port sang Rust ở bất kỳ nhánh nào** — bảng phân hạng phải giữ đúng một nguồn sự thật. Rust (nếu chọn R3/R4) chỉ nhận lệnh thực thi, không chứa luật nghiệp vụ |
+| Schema catalog | `libs/shared-models` catalog v1 | 🟢 Đã chạy thật |
+| FFmpeg | `ffmpeg-next` 7 (FFI) trong **tiến trình worker riêng**, kế thừa `tools/spike-09/` | 🟢 [SPIKE-09](#spike-09) — 72.1x realtime, 7 DLL ~21.3 MB tự chứa. Còn hở: **Hạng D (re-encode video) và phụ đề ảnh PGS chưa có bản native** |
+| **MTProto** | **← chính là câu hỏi của spike này (R1/R2/R3/R4)** | ❓ Chưa đo gì |
+| Hàng đợi bền | R1: IndexedDB/Dexie trong webview · R3/R4: SQLite phía Rust | ❓ Chưa quyết, phụ thuộc kết quả |
+| Lưu session | R1: Dexie + WebCrypto key non-extractable (y như app web) · R3/R4: file mã hoá hoặc keychain OS qua Tauri | Nhánh R1 🟢 (đã dùng thật ở web); nhánh R3/R4 ❓ |
+| Ranh giới RPC | Trait/interface `IngestRpc` gói đúng **7 thao tác** (resolve kênh, kiểm tra quyền ghi, đọc catalog ghim, tải document đó, upload video + attributes/thumb, upload phụ đề, publish+pin+delete) | Nguyên tắc mượn từ `TelegramGateway` của [ADR-0003](../adr/0003-chon-thu-vien-mtproto-gramjs.md): **bắt buộc áp dụng cho cả 4 nhánh**, để lựa chọn thư viện sau này đổi được trong một file |
+
+### Bàn thử nghiệm
+
+`tools/spike-10/` — **harness đo, không phải GUI**. Cùng nguyên tắc cô lập của [SPIKE-01](#spike-01)/[SPIKE-09](#spike-09): nếu hỏng, phải biết chắc lỗi nằm ở tầng runtime đang đo, không phải ở pipeline `tsmc-ingest` thật (pipeline đó đã verify riêng, xem [ADR-0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md)).
+
+Bốn thư mục con, **cùng một kịch bản, cùng một file mẫu, cùng một kênh test** — chỉ khác tầng MTProto:
+
+```text
+tools/spike-10/
+  shared/       kịch bản đo dùng chung + sinh file mẫu + mẫu báo cáo .local.json
+  r1-webview/   Tauri tối thiểu: 1 trang HTML + GramJS + Tauri command đọc chunk
+  r2-sidecar/   Tauri tối thiểu + apps/tsmc-ingest đóng gói SEA làm sidecar
+  r3-grammers/  crate Rust, trait IngestRpc, impl bằng grammers
+  r4-ferogram/  crate Rust, CÙNG trait IngestRpc, impl bằng ferogram
+```
+
+R3 và R4 **bắt buộc dùng chung một trait** — nếu không, phép so sánh mất giá trị và không chứng minh được luận điểm "đổi thư viện = đổi một file".
+
+**Không dựng UI Angular trong spike này.** Câu hỏi ở đây là runtime, không phải giao diện; thêm Angular chỉ làm chậm và làm nhiễu nguyên nhân khi hỏng. UI để dành cho slice thật sau khi ADR chốt.
+
+### Cách chạy
+
+Chưa dựng. Kế hoạch:
+
+1. **Sinh file mẫu tổng hợp ≥2 GB** bằng `ffmpeg` (`testsrc2` + `sine`, H.264/AAC, đủ dài để vượt 2 GB) — **không dùng phim thật**, vừa tránh commit media (CLAUDE.md) vừa tránh đẩy nội dung có bản quyền lên kênh test. Ghi lại kích thước byte chính xác.
+2. **Đo baseline upload** bằng Telegram Desktop trên **cùng máy, cùng file, cùng khung giờ** — mọi con số tốc độ của 4 nhánh so với baseline này, không so với nhau qua các lần chạy khác giờ (băng thông ISP dao động theo giờ, so chéo giờ là phép đo sai).
+3. Chạy lần lượt 4 nhánh trên **cùng một kênh test tự tạo**, mỗi nhánh chạy trọn kịch bản M1→M8.
+4. Tiêu chí **P1** (ranh giới crash) chạy riêng, không cần MTProto: cố tình truyền tham số sai cho media worker (lặp lại đúng lỗi channel-layout đã gây segfault ở [SPIKE-09](#spike-09)) và xác nhận tiến trình cha sống sót.
+5. Tiêu chí **Đ1-Đ3** (đóng gói/giấy phép/chi phí) đo sau cùng, chỉ cho (các) nhánh đã qua M1-M8.
+6. Ghi kết quả ra `tools/spike-10/spike-10-result.local.json` — **chỉ số liệu tổng hợp**, không session, không số điện thoại, không tên file thật.
+
+Credential dùng chung từ `tools/.env` (khuôn [SPIKE-07](#spike-07)); mã OTP luôn gõ tay.
+
+### Tiêu chí đạt/không đạt
+
+Quyết trước khi chạy. Nhóm **M** đo tầng MTProto (áp cho cả 4 nhánh), **P** đo ranh giới tiến trình, **Đ** đo chi phí.
+
+| Mã | Kiểm tra | Đạt khi |
+|---|---|---|
+| M1 | Đăng nhập tài khoản user thật (phone + code + 2FA) và lưu phiên | Chạy lần thứ hai **không hỏi lại OTP**; phiên lưu ở dạng đã mã hoá, nằm ngoài repo |
+| M2 | Upload file ≥2 GB kèm `DocumentAttributeVideo(supportsStreaming)` + thumbnail | Telegram app thật **phát được và tua được**; kiểm bằng mắt, không chỉ tin mã trả về |
+| M3 | RAM khi upload | **RAM đỉnh tiến trình < 500 MB** và **không tăng tuyến tính theo kích thước file** — đo bằng `Get-Process`, lấy mẫu mỗi 5s. Đây là tiêu chí loại thẳng: nạp cả file vào RAM là hỏng |
+| M4 | Tốc độ upload | **≥ 80%** baseline Telegram Desktop ở bước 2. Dưới 50% là tín hiệu mạnh loại nhánh đó |
+| M5 | Tiến trình + huỷ | Báo tiến trình **≤ 2s/lần cập nhật**; bấm huỷ thì lưu lượng mạng về 0 **trong ≤ 3s**, tiến trình không treo, không phải kill tay |
+| M6 | `FLOOD_WAIT` | Gặp thật (upload liên tiếp nhiều file) hoặc dựng lại được: thư viện trả lỗi **phân biệt được + đọc ra số giây**; việc đang dở không mất. Tuyệt đối **không** né bằng đổi DC ([ADR-0006](../adr/0006-download-pipeline-dc-pool-flood-wait.md)) |
+| M7 | Trần kích thước | Ghi rõ ngưỡng thật gặp phải (2 GB hay 4 GB Premium) **và thông điệp lỗi khi vượt** — biết trước để chặn ở UI, thay vì hỏng ở part cuối sau 40 phút upload |
+| M8 | Publish catalog 3 RPC | `sendFile` → `pin` → `delete` bản cũ đúng như [SPIKE-06](#spike-06); đọc lại **byte-chính-xác** |
+| P1 | Ranh giới crash FFmpeg | Cố tình gây lỗi FFI kiểu SPIKE-09 → **media worker chết một mình**, tiến trình cha + hàng đợi sống, file kế tiếp trong batch vẫn chạy |
+| Đ1 | Đóng gói trên máy sạch | Máy **không** có `vcpkg`/Node/LLVM/PATH liên quan → cài và chạy được. Ghi **tổng MB installer + số file runtime** (bài học 7-DLL của SPIKE-09: phải chạy thật trên máy sạch, không suy từ `objdump`) |
+| Đ2 | Giấy phép FFmpeg | Bộ FFmpeg dự định phân phối có kéo **GPL** (x264, cần cho re-encode Hạng D) hay giữ được **LGPL**? Ghi rõ kết luận + nguồn |
+| Đ3 | Chi phí viết mới | Số dòng thật để đạt M1-M8, đếm bằng `cloc`, **không tính test** — con số này vào thẳng cây quyết định |
+
+### Ma trận nền tảng
+
+| Nền tảng | Phạm vi spike | Ghi chú |
+|---|---|---|
+| Windows 11 (máy đã dùng cho SPIKE-09) | **Bắt buộc** — toàn bộ M/P/Đ | Cùng máy để so được với số liệu SPIKE-09 |
+| macOS / Linux | **Ngoài phạm vi, có chủ đích** | Mỗi OS là một bộ FFmpeg + quy trình ký số riêng. Phải ghi rõ ở "Phạm vi bằng chứng" rằng kết luận chỉ áp cho Windows |
+
+### Ranh giới an toàn
+
+- **Người dùng tự chạy trong terminal của mình.** Spike này cần đăng nhập MTProto thật (M1-M8) → Claude không chạy hộ, không nhận OTP, không cầm session ([ADR-0011](../adr/0011-bao-mat-session-va-noi-dung-khong-tin-cay.md)).
+- **Kênh test tự tạo, tự xoá sau khi xong** — khuôn [SPIKE-06](#spike-06). Không đụng vào kênh media thật nào.
+- **File mẫu tổng hợp**, không phải phim thật (mục "Cách chạy" bước 1).
+- **Tôn trọng `FLOOD_WAIT` tuyệt đối.** M6 là để *quan sát* hành vi thư viện khi gặp, không phải để dò ngưỡng — dò ngưỡng là việc của [SPIKE-04](#spike-04) và đã đóng.
+- Báo cáo `*.local.json` **chỉ chứa số liệu tổng hợp**.
+
+### Kết quả
+
+**2026-09-05, tài khoản thật, kênh `tsmc_mediacenter`.** Chi tiết đầy đủ + hai bug thật phát hiện lúc chạy (clap `--session` không nhận global, `.env` sai một cấp thư mục, `tl::enums::ChatFull` hai thư viện đặt tên biến thể khác nhau cho channel) ở [tools/spike-10/README.md](../../tools/spike-10/README.md). Tóm tắt:
+
+| Mã | R3 (grammers) | R4 (ferogram) |
+|---|---|---|
+| M1 (login không hỏi lại OTP) | ✅ ĐẠT (nhiều lần chạy) | ✅ ĐẠT (nhiều lần chạy) |
+| M2 (phát + tua được, xác nhận bằng ảnh) | ✅ **ĐẠT** — hiện đúng video, thumbnail, thời lượng, tua được | ❌ **TRƯỢT — dứt khoát**, xem dưới |
+| M4 (throughput, baseline Telegram Desktop 16.48 MB/s cùng file 419 471 800 byte) | ⚠️ **24.4%** (4.01 MB/s, 104.5s — sau vá multi-connection, xem dưới) | ⚠️ **28.6%** (4.71 MB/s, 89.0s — sau vá pipelined, xem dưới) |
+| M3, M5, M6, M7, M8, P1, Đ1-Đ3 | Chưa đo | Chưa đo |
+
+**M4 đã điều tra thêm cho cả hai nhánh (2026-09-05 → 2026-09-06):**
+- **R4:** root cause của số ban đầu (9.2%) là chọn sai method (`upload_sequential` — đúng nghĩa đen tuần tự, không pipeline); `ferogram-mtsender::DcPool` hỗ trợ tới 3 kết nối TCP thật/DC. Đổi sang `upload_file()` (pipelined) đưa lên **28.6%**.
+- **R3:** root cause của số ban đầu (13.5%) là `SenderPool` cache ĐÚNG MỘT connection/dc_id vĩnh viễn (`upload_stream()`'s 4 "worker" chỉ multiplex trên 1 TCP connection). Khác ferogram, `grammers-mtsender` lộ công khai đủ mảnh (`connect_with_auth`, `Sender::invoke`, `Session::dc_option()`) để tự mở THÊM connection RAW tái dùng auth_key — đúng cách `SenderPool` tự làm nội bộ, không phải hack. Tự cài 3-connection song song đưa R3 từ 13.5% lên **24.4%** (1.81 lần) — **xác nhận bằng mắt: video phát được trọn vẹn**, không có vấn đề ráp file. Chi tiết ở [tools/spike-10/README.md](../../tools/spike-10/README.md).
+
+Cả hai vẫn dưới ngưỡng pass 80% của M4, và còn hướng cải thiện thêm chưa thử (nhiều connection hơn, part size lớn hơn, tái dùng connection giữa các lần upload) — throughput tuyệt đối vẫn là câu hỏi mở, nhưng bằng chứng hiện tại nói rõ: **cả hai thư viện đều KHÔNG bị trần cứng** — trần ban đầu chỉ là do dùng API mặc định chưa tối ưu.
+
+**P1 (ranh giới crash FFmpeg, Cổng 0 — chặn mọi lựa chọn) — ĐẠT (2026-09-06), tự chạy được không cần MTProto:** `tools/spike-10/shared/p1-crash-boundary.mjs` chạy `spike09.exe` (từ SPIKE-09) như tiến trình con trên một batch 3 việc, việc đầu cố ý là file hỏng. Kết quả thật: việc 1 panic sạch (exit 101), tiến trình cha (Node) không bị ảnh hưởng, việc 2 và 3 chạy bình thường ngay sau đó. Không tái tạo được đúng bug segfault gốc của SPIKE-09 (code hiện tại tự suy `channel_layout` từ decoder thay vì hardcode, nên đã bền hơn — mọi input hỏng thử được đều panic sạch, không phải access violation) nhưng kết luận kiến trúc như nhau: worker chết không kéo cha chết theo. Chi tiết ở [tools/spike-10/README.md](../../tools/spike-10/README.md#p1-ranh-giới-crash-ffmpeg--đạt-tự-chạy-được-không-cần-mtproto-2026-09-06).
+
+**M3/M5/M7 cho R3 — ĐẠT, số liệu thật (2026-09-06/07):**
+- **M3 (RAM):** 142 mẫu suốt 143.1s upload 400 MB, RSS dao động 16.7–21.1 MB, không tỉ lệ theo tiến trình — dưới xa ngưỡng 500 MB.
+- **M5 (huỷ):** `--cancel-after-secs 5` huỷ đúng mốc 5.0s, dừng ngay, không sinh msgId.
+- **M7 (ngưỡng kích thước, tài khoản Premium):** 2.307 GiB (4 726 part @512 KiB) upload thành công; 4.327 GiB (8 862 part) ném `FILE_PARTS_INVALID` (RPC 400) từ `upload.saveBigFilePart`. Ngưỡng thật nằm giữa hai mốc này, khớp con số vẫn đồn "4000 MB Premium" (**4 000 000 000 byte thập phân, KHÁC 4 GiB nhị phân**) — ở part size 512 KiB tương đương ~7 630 part. Lỗi là hằng số giao thức thô, không phải câu người dùng đọc được — xác nhận đúng lý do M7 tồn tại. Chi tiết + phát hiện "fail nhanh không đợi cuối" ở [tools/spike-10/README.md](../../tools/spike-10/README.md#kết-quả-thật-m3m5m7m8-cho-r3-2026-09-0607).
+
+**M8 (catalog roundtrip) — ĐẠT (2026-09-07):** publish/pin/xoá-bản-cũ/đọc-lại đúng cả khuôn SPIKE-06, xác nhận **byte-chính-xác** sau khi sửa lỗi encoding của file test cục bộ (không phải lỗi Telegram/grammers).
+
+**Còn lại cho R3:** chỉ M6 (`FLOOD_WAIT`) — để ngỏ có chủ đích, không chủ động ép (CLAUDE.md + SPIKE-04 đã là nơi dò ngưỡng). R3 đạt mọi tiêu chí đo được khác (M1/M2/M3/M5/M7/M8/P1); M4 cải thiện đáng kể (13.5%→24.4%, không phải trần kiến trúc) nhưng chưa qua ngưỡng pass 80%. Đ1-Đ3 (đóng gói/giấy phép/chi phí) chưa đo, chỉ cấp thiết khi thật sự đóng gói app. Bảng đầy đủ ở [tools/spike-10/README.md](../../tools/spike-10/README.md#tổng-kết-r3-sau-toàn-bộ-đợt-chạy-thật-2026-09-05--2026-09-07).
+
+**M2 cho R4 giờ là KẾT LUẬN DỨT KHOÁT, không phải "chưa tìm ra cách":** thử vá bằng cách tự viết chunk-upload gọi thẳng `client.invoke()` (bypass `UploadedFile`) để vừa lấy tốc độ vừa tự gắn `DocumentAttributeVideo` — chạy thật ném `ConnectionReset` ở 1.7%. Đọc mã nguồn xác nhận: ferogram cố tình tách một "transfer pool" hoàn toàn riêng (auth key/transport/session riêng) cho file traffic, và hàm route vào đó (`rpc_transfer_on_dc_pub`) không phải API công khai — nghĩa là **không có cách an toàn nào từ ngoài crate vừa dùng đúng transfer pool vừa tự chọn attributes**. Chi tiết đầy đủ ở [tools/spike-10/README.md](../../tools/spike-10/README.md#điều-tra-m4-2026-09-05--vá-được-throughput-của-r4-nhưng-lộ-ra-giới-hạn-kiến-trúc-thật-chặn-hẳn-m2).
+
+**Đọc cho đúng, không hợp lý hoá:** M2 giờ nghiêng hẳn về R3 với lý do CHẮC CHẮN hơn (giới hạn kiến trúc của ferogram đã xác nhận bằng cả đọc mã nguồn lẫn một lần chạy thật thất bại, không phải "chưa thử hết"). M4 cải thiện đáng kể cho CẢ HAI (R3: 13.5%→24.4%, R4: 9.2%→28.6%) — không còn ai bị coi là "trần cứng kiến trúc", chỉ là chưa tối ưu hết; R4 vẫn nhỉnh hơn R3 một chút trên trục thuần throughput nhưng khoảng cách đã hẹp lại nhiều. Cả hai vẫn dưới ngưỡng pass (80%) — throughput tuyệt đối vẫn là vấn đề mở, không phải điểm phân biệt quyết định giữa R3/R4 nữa (M2 mới là điểm phân biệt quyết định). Không dùng bảng này để kết luận "chọn R3" là quyết định cuối — còn 7 tiêu chí chưa đo, trong đó P1 (Cổng 0) chặn mọi lựa chọn bất kể MTProto nào thắng.
+
+### Ghi chú thứ tự thử nghiệm thật (2026-09-05) — khác cây quyết định gốc bên dưới
+
+Cây quyết định gốc (viết lúc mở spike, giữ nguyên bên dưới làm lịch sử — không sửa) đặt R1 ở Cổng 1, ưu tiên thử TRƯỚC R3/R4, đúng tinh thần giữ nguyên vẹn vụ cược "một thư viện MTProto" của [ADR-0003](../adr/0003-chon-thu-vien-mtproto-gramjs.md). Khi thật sự tới lúc chạy, người quyết định (user) chọn **không** theo thứ tự đó — lý do: R1 (GramJS chạy trong Tauri webview qua `upload.saveBigFilePart` viết tay + IPC đọc chunk) là lựa chọn CHƯA CÓ MỘT DÒNG CODE NÀO và đòi viết mới toàn bộ phần raw-API — rủi ro cao nhất trong bốn nhánh theo đúng bảng "Rủi ro chính chưa biết" ở đầu mục này, trong khi R3 đã có sẵn code chạy được (dựng cùng ngày, xem "Trạng thái dựng" trên) và nhanh chóng cho ra bằng chứng thật (M2 đạt). Đây là quyết định **thứ tự thử trước-sau dựa trên bằng chứng mới** (R1 tốn công viết mới nhất, R3 đã sẵn sàng đo nhất), không phải huỷ bỏ tiêu chí hay hạ thấp thanh chuẩn M1-M8/P1 — cây quyết định gốc vẫn là căn cứ để đọc kết quả, chỉ thứ tự chạy thay đổi. Xem addendum tương ứng ở [ADR-0003](../adr/0003-chon-thu-vien-mtproto-gramjs.md#cập-nhật-sau-khi-accepted-2026-09-05-spike-10--ngoại-lệ-khả-dĩ-cho-công-cụ-ingest-desktop).
+
+### Cây quyết định (gốc, viết trước khi chạy — giữ nguyên để đối chiếu)
+
+Đọc từ trên xuống, dừng ở nhánh đầu tiên khớp. Cổng 0 chặn tất cả — không có ranh giới crash thì mọi lựa chọn MTProto đều vô nghĩa với một app người dùng cuối.
+
+```text
+CỔNG 0 — P1: media worker crash có giết UI không?
+├─ Giết UI ──▶ DỪNG. Sửa ranh giới tiến trình trước, chưa chọn gì cả.
+│              (SPIKE-09 đã ghi đây là điều kiện bắt buộc, không phải tuỳ chọn)
+└─ Không giết ──▶ CỔNG 1
+
+CỔNG 1 — R1 (GramJS trong webview + chunk qua IPC) đạt M1-M8?
+├─ ĐẠT, và M4 ≥ 80% baseline
+│     ──▶ CHỌN R1. Dừng, KHÔNG cần đo tiếp R3/R4.
+│         Một implementation MTProto duy nhất; ADR-0003 còn nguyên vẹn;
+│         phần chunked upload viết ra dùng lại được cho ADR-0013 mục 3
+│         (upload thẳng từ app web) vốn đang kẹt đúng vì lý do này.
+├─ ĐẠT nhưng M4 < 80% hoặc M3 phồng RAM ──▶ CỔNG 2
+└─ KHÔNG ĐẠT (M7 chặn ở 2 GB không vượt được, hoặc Đ3 > ~600 dòng) ──▶ CỔNG 2
+
+CỔNG 2 — chấp nhận HAI implementation MTProto trong repo không?
+├─ KHÔNG ──▶ CHỌN R2 (Node sidecar).
+│            Xấu về đóng gói (2 runtime), nhưng zero rewrite, zero rủi ro mới,
+│            giữ nguyên toàn bộ đường đã verify thật của ADR-0013.
+└─ CÓ ──▶ CỔNG 3   (kèm điều kiện: phải viết ADR mới, xem "Plan sau spike")
+
+CỔNG 3 — R3 (grammers) đạt M1-M8 với adapter tiến trình/huỷ ≤ 150 dòng?
+├─ ĐẠT ──▶ CHỌN R3. Tuổi đời (2019+) và hệ sinh thái thắng sự tiện của R4.
+└─ Trượt ở M5 (tiến trình/huỷ) hoặc M6 (FLOOD_WAIT) ──▶ CỔNG 4
+
+CỔNG 4 — R4 (ferogram) đạt ĐÚNG chỗ R3 vừa trượt?
+├─ ĐẠT ──▶ CHỌN R4, kèm ba điều kiện bắt buộc, không thương lượng:
+│            1. Ghim cứng phiên bản (không `^`), y như bất biến #9 với `telegram`
+│            2. Toàn bộ RPC nằm sau trait IngestRpc — đổi thư viện = đổi một file
+│            3. Không dùng hàm `upload()` nhận AsyncRead (docs ghi rõ:
+│               nạp toàn bộ nguồn vào RAM) — chỉ `upload_file`/`upload_sequential`
+└─ KHÔNG ĐẠT ──▶ Quay về R2 (Node sidecar).
+                  Kết luận trung thực lúc đó: Tauri chỉ đáng làm vỏ UI,
+                  chưa đáng làm nơi chứa MTProto.
+```
+
+**Nhánh phụ, độc lập với cây trên** (quyết sau khi cây trên xong, dựa vào Đ2):
+
+```text
+Hạng D (re-encode video) + phụ đề ảnh PGS — SPIKE-09 chưa cài bản native
+├─ Đ2 nói bộ FFmpeg phân phối được giữ ở LGPL
+│     ──▶ cài nốt vào crate Rust, bỏ hẳn phụ thuộc ffmpeg.exe hệ thống
+└─ Đ2 nói phải kéo x264 → GPL
+      ──▶ KHÔNG đóng gói kèm. Giữ shell-out `ffmpeg` hệ thống cho riêng hai
+          nhánh này (user tự cài) — giữ app ở LGPL và giữ luôn ranh giới
+          tiến trình an toàn sẵn có cho phần nặng nhất.
+```
+
+### Ta sẽ làm gì với từng kết quả
+
+| Kết quả | Hành động | Trạng thái spike |
+|---|---|---|
+| Cổng 0 hỏng (P1 không đạt) | Không chọn runtime nào. Thiết kế lại ranh giới tiến trình rồi chạy lại spike — đây là điều kiện SPIKE-09 đã nêu, không phải phát hiện mới | Giữ mở ⏳ |
+| R1 thắng ở Cổng 1 | Addendum [ADR-0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md) chốt "làm GUI Tauri, MTProto giữ GramJS trong webview". **Không** cần ADR mới cho ADR-0003 — vụ cược "một thư viện" còn nguyên. Ghi phần chunked upload vào roadmap như tài sản dùng chung với ADR-0013 mục 3 | 🟢 |
+| R2 thắng ở Cổng 2 | Addendum ADR-0013 chốt Tauri **chỉ làm vỏ UI**; ghi rõ chi phí đóng gói 2 runtime là đã biết và chấp nhận, kèm số MB thật đo được | 🟡 (chấp nhận đánh đổi có chủ đích) |
+| R3 hoặc R4 thắng | **ADR mới** (không phải addendum): "Chọn runtime MTProto thứ hai cho công cụ ingest desktop" — nêu rõ nó thu hẹp phạm vi vụ cược của ADR-0003 xuống còn `apps/web`, và app xem vẫn phụ thuộc GramJS archived. Cộng addendum ADR-0013 chốt Tauri, và addendum [ADR-0012](../adr/0012-trien-khai-static-pwa-va-cau-truc-workspace.md) cho cấu trúc workspace + ranh giới ESLint mới | ✅ **XẢY RA (2026-09-07)** — R3 thắng, M6 để ngỏ nên đóng 🟡 đúng như dự kiến ở nhánh này. Xem [ADR-0017](../adr/0017-grammers-cho-cong-cu-ingest-desktop.md) + addendum ADR-0013/ADR-0012 tương ứng — cả ba đã viết |
+| Cả 4 nhánh trượt M3 hoặc M6 | Kết quả 🔴 thật sự: hướng GUI desktop cho ingest chưa khả thi ở mức chất lượng đã đặt ra. Giữ `tsmc-ingest` CLI làm đường chính thức, ghi rõ lý do để không ai làm lại từ đầu mà không biết rào cản | 🔴 |
+| M7 lộ trần cứng 2 GB ở mọi nhánh | Phát hiện độc lập, giá trị riêng: phải chặn tại UI **trước** khi remux (một file 4K remux dễ vượt 2 GB), và ghi vào roadmap như ràng buộc sản phẩm — không phải chi tiết kỹ thuật | Ghi làm quan sát |
+| Đ1 lộ thêm file runtime chưa lường (kiểu `swresample-5.dll` của SPIKE-09) | Cập nhật danh sách đóng gói + ghi vào [docs/lessons.md](../lessons.md) — bài học "đo dependency phải chạy thật trên máy sạch" đã có một lần, lặp lại nghĩa là bài học chưa đủ rõ | Ghi làm quan sát |
+
+### Plan sau spike — thứ tự viết tài liệu và code
+
+Chỉ bắt đầu sau khi cây quyết định cho ra một nhánh. Thứ tự này cố ý đặt tài liệu trước code:
+
+1. **ADR** — theo bảng "Ta sẽ làm gì" ở trên (addendum ADR-0013 ở mọi nhánh; thêm ADR mới + addendum ADR-0012 nếu là R3/R4). Dùng skill `/adr`, không sửa nội dung Quyết định đã Accepted.
+2. **`docs/ux-design.md`** — thêm mục cho công cụ desktop. Phải nói rõ ngay đầu mục: đây **không** thuộc 7 màn hình mobile-first của app xem; ngôn ngữ thiết kế khác hẳn (dày đặc, bàn phím trước, bảng thay vì card).
+3. **`docs/roadmap.md`** — thêm nhóm việc GUI ingest; xoá/điều chỉnh các dòng CLI mà GUI thay thế.
+4. **Quyết định phụ còn treo**, ghi thẳng vào ADR tương ứng thay vì để trôi: số phận `tsmc-ingest` CLI (giữ song song hay khai tử sau khi GUI đạt parity); tra metadata online kiểu TMDB (được phép về kiến trúc vì nằm phía admin, nhưng gửi tên phim sang bên thứ ba — nếu làm thì opt-in, mặc định tắt); `@tsmc_bot` ([ADR-0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md) mục 2) có còn cần không khi GUI làm được `/publish` và `/check`.
+5. **Code** — scaffold app thật, không phải harness spike. `tools/spike-10/` giữ lại hay xoá theo đúng tiền lệ: giữ nếu nhánh thắng dùng lại được code (như `tools/spike-09/`), xoá nếu chỉ để trả lời câu hỏi (như [SPIKE-01](#spike-01)).

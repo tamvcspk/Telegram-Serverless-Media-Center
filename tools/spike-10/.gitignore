@@ -1,0 +1,8 @@
+/target
+*.session
+*.session-*
+*-result.local.json
+sample-*.mp4
+sample-*.mkv
+catalog-test*.json
+.p1-scratch/

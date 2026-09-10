@@ -1,0 +1,24 @@
+{
+  "_comment": "Copy file này thành <nhánh>-result.local.json (đã gitignore) rồi điền số liệu thật. CHỈ số liệu tổng hợp — không session, không số điện thoại, không tên file thật (CLAUDE.md + docs/spikes/README.md#spike-10 mục Ranh giới an toàn).",
+  "branch": "r1-webview | r2-sidecar | r3-grammers | r4-ferogram",
+  "date": "YYYY-MM-DD",
+  "platform": "Windows 11 build ...",
+  "sampleFile": { "sizeBytes": 0, "durationSec": 0, "generatedBy": "shared/generate-sample.mjs --seconds ..." },
+  "baselineTelegramDesktop": { "uploadSeconds": 0, "throughputMbps": 0 },
+  "criteria": {
+    "M1_login": { "pass": null, "note": "chạy lần 2 có hỏi lại OTP không?" },
+    "M2_uploadPlayable": { "pass": null, "note": "phát được + tua được trên Telegram app thật, kiểm bằng mắt" },
+    "M3_ramFlat": { "peakMb": null, "sampledEvery5s": [], "note": "Get-Process RSS theo thời gian" },
+    "M4_uploadSpeed": { "seconds": null, "throughputMbps": null, "percentOfBaseline": null },
+    "M5_progressCancel": { "updateIntervalSec": null, "cancelStopsNetworkWithinSec": null },
+    "M6_floodWait": { "encountered": null, "secondsReported": null, "distinguishableError": null },
+    "M7_sizeLimit": { "hardLimitBytes": null, "errorMessage": null },
+    "M8_publishCatalogRoundtrip": { "byteExact": null },
+    "P1_ffmpegCrashBoundary": { "workerDiedAlone": null, "parentSurvived": null, "nextFileInBatchRan": null },
+    "D1_cleanMachinePackaging": { "totalInstallerMb": null, "runtimeFileCount": null },
+    "D2_ffmpegLicense": { "lgplOnly": null, "note": "kéo x264/GPL cho Hạng D re-encode?" },
+    "D3_newCodeLines": { "clocLines": null, "excludesTests": true }
+  },
+  "observations": [],
+  "verdict": "chưa chạy"
+}

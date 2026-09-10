@@ -2,7 +2,7 @@
 
 - **Trạng thái:** Accepted
 - **Ngày:** 2026-08-23
-- **Liên quan:** [ADR-0005](./0005-streaming-qua-service-worker-http-range.md), [ADR-0006](./0006-download-pipeline-dc-pool-flood-wait.md)
+- **Liên quan:** [ADR-0005](./0005-streaming-qua-service-worker-http-range.md), [ADR-0006](./0006-download-pipeline-dc-pool-flood-wait.md), [ADR-0017](./0017-grammers-cho-cong-cu-ingest-desktop.md) (thu hẹp phạm vi ADR này xuống còn `apps/web`)
 
 ## Bối cảnh
 
@@ -106,3 +106,28 @@ Khi triển khai tải chunk thật (`upload.GetFile`, [ADR-0005](./0005-streami
 **Đã verify bằng một bundle thử nghiệm riêng** (cùng cấu hình `polyfillNode`, ngoài repo) trước khi deploy lại: `Buffer.isBuffer(Buffer.from(new Uint8Array([1,2,3])))` trả về `true`. Sau khi sửa, phát video thật thành công trên Windows.
 
 **Điều thay đổi**: thêm một quirk build-tooling vào danh sách "phải tự dò" khi dùng GramJS trong browser (cùng nhóm với `browser-shim.ts`/`randomBytes` ở addendum trước) — bất kỳ chỗ nào cần `Buffer` thật (không chỉ đọc, mà TẠO MỚI để truyền vào GramJS) phải viết literal identifier `Buffer` (kèm `declare const Buffer` cục bộ), không được lấy qua `globalThis`. Quyết định giữ GramJS **không đổi**.
+
+## Cập nhật sau khi Accepted (2026-09-05, SPIKE-10 — ngoại lệ khả dĩ cho công cụ ingest desktop)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định
+> đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết
+> định gốc **vẫn đứng vững cho `apps/web`**. Mục này ghi nhận một **NGOẠI LỆ
+> VỀ PHẠM VI ĐANG CÂN NHẮC** cho một công cụ khác, không sửa lại lựa chọn
+> GramJS cho app xem.
+
+**Bối cảnh:** [SPIKE-10](../spikes/README.md#spike-10) (mở 2026-09-05) đo bốn tổ hợp runtime MTProto cho một GUI ingest desktop (Tauri) — vì `apps/web` chạy trong trình duyệt (transport WebSocket, đúng lý do GramJS được chọn ở Quyết định gốc) trong khi công cụ desktop chạy trong Rust/Node, không có ràng buộc "phải chạy được trong browser" nào cả. Hai trong bốn nhánh (R3/R4) dùng thư viện MTProto Rust (`grammers`/`ferogram`) THAY VÌ GramJS cho riêng công cụ này.
+
+**Số liệu thật đầu tiên (chạy tài khoản thật, kênh `tsmc_mediacenter`, 2026-09-05):**
+- **R3 (`grammers-client` 0.10.0) đạt M2 rõ rệt** — upload video thật, Telegram Desktop hiện đúng player có thumbnail/thời lượng/tua được, xác nhận bằng ảnh chụp màn hình thật (không phải suy đoán từ mã nguồn).
+- **R4 (`ferogram` 0.6.5) trượt M2 — DỨT KHOÁT, không phải "chưa tìm ra cách".** Cùng file, hiện ra như document trần trụi, không phát/tua được. Thử vá bằng cách tự viết chunk-upload gọi thẳng `client.invoke(&upload::SaveBigFilePart{...})` (public) để bypass `UploadedFile` và tự gắn `DocumentAttributeVideo` — chạy thật ném `ConnectionReset` ở 1.7%. Đọc mã nguồn xác nhận gốc rễ: ferogram cố tình tách một "transfer pool" hoàn toàn riêng (auth key/transport/session riêng, tránh trộn traffic file với luồng update/dialog) cho `SaveBigFilePart`/`GetFile`, và hàm route vào pool đó (`rpc_transfer_on_dc_pub`) không phải API công khai. Kết luận: **không có cách an toàn nào từ ngoài crate vừa dùng đúng transfer pool vừa tự chọn `InputMedia`/attributes** — đây là giới hạn kiến trúc thật của thư viện, không phải thiếu sót có thể vá bằng code cẩn thận hơn. Chi tiết ở [tools/spike-10/README.md](../../tools/spike-10/README.md).
+- **M4 (throughput) đã vá được cho CẢ HAI nhánh (2026-09-05 → 2026-09-06):**
+  - R4: số ban đầu (9.2%) do chọn sai method (`upload_sequential`, tuần tự thật sự); đổi sang `upload_file()` (pipelined, dùng sẵn `DcPool` hỗ trợ tới 3 kết nối TCP thật/DC) đưa lên **28.6%**.
+  - R3: số ban đầu (13.5%) do `SenderPool` cache ĐÚNG MỘT connection/dc_id vĩnh viễn — khác ferogram, `grammers-mtsender` lộ công khai đủ mảnh (`connect_with_auth`, `Sender::invoke`, `Session::dc_option()`) để **tự mở thêm connection RAW tái dùng auth_key đã có, đúng cách `SenderPool` tự làm nội bộ** (không phải hack, không đụng API private nào — khác hẳn nỗ lực thất bại ở R4). Tự cài 3-connection song song đưa R3 lên **24.4%** (gấp 1.81 lần) — **xác nhận bằng mắt: video phát được trọn vẹn từ đầu đến cuối**, không có vấn đề ráp file dù các part tới không theo thứ tự tuyến tính.
+  - Cả hai vẫn dưới ngưỡng pass 80% của SPIKE-10 — **throughput tuyệt đối vẫn là vấn đề còn mở, chưa được chấp nhận hay bác bỏ chính thức** — nhưng bằng chứng hiện tại cho thấy **không nhánh nào bị trần cứng kiến trúc**, chỉ là chưa tối ưu hết (còn hướng thử: nhiều connection hơn, part size lớn hơn, tái dùng connection giữa các lần upload thay vì mở mới mỗi lần).
+- Toàn bộ tiêu chí còn lại (M3/M5/M6/M7/M8/P1/Đ1-Đ3) của SPIKE-10 **chưa đo**.
+
+**Vì sao đây là một NGOẠI LỆ, không phải thay thế Quyết định gốc:** Quyết định gốc chọn GramJS vì (1) phải chạy trong trình duyệt, (2) bọc sau `TelegramGateway` để giữ chi phí đổi thư viện ở mức một package. Một MTProto library thứ hai cho công cụ ingest desktop (không phải `apps/web`) không vi phạm lý do (1) — công cụ đó không chạy trong trình duyệt — nhưng làm co hẹp phạm vi thực tế của lý do (2): nếu chọn R3, repo sẽ có **hai** implementation MTProto song song (GramJS cho `apps/web` qua `libs/core-mtproto`, `grammers` cho riêng công cụ ingest desktop) thay vì một. CLAUDE.md bất biến #3 ("Chỉ `libs/core-mtproto` được import package `telegram`") **không bị vi phạm** — bất biến đó chỉ giới hạn package `telegram` (GramJS) cụ thể, không cấm dùng một thư viện MTProto khác ở một tool khác ngoài `libs/core-mtproto`.
+
+**Chưa phải quyết định cuối cùng — điều kiện trước khi chốt:** đúng theo bảng "Ta sẽ làm gì với từng kết quả" của [SPIKE-10](../spikes/README.md#spike-10) ("R3 hoặc R4 thắng"), việc chọn một MTProto library thứ hai đòi một **ADR MỚI** (chưa viết) nêu rõ phạm vi co hẹp này, không phải chỉ addendum này. Addendum này ghi nhận **lý do đang đủ mạnh để cân nhắc ngoại lệ** (M2 thật đã đạt cho R3, rủi ro R1 — giữ đúng một thư viện — cao hơn hẳn vì chưa có một dòng code nào), nhưng KHÔNG tự chốt hướng vì: (a) M4 vẫn xấu chưa có cách xử lý, (b) P1 (ranh giới crash FFmpeg, chặn mọi lựa chọn) chưa đo, (c) M3/M5/M6/M7/M8/Đ1-Đ3 chưa đo. Xem "Ghi chú thứ tự thử nghiệm thật" ở [docs/spikes/README.md#spike-10](../spikes/README.md#spike-10) cho lý do đảo thứ tự thử R3 trước R1.
+
+**Việc tiếp theo:** đo nốt M3/M5/M6/M7/M8/P1 cho R3; quyết định dứt khoát cách xử lý M4 (chấp nhận vì đây là công cụ admin offline, hay điều tra tuning song song/multi-DC trước); sau đó viết ADR mới cho quyết định MTProto thứ hai (nếu chốt theo hướng đó) + addendum [ADR-0012](./0012-trien-khai-static-pwa-va-cau-truc-workspace.md) cho ranh giới workspace/ESLint mới.

@@ -24,3 +24,4 @@ Mỗi ADR ghi lại **một** quyết định kiến trúc: bối cảnh, các p
 | [0014](./0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md) | Mô hình kênh: media dùng chung, state riêng tư | Accepted |
 | [0015](./0015-moi-truong-kiem-thu-firebase-hosting.md) | Môi trường kiểm thử trên Google Cloud free tier | Accepted |
 | [0016](./0016-angular-material-va-cdk.md) | Angular Material + CDK làm thư viện UI | Accepted |
+| [0017](./0017-grammers-cho-cong-cu-ingest-desktop.md) | `grammers` làm MTProto library cho công cụ ingest desktop (Tauri) | Accepted |
