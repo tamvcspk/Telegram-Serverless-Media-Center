@@ -16,6 +16,7 @@ import boundaries from 'eslint-plugin-boundaries';
 const boundariesElements = [
   { type: 'app', pattern: 'apps/web/src/**' },
   { type: 'app-ingest', pattern: 'apps/tsmc-ingest/src/**' },
+  { type: 'app-ingest-desktop-ui', pattern: 'apps/tsmc-ingest-desktop/ui/src/**' },
   { type: 'lib-mtproto', pattern: 'libs/core-mtproto/src/**' },
   { type: 'lib-download', pattern: 'libs/core-download/src/**' },
   {
@@ -80,6 +81,28 @@ export default tseslint.config(
   },
   {
     files: ['apps/web/src/**/*.html'],
+    extends: [...angular.configs.templateRecommended, ...angular.configs.templateAccessibility],
+    rules: {}
+  },
+  {
+    // apps/tsmc-ingest-desktop/ui — app Angular RIÊNG (package.json/
+    // angular.json của chính nó, xem pnpm-workspace.yaml), không chung
+    // project Angular với apps/web. Chưa import @tsmc/* nào (chỉ gọi
+    // @tauri-apps/api/core), nên chưa cần policy boundaries/dependencies
+    // riêng — đăng ký type để sẵn sàng khi slice sau import core-ingest
+    // (docs/ux-design.md § Phụ lục A.1: "logic thuần dùng lại core-ingest").
+    files: ['apps/tsmc-ingest-desktop/ui/src/**/*.ts'],
+    extends: [js.configs.recommended, ...tseslint.configs.recommended, ...angular.configs.tsRecommended],
+    processor: angular.processInlineTemplates,
+    plugins: { boundaries },
+    settings: { 'boundaries/elements': boundariesElements },
+    rules: {
+      '@angular-eslint/prefer-standalone': 'error',
+      '@angular-eslint/component-selector': ['error', { type: 'element', prefix: 'app', style: 'kebab-case' }]
+    }
+  },
+  {
+    files: ['apps/tsmc-ingest-desktop/ui/src/**/*.html'],
     extends: [...angular.configs.templateRecommended, ...angular.configs.templateAccessibility],
     rules: {}
   },

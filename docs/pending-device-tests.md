@@ -4,9 +4,9 @@
 >
 > **Cách cập nhật:** xong một mục → xoá khỏi đây, ghi 1-2 dòng kết quả vào [docs/changelog.md](./changelog.md), và nếu phát hiện gì lệch với thiết kế thì thêm addendum vào ADR liên quan (dùng skill `/adr`). Khi mục cuối cùng của một tính năng biến mất khỏi đây, gỡ luôn nhãn `[Cần kiểm chứng thiết bị thật]` tương ứng ở roadmap.md.
 
-## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — khung sườn đăng nhập + resolve kênh (2026-09-10)
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — màn Đăng nhập UI thật (2026-09-10)
 
-Liên quan: [ADR-0017 § Cập nhật 2026-09-10, khung sườn](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-10-khung-sườn-appstsmc-ingest-desktop--code-thật-lần-đầu), [docs/roadmap.md § Ingest](./roadmap.md#ingest). Khác các mục CLI/web khác trong file này — đây là app desktop Tauri, "thiết bị thật" nghĩa là: tài khoản Telegram thật + `cargo tauri dev` chạy trên máy thật (không phải `cargo build`/`cargo clippy`, vốn đã sạch và không cần MTProto).
+Liên quan: [docs/changelog.md § 2026-09-10, màn Đăng nhập UI thật](./changelog.md#2026-09-10--gui-ingest-desktop-màn-đăng-nhập-ui-thật-angular-22--material), [ADR-0017 § Cập nhật 2026-09-10, khung sườn](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-10-khung-sườn-appstsmc-ingest-desktop--code-thật-lần-đầu), [docs/roadmap.md § Ingest](./roadmap.md#ingest). Khác các mục CLI/web khác trong file này — đây là app desktop Tauri, "thiết bị thật" nghĩa là: tài khoản Telegram thật + `cargo tauri dev` chạy trên máy thật (không phải `cargo build`/`cargo clippy`/`pnpm run build` ở `ui/`, vốn đã sạch và không cần MTProto).
 
 **KHÔNG chạy hộ bằng agent/Claude** — CLAUDE.md: "Không chạy đăng nhập MTProto hộ người dùng". Admin tự chạy trong `apps/tsmc-ingest-desktop/` (`cargo tauri dev`).
 
@@ -14,19 +14,21 @@ Liên quan: [ADR-0017 § Cập nhật 2026-09-10, khung sườn](./adr/0017-gram
 
 - [x] `cargo build --workspace` sạch, không warning — verify 2026-09-10.
 - [x] `cargo clippy --workspace` sạch, không warning — verify 2026-09-10.
-- [x] `cargo tauri dev` boot được cửa sổ WebView2 thật, chạy ổn định tới khi dừng chủ động, không panic — verify 2026-09-10 (không phải trên máy admin, môi trường dựng khung sườn).
-- [ ] `TSMC_API_ID`/`TSMC_API_HASH` thật (tự tạo tại https://my.telegram.org).
+- [x] `cargo tauri dev` boot được cửa sổ WebView2 thật, chạy ổn định tới khi dừng chủ động, không panic — verify 2026-09-10 (không phải trên máy admin, môi trường dựng khung sườn — trước khi có UI Angular, nạp `ui/index.html` cũ).
+- [x] `pnpm --filter @tsmc/tsmc-ingest-desktop-ui run build` sạch; render đúng qua Puppeteer headless nhắm `ng serve` (không phải cửa sổ Tauri, không chạm MTProto) — verify 2026-09-10.
+- [x] `cargo tauri dev` với `ui/` mới: `devUrl` cổng 4300 nạp đúng màn Đăng nhập Angular thật — verify 2026-09-10 (tài khoản thật).
+- [x] `TSMC_API_ID`/`TSMC_API_HASH` thật (tự tạo tại https://my.telegram.org) — verify 2026-09-10.
 
 ### Các bước
 
-- [ ] `check_session` — lần đầu (chưa có session) trả `false`, không lỗi.
-- [ ] `request_login_code` → nhận được OTP qua Telegram/SMS.
-- [ ] `submit_otp` với mã đúng — tài khoản KHÔNG có 2FA: trả `LoggedIn` ngay.
-- [ ] `submit_otp` với mã đúng — tài khoản CÓ 2FA: trả `PasswordRequired`, sau đó `submit_password` với mật khẩu đúng trả thành công.
-- [ ] Đóng app, mở lại, `check_session` lần hai — xác nhận trả `true` (khôi phục session SQLite ở thư mục app-data của HĐH, KHÔNG hỏi lại OTP) — đúng tiêu chí M1 đã verify ở SPIKE-10 cho CLI, nhưng đường dẫn session khác (app-data thay vì cwd), cần verify riêng.
-- [ ] `resolve_channel` với username một kênh do chính tài khoản đăng nhập sở hữu — trả đúng `id`/`title`, `is_own: true`.
-- [ ] `resolve_channel` với username một kênh KHÔNG phải của tài khoản đăng nhập — trả `is_own: false`, không lỗi.
-- [ ] `submit_otp` với mã SAI — xác nhận lỗi trả về đúng, state reset về `Disconnected` như thiết kế (xem README "Đơn giản hoá có chủ đích") — phải bấm lại từ `request_login_code`, không kẹt ở trạng thái lỡ dở.
+- [x] Bước 1 (API_ID + API_HASH + số điện thoại) → **Tiếp tục**: lần đầu (chưa có session) app tự gọi `check_session` (trả `false`) rồi `request_login_code`, chuyển sang Bước 2 — verify 2026-09-10, ĐẠT.
+- [x] Bước 2 (mã OTP) → **Xác nhận**: tài khoản KHÔNG có 2FA → `submit_otp` trả `LoggedIn`, UI hiện panel "Đã đăng nhập" — verify 2026-09-10, ĐẠT.
+- [ ] Bước 2 → tài khoản CÓ 2FA: `submit_otp` trả `PasswordRequired`, UI hiện Bước 3; nhập đúng mật khẩu → `submit_password` → panel "Đã đăng nhập". Chưa test — tài khoản dùng để verify 2026-09-10 không bật 2FA.
+- [ ] Bước 2 nhập mã OTP SAI: `errorMessage` hiện lỗi, UI tự lùi về Bước 1 với API_HASH/số điện thoại VẪN CÒN trong ô (không cần gõ lại) — bấm **Tiếp tục** lần nữa chạy được ngay (`resetAfterAuthFailure()` đã tự gọi lại `check_session()` ngầm), không kẹt ở trạng thái lỡ dở.
+- [ ] Cố tình kích `FLOOD_WAIT` (nếu gặp tự nhiên khi test — KHÔNG chủ động né/kích bằng cách spam gọi, CLAUDE.md tôn trọng FLOOD_WAIT tuyệt đối): xác nhận UI hiện đúng số giây, đếm ngược sống, nút submit bị khoá tới khi hết đếm ngược.
+- [ ] `resolve_channel` — **chưa có UI gọi**, để dành màn "Chọn kênh" (A.4) slice sau; case này giữ nguyên chưa verify từ lần trước.
+
+**Bug thật phát hiện 2026-09-10, CHƯA sửa** — session KHÔNG được nhớ giữa hai lần chạy: đăng nhập xong (Bước 2, không 2FA), đóng app, mở lại, nhập lại API_ID cũ → `check_session` lần hai KHÔNG trả `true` như thiết kế kỳ vọng (đúng ra phải khôi phục session SQLite ở thư mục app-data, khỏi hỏi lại OTP — tiêu chí M1 đã verify ở SPIKE-10 cho CLI, nhưng CLI đọc session ở cwd, còn app desktop đọc ở app-data dir, chưa từng verify riêng đường này). Chuyển thành việc cần sửa, xem [docs/roadmap.md § Ingest](./roadmap.md#ingest) — CHƯA root-cause (nghi vấn đầu tiên: `sign_in()`/`check_password()` có thể kéo theo DC migration mà state machine viết tay ở `commands.rs` không theo dõi/`set_home_dc_id()` lại, khác `Client::connect()` tiện ích gốc của grammers vốn tự xử lý; cần thêm log ở `check_session`/`session_path()` để xác nhận file SQLite có ghi đúng `auth_key`/`dc_home` hay không trước khi kết luận).
 
 ### Nếu có gì vỡ
 

@@ -4,7 +4,10 @@
   "version": "0.1.0",
   "identifier": "com.tsmc.ingestdesktop",
   "build": {
-    "frontendDist": "../ui"
+    "frontendDist": "../ui/dist/browser",
+    "devUrl": "http://localhost:4300",
+    "beforeDevCommand": "pnpm --dir ../ui run start",
+    "beforeBuildCommand": "pnpm --dir ../ui run build"
   },
   "app": {
     "windows": [

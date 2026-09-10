@@ -1,5 +1,6 @@
 packages:
   - "apps/*"
+  - "apps/tsmc-ingest-desktop/ui"
   - "libs/*"
   - "tools/*"
   - "sw"

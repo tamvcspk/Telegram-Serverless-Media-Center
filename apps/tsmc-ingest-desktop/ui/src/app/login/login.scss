@@ -1,0 +1,122 @@
+.login {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  // Desktop, không mobile-first (docs/ux-design.md § Phụ lục A) — canh giữa
+  // trong cửa sổ Tauri 800x600 thay vì full-bleed như F1.1 của apps/web.
+  max-width: 30rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem;
+  box-sizing: border-box;
+
+  .brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    margin: 0 0 0.75rem;
+    font-size: 1.15rem;
+    text-align: center;
+  }
+
+  .risk-banner {
+    display: block;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    border: 1px solid var(--mat-sys-error, #b3261e);
+    border-radius: 0.5rem;
+    background: color-mix(in srgb, var(--mat-sys-error, #b3261e) 8%, transparent);
+    font-size: 0.85rem;
+    line-height: 1.4;
+
+    code {
+      font-size: 0.85em;
+    }
+  }
+
+  .done-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 2rem 1rem;
+    text-align: center;
+    color: var(--mat-sys-primary);
+
+    p {
+      color: var(--mat-sys-on-surface);
+      margin: 0;
+    }
+  }
+
+  mat-stepper {
+    background: transparent;
+    padding: 0;
+
+    // MatStepHeader render ở ViewEncapsulation.None (global) nên phải
+    // ::ng-deep mới chạm được — CSS mặc định của Material là
+    // text-overflow:ellipsis, cắt cụt nhãn tiếng Việt.
+    ::ng-deep .mat-step-text-label {
+      white-space: normal;
+      overflow: visible;
+      text-overflow: clip;
+    }
+  }
+
+  .lock-hint {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 400;
+    opacity: 0.7;
+  }
+
+  .step-dot {
+    vertical-align: middle;
+    margin-right: 0.25rem;
+  }
+
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    align-items: flex-start;
+  }
+
+  mat-form-field {
+    width: 100%;
+  }
+
+  .phone-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    width: 100%;
+
+    .dial-code,
+    .national-number {
+      min-width: 0;
+      width: auto;
+    }
+
+    .dial-code {
+      flex: 0 0 9.5rem;
+    }
+
+    .national-number {
+      flex: 1 1 0;
+    }
+  }
+
+  .hint {
+    font-size: 0.85rem;
+    opacity: 0.75;
+  }
+
+  .error {
+    color: var(--mat-sys-error, #b3261e);
+  }
+
+  .countdown {
+    font-weight: 500;
+  }
+}
