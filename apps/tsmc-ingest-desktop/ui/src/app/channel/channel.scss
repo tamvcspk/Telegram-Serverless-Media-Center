@@ -1,0 +1,142 @@
+.channel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 30rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem;
+  box-sizing: border-box;
+
+  .title {
+    margin: 0 0 0.25rem;
+    font-size: 1.15rem;
+    text-align: center;
+  }
+
+  .hint {
+    font-size: 0.85rem;
+    opacity: 0.75;
+  }
+
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    align-items: flex-start;
+  }
+
+  mat-form-field {
+    width: 100%;
+  }
+
+  .filter-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+
+    .filter-field {
+      flex: 1 1 auto;
+      width: auto;
+    }
+
+    .add-button {
+      flex: 0 0 auto;
+      margin-top: 0.4rem;
+      border-radius: 50%;
+      color: var(--mat-sys-on-surface-variant, currentColor);
+
+      &.active {
+        color: var(--mat-sys-primary);
+        background: color-mix(in srgb, var(--mat-sys-primary) 12%, transparent);
+      }
+    }
+  }
+
+  .create-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    align-items: flex-start;
+    padding: 0.75rem;
+    border-radius: 0.5rem;
+    background: color-mix(in srgb, var(--mat-sys-primary) 6%, transparent);
+  }
+
+  .channel-list {
+    border: 1px solid color-mix(in srgb, var(--mat-sys-on-surface) 12%, transparent);
+    border-radius: 0.5rem;
+    max-height: 18rem;
+    overflow-y: auto;
+
+    button[mat-list-item] {
+      width: 100%;
+      text-align: left;
+    }
+
+    .channel-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      width: 100%;
+    }
+
+    .badge {
+      font-size: 0.7rem;
+      font-weight: 500;
+      padding: 0.1rem 0.4rem;
+      border-radius: 999px;
+      color: var(--mat-sys-primary);
+      background: color-mix(in srgb, var(--mat-sys-primary) 14%, transparent);
+      white-space: nowrap;
+    }
+
+    .empty-hint {
+      padding: 0.75rem;
+      margin: 0;
+    }
+  }
+
+  .result-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    background: color-mix(in srgb, var(--mat-sys-primary) 6%, transparent);
+
+    .channel-title {
+      margin: 0;
+      font-weight: 500;
+      font-size: 1.05rem;
+    }
+
+    .status-line {
+      margin: 0;
+    }
+
+    .ok {
+      color: var(--mat-sys-primary);
+      font-weight: 500;
+    }
+
+    .warn {
+      color: var(--mat-sys-error, #b3261e);
+      font-weight: 500;
+    }
+  }
+
+  .done-hint {
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid color-mix(in srgb, var(--mat-sys-on-surface) 12%, transparent);
+
+    p {
+      margin: 0 0 0.25rem;
+    }
+  }
+
+  .error {
+    color: var(--mat-sys-error, #b3261e);
+  }
+}

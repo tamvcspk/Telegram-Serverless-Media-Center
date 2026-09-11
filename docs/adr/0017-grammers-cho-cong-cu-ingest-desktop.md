@@ -177,3 +177,65 @@ không nạp cả file vào RAM (`multi_connection_upload()` giữ nguyên cơ c
 A) thay cho `ui/index.html` placeholder hiện tại; wire 6 method `IngestRpc`
 còn lại thành command khi UI cần tới; admin tự verify luồng đăng nhập +
 resolve kênh thật (checklist [docs/pending-device-tests.md](../pending-device-tests.md)).
+
+## Cập nhật sau khi Accepted (2026-09-11, `IngestRpc` thêm 2 thao tác không có tương ứng 1-1 phía TS)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết
+> định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó —
+> quyết định gốc **vẫn đứng vững**. Mục này nới đúng MỘT câu trong Quyết định
+> gốc, không đổi bản chất: `ingest-rpc-trait/src/lib.rs` từng ghi "Bảy thao
+> tác này khớp 1-1 với `gateway-index.ts`/`gateway-ingest.ts` — implementation
+> Rust KHÔNG được phát minh lại tập hợp thao tác". Addendum này ghi nhận
+> ngoại lệ có chủ đích đầu tiên cho câu đó.
+
+Slice "Chọn kênh" (màn A.4) phát hiện gap thật khi làm UI: mockup gốc
+(`docs/ux-design.md` § A.4, hàng "Chọn kênh") đòi "danh sách kênh **ghi
+được**", nhưng bảy thao tác gốc của `IngestRpc` chỉ có `resolve_channel(ref)`
+— resolve MỘT kênh cụ thể theo ref, không có cách "liệt kê". User cũng yêu
+cầu thêm "tạo kênh mới" ngay tại màn này thay vì bắt thoát ra app Telegram
+gốc. Cả hai đều là nhu cầu THẬT của công cụ desktop, không tồn tại ở
+`apps/web` (web app không có luồng "quản lý danh sách kênh của tôi" hay "tạo
+kênh media mới" — Sources chỉ *thêm một kênh đã có sẵn* làm nguồn xem).
+
+**Quyết định (bổ sung, không thay đổi 4 điều kiện bắt buộc gốc):** thêm đúng
+hai method vào `IngestRpc` — `list_own_channels()` (quét `Client::
+iter_dialogs()`, lọc `Peer::Channel` có `raw.creator == true`, đúng semantics
+`is_own` đã dùng ở `resolve_channel`) và `create_channel(title)` (raw invoke
+`tl::functions::channels::CreateChannel { broadcast: true, megagroup: false,
+... }` — cùng lời gọi TL, cùng loại kênh `broadcast` mà `gateway-sync.ts`
+(TS) đã dùng cho `createStateChannel()`, chỉ khác mục đích: kênh MEDIA dùng
+chung, không phải kênh STATE riêng tư của ADR-0014). Hai method này **KHÔNG**
+có tương ứng 1-1 phía `libs/core-mtproto` — chấp nhận đây là ngoại lệ có chủ
+đích cho một nhu cầu chỉ tồn tại ở công cụ desktop, không phải một port thiếu
+sót. `AppState.selected_channel` (Rust) được dùng làm điểm hội tụ chung: cả
+`resolve_channel`, `create_channel`, và một command mới `select_channel`
+(chọn một kết quả từ `list_own_channels()`, không resolve lại) đều ghi vào
+đây, để `check_write_permission()`/`read_pinned_catalog()` luôn thao tác
+đúng "kênh đang chọn" bất kể chọn bằng cách nào trong ba cách.
+
+**Không đổi:** bốn điều kiện bắt buộc ở Quyết định gốc (ghim version, trait
+chung, không nạp cả file vào RAM, không port luật nghiệp vụ) đứng nguyên —
+hai method mới vẫn đi qua đúng trait, không thêm code MTProto nào ngoài
+`ingest-grammers`. `libs/core-ingest` vẫn không đổi vai trò.
+
+**Việc tiếp theo:** 6 method `IngestRpc` chưa wire thành Tauri command giảm
+còn 4 (`download_document`, `upload_video`, `upload_subtitle`,
+`publish_catalog`) — để dành slice workspace ba vùng (mockup A.3). Admin tự
+verify picker/tạo kênh bằng tài khoản thật (checklist
+[docs/pending-device-tests.md](../pending-device-tests.md)).
+
+**Cập nhật tiếp trong cùng slice — mở rộng sang supergroup, loại trừ group nhỏ có chủ đích:**
+theo yêu cầu user, `list_own_channels()`/`resolve_channel()` ban đầu chỉ
+chấp nhận `Peer::Channel` (broadcast) — mở rộng thêm `Peer::Group` mà
+`raw` là `tl::enums::Chat::Channel` (grammers xếp supergroup vào `Group` dù
+ở tầng TL nó vẫn là `Channel` với `broadcast: false`, cùng họ RPC
+`channels.*`/`InputPeer::Channel` với broadcast channel — tương thích với
+`read_pinned_catalog()`/`upload_video()`/... hiện có). **Cố ý KHÔNG** mở
+rộng tới group nhỏ chưa nâng cấp supergroup (`tl::enums::Chat::Chat`) — kiểu
+này dùng hẳn họ RPC `messages.*`/`InputPeer::Chat` khác hẳn, các method còn
+lại của `IngestRpc` (hardcode match `InputPeer::Channel`) sẽ vỡ nếu cho lọt
+vào, lỗi khó hiểu ("peer không phải InputPeer::Channel") ở bước publish
+thay vì báo ngay lúc chọn kênh. Logic gộp vào một helper dùng chung
+`channel_like_creator()` (`ingest-grammers/src/rpc.rs`) cho cả
+`resolve_channel()` lẫn `list_own_channels()`, tránh lặp lại phân loại
+Channel/Group ở hai chỗ.

@@ -1,8 +1,10 @@
 //! Trait `IngestRpc` — hợp đồng RPC MTProto dùng chung cho công cụ ingest
-//! desktop (ADR-0017). Bảy thao tác này khớp 1-1 với
+//! desktop (ADR-0017). Bảy trong chín thao tác khớp 1-1 với
 //! `libs/core-mtproto/src/gateway-index.ts` + `gateway-ingest.ts` (bản
 //! TypeScript đã verify thật ở ADR-0013) — implementation Rust KHÔNG được
-//! phát minh lại tập hợp thao tác, chỉ đổi thư viện MTProto bên dưới.
+//! phát minh lại tập hợp thao tác đó, chỉ đổi thư viện MTProto bên dưới.
+//! `list_own_channels`/`create_channel` (thêm 2026-09-11) là NGOẠI LỆ có chủ
+//! đích, xem doc comment ở `trait IngestRpc` ngay dưới.
 //!
 //! Crate này KHÔNG chứa luật nghiệp vụ (bảng phân hạng A/B/C/D,
 //! inheritMetadata, catalog merge) — luật đó ở lại `libs/core-ingest`
@@ -129,15 +131,33 @@ pub struct UploadedRef {
     pub msg_id: i64,
 }
 
-/// Bảy thao tác RPC mà implementation MTProto phải đáp ứng — bọc cổng theo
+/// Chín thao tác RPC mà implementation MTProto phải đáp ứng — bọc cổng theo
 /// đúng nguyên tắc `TelegramGateway` của ADR-0003: đổi thư viện MTProto sau
 /// này (nếu cần) là đổi implementation của trait này, không lan ra toàn bộ
-/// app (điều kiện bắt buộc #2, ADR-0017).
+/// app (điều kiện bắt buộc #2, ADR-0017). Bảy thao tác đầu khớp 1-1 với bản
+/// TypeScript đã verify (`gateway-index.ts`/`gateway-ingest.ts`, xem doc
+/// comment gốc của module này) — `list_own_channels`/`create_channel`
+/// (2026-09-11) là NGOẠI LỆ có chủ đích: hai thao tác desktop-only, phục vụ
+/// picker ở màn "Chọn kênh" (A.4), không có tương ứng 1-1 phía TS (web app
+/// không có luồng "tạo kênh media mới" — chỉ ingest desktop mới cần).
 #[async_trait]
 pub trait IngestRpc: Send + Sync {
     /// 1. Resolve username/invite-link/id nội bộ thành channel + access_hash
     /// thật của TÀI KHOẢN ĐANG ĐĂNG NHẬP (CLAUDE.md bất biến #10).
     async fn resolve_channel(&self, channel_ref: &str) -> Result<ResolvedChannel, IngestRpcError>;
+
+    /// 1b. Liệt kê channel/broadcast mà TÀI KHOẢN ĐANG ĐĂNG NHẬP là creator —
+    /// nguồn cho picker ở màn "Chọn kênh", thay cho việc bắt user tự gõ/nhớ
+    /// username. KHÔNG liệt kê kênh cộng đồng đã join nhưng không sở hữu —
+    /// CLAUDE.md bất biến #5 (không bao giờ ghi vào kênh người khác) nghĩa
+    /// là không có lý do hiện những kênh đó ra để chọn nhầm.
+    async fn list_own_channels(&self) -> Result<Vec<ResolvedChannel>, IngestRpcError>;
+
+    /// 1c. Tạo một channel/broadcast MỚI (`broadcast: true`, `megagroup:
+    /// false` — đúng loại kênh media hiện có theo ADR-0013, khác kênh state
+    /// riêng tư của ADR-0014 dù dùng chung RPC `channels.CreateChannel`),
+    /// trả về đã resolve sẵn — sẵn sàng dùng ngay cho các thao tác tiếp theo.
+    async fn create_channel(&self, title: &str) -> Result<ResolvedChannel, IngestRpcError>;
 
     /// 2. Kiểm tra quyền ghi vào kênh — mặc định chỉ cần đọc `is_own` đã có
     /// từ bước resolve (xem doc comment ở `ResolvedChannel::is_own`).

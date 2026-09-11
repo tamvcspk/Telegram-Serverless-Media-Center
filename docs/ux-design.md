@@ -357,7 +357,7 @@ Trên mobile, Cài đặt **không** nên chiếm một tab dưới Bottom Nav �
 
 ## Phụ lục A: Công cụ ingest desktop (GUI Tauri)
 
-> **Trạng thái: bản vẽ, chưa có một dòng code nào.** Nguồn gốc: brainstorm 2026-09-05, sau khi [SPIKE-09](./spikes/README.md#spike-09) đóng 🟢 và user quyết định hướng GUI Tauri (quyết định này ADR-0013 để ngỏ từ 2026-08-29 — xem [ADR-0013](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md)).
+> **Trạng thái (2026-09-11): Đăng nhập + Chọn kênh (hàng A.4 tương ứng) đã là code thật, chạy được** (`apps/tsmc-ingest-desktop`, xem [ADR-0017](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md) + [README](../apps/tsmc-ingest-desktop/README.md)) — workspace ba vùng (A.3) và 2 màn A.4 còn lại (Trình quản lý catalog, Nhật ký) vẫn chỉ là bản vẽ. Nguồn gốc: brainstorm 2026-09-05, sau khi [SPIKE-09](./spikes/README.md#spike-09) đóng 🟢 và user quyết định hướng GUI Tauri (quyết định này ADR-0013 để ngỏ từ 2026-08-29 — xem [ADR-0013](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md)).
 >
 > **Không thuộc 7 màn hình mobile-first ở trên.** Khác đối tượng (người **đăng** nội dung, không phải người xem), khác thiết bị (desktop), khác ngôn ngữ thiết kế (dày đặc, bàn phím trước, bảng thay vì card). Ba nguyên tắc chuyển đổi mobile-first ở đầu tài liệu **không áp dụng** cho phụ lục này.
 >
@@ -424,8 +424,8 @@ Khi đang chạy, vùng bảng đổi sang chế độ theo dõi: mỗi dòng hi
 
 | Màn | Nội dung | Ràng buộc bắt buộc |
 |---|---|---|
-| Đăng nhập | `API_ID`/`API_HASH` → số điện thoại → OTP → 2FA | Giữ **nguyên** cảnh báo bắt buộc của [ADR-0011 §5](./adr/0011-bao-mat-session-va-noi-dung-khong-tin-cay.md) trước ô nhập đầu tiên — desktop app không được nhẹ tay hơn web |
-| Chọn kênh | Danh sách kênh **ghi được**, kèm tình trạng catalog đã ghim | Chặn id thô ngay tại form (bất biến #10 — `access_hash` khác nhau theo tài khoản); không bao giờ ghi vào kênh của người khác (bất biến #5) |
+| Đăng nhập **[Đã chạy thật, 2026-09-10]** | `API_ID`/`API_HASH` → số điện thoại → OTP → 2FA | Giữ **nguyên** cảnh báo bắt buộc của [ADR-0011 §5](./adr/0011-bao-mat-session-va-noi-dung-khong-tin-cay.md) trước ô nhập đầu tiên — desktop app không được nhẹ tay hơn web |
+| Chọn kênh **[Đã chạy thật, 2026-09-11]** | Danh sách kênh **ghi được** (chọn từ danh sách kênh của admin, nhập ref trực tiếp, hoặc tạo kênh mới), kèm tình trạng catalog đã ghim | Chặn id thô ngay tại form (bất biến #10 — `access_hash` khác nhau theo tài khoản); không bao giờ ghi vào kênh của người khác (bất biến #5) |
 | Trình quản lý catalog | Bảng toàn bộ item đang có, đối soát với message thật trong kênh, sửa/xoá/re-publish | Mọi dữ liệu đọc từ Telegram là **không tin cậy** — validate schema + kẹp độ dài như Màn hình 6 ([ADR-0011 §3](./adr/0011-bao-mat-session-va-noi-dung-khong-tin-cay.md)) |
 | Nhật ký | Log kỹ thuật, copy được | Chỗ để dán khi báo lỗi; không log session/token |
 

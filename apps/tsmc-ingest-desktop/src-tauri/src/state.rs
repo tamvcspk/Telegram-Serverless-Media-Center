@@ -11,6 +11,7 @@ use grammers_client::Client;
 use grammers_client::client::{LoginToken, PasswordToken};
 use grammers_session::storages::SqliteSession;
 use ingest_grammers::GrammersIngestRpc;
+use ingest_rpc_trait::ResolvedChannel;
 
 #[derive(Default)]
 pub enum ConnState {
@@ -39,4 +40,11 @@ pub enum ConnState {
 #[derive(Default)]
 pub struct AppState {
     pub conn: tokio::sync::Mutex<ConnState>,
+    /// Kênh vừa `resolve_channel()` gần nhất — `check_write_permission`/
+    /// `read_pinned_catalog` đọc lại từ đây thay vì bắt UI gửi lại
+    /// `ResolvedChannel` qua IPC. Bắt buộc vì `GrammersIngestRpc::peer_for()`
+    /// tra cứu `Peer` từ cache nội bộ theo `channel.id` — cache đó chỉ được
+    /// điền bởi lần `resolve_channel()` tương ứng, nên hai lệnh này CHỈ hợp
+    /// lệ sau một `resolve_channel()` thành công trong cùng phiên `Ready`.
+    pub selected_channel: tokio::sync::Mutex<Option<ResolvedChannel>>,
 }

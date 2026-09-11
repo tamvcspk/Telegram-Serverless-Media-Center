@@ -48,11 +48,49 @@ use ingest_rpc_trait::{
     UploadProgress, UploadedRef, VideoUploadInput,
 };
 
+/// Dịch một số mã lỗi RPC Telegram hay gặp thành thông báo tiếng Việt đọc
+/// được — mặc định (`err.to_string()`) chỉ ra dạng kỹ thuật thô kiểu
+/// `"request error: rpc error 403: USER_RESTRICTED caused by
+/// channels.createChannel"`, không nói được gì cho user không đọc code.
+/// **Đây là hạn chế THẬT từ phía Telegram, không phải lỗi của app** — không
+/// có cách né hợp lệ (CLAUDE.md: tôn trọng giới hạn tài khoản thật).
 fn to_rpc_error(err: InvocationError) -> IngestRpcError {
     if let Some(seconds) = crate::session::flood_wait_seconds(&err) {
         return IngestRpcError::FloodWait { seconds };
     }
+    if let InvocationError::Rpc(rpc) = &err {
+        if rpc.name == "USER_RESTRICTED" {
+            return IngestRpcError::Other(
+                "Telegram từ chối thao tác này cho tài khoản đang đăng nhập (USER_RESTRICTED) — thường do tài khoản còn mới/chưa đủ độ tin cậy, hoặc từng bị đánh dấu nghi ngờ spam. Không phải lỗi của app này và không có cách né hợp lệ — thử lại sau một thời gian, hoặc liên hệ hỗ trợ Telegram nếu nghi ngờ bị gắn nhầm."
+                    .to_string(),
+            );
+        }
+    }
     IngestRpcError::Other(err.to_string())
+}
+
+/// Kênh broadcast (`Peer::Channel`) HOẶC supergroup (`Peer::Group` mà
+/// `raw` là `tl::enums::Chat::Channel` — grammers tự phân loại một
+/// megagroup vào `Group` dù ở tầng TL nó vẫn là kiểu `Channel` với
+/// `broadcast: false`) đều dùng chung họ RPC `channels.*`
+/// (`InputPeer::Channel`) — tương thích với `read_pinned_catalog()`/
+/// `upload_video()`/`publish_catalog()`/... hiện có (tất cả đều hardcode
+/// match `InputPeer::Channel`). Group NHỎ chưa nâng cấp supergroup
+/// (`tl::enums::Chat::Chat`) dùng hẳn một họ RPC khác (`messages.*`,
+/// `InputPeer::Chat`) — KHÔNG tương thích, phải loại ngay từ bước liệt kê/
+/// resolve, không để lọt vào rồi vỡ muộn (lỗi khó hiểu "peer không phải
+/// InputPeer::Channel") ở bước upload/publish sau này. Trả `None` nếu peer
+/// không thuộc loại nào dùng được (`User`, group nhỏ, chat không truy cập
+/// được); `Some(creator)` nếu dùng được, kèm cờ có phải chính chủ hay không.
+fn channel_like_creator(peer: &Peer) -> Option<bool> {
+    match peer {
+        Peer::Channel(chan) => Some(chan.raw.creator),
+        Peer::Group(group) => match &group.raw {
+            tl::enums::Chat::Channel(c) => Some(c.creator),
+            _ => None,
+        },
+        Peer::User(_) => None,
+    }
 }
 
 pub struct GrammersIngestRpc {
@@ -87,8 +125,65 @@ impl IngestRpc for GrammersIngestRpc {
     async fn resolve_channel(&self, channel_ref: &str) -> Result<ResolvedChannel, IngestRpcError> {
         let peer = self.client.resolve_username(channel_ref.trim_start_matches('@')).await.map_err(to_rpc_error)?;
         let peer = peer.ok_or_else(|| IngestRpcError::Other(format!("\"{channel_ref}\" không resolve được thành peer nào")))?;
+        let Some(creator) = channel_like_creator(&peer) else {
+            return Err(IngestRpcError::Other(format!(
+                "\"{channel_ref}\" không phải channel/broadcast hay supergroup — group nhỏ chưa nâng cấp supergroup không được hỗ trợ"
+            )));
+        };
+        let id = format!("{:?}", peer.id());
+        let title = peer.name().unwrap_or("(không có tên)").to_string();
+        let resolved = ResolvedChannel { id: id.clone(), access_hash: String::new(), title, is_own: creator };
+        self.cache.lock().unwrap().insert(id, peer);
+        Ok(resolved)
+    }
+
+    async fn list_own_channels(&self) -> Result<Vec<ResolvedChannel>, IngestRpcError> {
+        let mut iter = self.client.iter_dialogs();
+        let mut result = Vec::new();
+        while let Some(dialog) = iter.next().await.map_err(to_rpc_error)? {
+            let peer = dialog.peer().clone();
+            let Some(true) = channel_like_creator(&peer) else { continue };
+            let id = format!("{:?}", peer.id());
+            let title = peer.name().unwrap_or("(không có tên)").to_string();
+            let resolved = ResolvedChannel { id: id.clone(), access_hash: String::new(), title, is_own: true };
+            self.cache.lock().unwrap().insert(id, peer);
+            result.push(resolved);
+        }
+        Ok(result)
+    }
+
+    async fn create_channel(&self, title: &str) -> Result<ResolvedChannel, IngestRpcError> {
+        let updates = self
+            .client
+            .invoke(&tl::functions::channels::CreateChannel {
+                broadcast: true,
+                megagroup: false,
+                for_import: false,
+                forum: false,
+                title: title.to_string(),
+                about: String::new(),
+                geo_point: None,
+                address: None,
+                ttl_period: None,
+            })
+            .await
+            .map_err(to_rpc_error)?;
+
+        // `channels.createChannel` trả `Updates` — chats mới tạo nằm trong
+        // biến thể `Updates`/`Combined` (cả hai đều có field `chats`), khác
+        // các biến thể "short" (không có channel nào cả, không áp dụng ở
+        // đây). Cùng cách gateway-sync.ts (TS) đọc `Updates.chats` cho
+        // `createStateChannel()`.
+        let chats = match updates {
+            tl::enums::Updates::Updates(u) => u.chats,
+            tl::enums::Updates::Combined(u) => u.chats,
+            _ => return Err(IngestRpcError::Other("channels.createChannel không trả Updates chứa danh sách chats".into())),
+        };
+        let chat = chats.into_iter().next().ok_or_else(|| IngestRpcError::Other("channels.createChannel không trả channel nào".into()))?;
+
+        let peer = Peer::from_raw(&self.client, chat);
         let Peer::Channel(ref chan) = peer else {
-            return Err(IngestRpcError::Other(format!("\"{channel_ref}\" không phải channel/broadcast")));
+            return Err(IngestRpcError::Other("channels.createChannel trả một peer không phải channel/broadcast".into()));
         };
         let id = format!("{:?}", chan.id());
         let resolved = ResolvedChannel { id: id.clone(), access_hash: String::new(), title: chan.title().to_string(), is_own: chan.raw.creator };

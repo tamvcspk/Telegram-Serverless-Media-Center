@@ -1,14 +1,23 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { IngestRpcErrorDto, LoginOutcomeDto, ResolvedChannelDto } from './ingest-rpc.types';
+import type {
+  IngestRpcErrorDto,
+  LoginOutcomeDto,
+  PinnedCatalogDto,
+  ResolvedChannelDto,
+  SavedCredentialsDto
+} from './ingest-rpc.types';
 
 /**
  * Cổng DUY NHẤT gọi `invoke()` của Tauri trong app này — mọi component chỉ
  * gọi qua các hàm dưới, không tự gọi `invoke()` rời rạc. Khớp tinh thần
  * "TelegramGateway" của apps/web (CLAUDE.md bất biến #3), dù ở đây không có
  * eslint-plugin-boundaries ép vì chỉ có một file gọi `@tauri-apps/api`.
- * Năm command khớp `src-tauri/src/commands.rs` — PHẢI gọi đúng thứ tự đã ghi
- * ở đó: checkSession() → requestLoginCode() → submitOtp() → (submitPassword()
- * nếu `PasswordRequired`) → resolveChannel().
+ * Mười hai command khớp `src-tauri/src/commands.rs` — PHẢI gọi đúng thứ tự
+ * đã ghi ở đó: checkSession() → requestLoginCode() → submitOtp() →
+ * (submitPassword() nếu `PasswordRequired`) → MỘT trong ba cách chọn kênh
+ * (resolveChannel() / selectChannel() sau listOwnChannels() / createChannel())
+ * → checkWritePermission()/readPinnedCatalog() (hai cái sau luôn đọc lại
+ * channel của lần chọn gần nhất phía Rust, không cần truyền lại qua IPC).
  */
 
 export function checkSession(apiId: number): Promise<boolean> {
@@ -27,8 +36,36 @@ export function submitPassword(password: string): Promise<void> {
   return invoke<void>('submit_password', { password });
 }
 
+export function loadSavedCredentials(): Promise<SavedCredentialsDto | null> {
+  return invoke<SavedCredentialsDto | null>('load_saved_credentials');
+}
+
+export function saveCredentials(apiId: number, apiHash: string, dialCode: string, nationalNumber: string): Promise<void> {
+  return invoke<void>('save_credentials', { apiId, apiHash, dialCode, nationalNumber });
+}
+
 export function resolveChannel(channelRef: string): Promise<ResolvedChannelDto> {
   return invoke<ResolvedChannelDto>('resolve_channel', { channelRef });
+}
+
+export function listOwnChannels(): Promise<ResolvedChannelDto[]> {
+  return invoke<ResolvedChannelDto[]>('list_own_channels');
+}
+
+export function createChannel(title: string): Promise<ResolvedChannelDto> {
+  return invoke<ResolvedChannelDto>('create_channel', { title });
+}
+
+export function selectChannel(channel: ResolvedChannelDto): Promise<void> {
+  return invoke<void>('select_channel', { id: channel.id, title: channel.title, isOwn: channel.is_own });
+}
+
+export function checkWritePermission(): Promise<boolean> {
+  return invoke<boolean>('check_write_permission');
+}
+
+export function readPinnedCatalog(): Promise<PinnedCatalogDto | null> {
+  return invoke<PinnedCatalogDto | null>('read_pinned_catalog');
 }
 
 /** `invoke()` reject bằng đúng giá trị `IngestRpcErrorDto` đã serialize khi

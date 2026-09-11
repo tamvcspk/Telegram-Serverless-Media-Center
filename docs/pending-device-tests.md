@@ -23,16 +23,68 @@ Liên quan: [docs/changelog.md § 2026-09-10, màn Đăng nhập UI thật](./ch
 
 - [x] Bước 1 (API_ID + API_HASH + số điện thoại) → **Tiếp tục**: lần đầu (chưa có session) app tự gọi `check_session` (trả `false`) rồi `request_login_code`, chuyển sang Bước 2 — verify 2026-09-10, ĐẠT.
 - [x] Bước 2 (mã OTP) → **Xác nhận**: tài khoản KHÔNG có 2FA → `submit_otp` trả `LoggedIn`, UI hiện panel "Đã đăng nhập" — verify 2026-09-10, ĐẠT.
-- [x] Đóng app, mở lại, nhập lại đúng 3 ô ở Bước 1 (API_ID cũ + API_HASH + số điện thoại) → `check_session` lần hai trả `true` → UI nhảy thẳng tới panel "Đã đăng nhập", KHÔNG hỏi lại OTP (khôi phục session SQLite ở thư mục app-data của HĐH) — verify 2026-09-10, ĐẠT. Kiểm trực tiếp file `session.sqlite3` khớp lý thuyết: `dc_home` = 5 (đã migrate khỏi DC mặc định lúc `request_login_code`), `dc_option` có 2 dòng (DC 2 ban đầu + DC 5), đúng dòng DC 5 có `auth_key`. **Lưu ý UX** (không phải bug): UI không tự động gọi `check_session()` lúc mở app như `apps/web` — user phải tự gõ lại cả 3 ô rồi bấm "Tiếp tục" thì mới nhận ra đã đăng nhập; ghi thành việc nên làm ở [docs/roadmap.md § Ingest](./roadmap.md#ingest).
+- [x] Đóng app, mở lại, nhập lại đúng 3 ô ở Bước 1 (API_ID cũ + API_HASH + số điện thoại) → `check_session` lần hai trả `true` → UI nhảy thẳng tới panel "Đã đăng nhập", KHÔNG hỏi lại OTP (khôi phục session SQLite ở thư mục app-data của HĐH) — verify 2026-09-10, ĐẠT. Kiểm trực tiếp file `session.sqlite3` khớp lý thuyết: `dc_home` = 5 (đã migrate khỏi DC mặc định lúc `request_login_code`), `dc_option` có 2 dòng (DC 2 ban đầu + DC 5), đúng dòng DC 5 có `auth_key`. Gap UX ghi lúc đó ("user phải tự gõ lại cả 3 ô") đã vá 2 lần kể từ đó — xem mục checklist mới ngay dưới, đây chỉ còn giá trị lịch sử.
 - [ ] Bước 2 → tài khoản CÓ 2FA: `submit_otp` trả `PasswordRequired`, UI hiện Bước 3; nhập đúng mật khẩu → `submit_password` → panel "Đã đăng nhập". Chưa test — tài khoản dùng để verify 2026-09-10 không bật 2FA.
 - [ ] Bước 2 nhập mã OTP SAI: `errorMessage` hiện lỗi, UI tự lùi về Bước 1 với API_HASH/số điện thoại VẪN CÒN trong ô (không cần gõ lại) — bấm **Tiếp tục** lần nữa chạy được ngay (`resetAfterAuthFailure()` đã tự gọi lại `check_session()` ngầm), không kẹt ở trạng thái lỡ dở.
 - [ ] Cố tình kích `FLOOD_WAIT` (nếu gặp tự nhiên khi test — KHÔNG chủ động né/kích bằng cách spam gọi, CLAUDE.md tôn trọng FLOOD_WAIT tuyệt đối): xác nhận UI hiện đúng số giây, đếm ngược sống, nút submit bị khoá tới khi hết đếm ngược.
-- [ ] `resolve_channel` — **chưa có UI gọi**, để dành màn "Chọn kênh" (A.4) slice sau; case này giữ nguyên chưa verify từ lần trước.
 
 ### Nếu có gì vỡ
 
 - `invoke()` không trả gì / lỗi "command not found" → kiểm `capabilities/default.json` (`core:default`) và tên command trong `generate_handler!` (`src-tauri/src/lib.rs`) khớp đúng `#[tauri::command]` fn name.
 - Lỗi ngay ở `request_login_code`/`submit_otp` (không phải do gõ sai) → đối chiếu với `docs/spikes/README.md#spike-10` (cùng `grammers-client` 0.10.0, đã verify thật qua CLI) — nếu CLI cũ (`tools/spike-10/r3-grammers`) vẫn chạy đúng nhưng app desktop mới lỗi, nghi ngờ đầu tiên là khác biệt session path (app-data dir vs cwd) hoặc state machine mới viết ở `commands.rs`, không phải bug thư viện.
+
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — nhớ credential ở app-data (2026-09-11)
+
+Liên quan: [docs/changelog.md § 2026-09-11, nhớ credential ở app-data](./changelog.md#2026-09-11--gui-ingest-desktop-nhớ-credential-ở-app-data-mở-app-không-cần-gõ-gì-nếu-còn-đăng-nhập). Cùng ghi chú môi trường như 2 mục trên.
+
+**KHÔNG chạy hộ bằng agent/Claude.**
+
+- [x] `cargo build --workspace`/`cargo clippy --workspace`/`ng build` sạch sau khi thêm `load_saved_credentials`/`save_credentials` + `credentials.json` — verify 2026-09-11.
+- [ ] Đăng nhập lần đầu thật (Bước 1 đầy đủ → OTP) → kiểm file `credentials.json` xuất hiện ở app-data (cùng thư mục `session.sqlite3`), chứa đúng `api_id`/`api_hash`/`dial_code`/`national_number` vừa nhập (plaintext — có chủ đích, xem README.md § Bảo mật).
+- [ ] **Bug thật đã sửa 2026-09-11** (user report: mở app vẫn phải gõ API_ID mãi, `credentials.json` xác nhận KHÔNG tồn tại dù đăng nhập "thành công" nhiều lần) — đăng nhập lại chỉ bằng cách gõ API_ID rồi để debounce tự nhận ra (KHÔNG bấm "Tiếp tục", KHÔNG điền API_HASH/số điện thoại) → kiểm `credentials.json` VẪN được tạo/cập nhật (chứa đúng `api_id`, `api_hash`/phone có thể rỗng nếu đây là lần đầu) — đây chính là nhánh trước đó bị bỏ sót `persistCredentials()` (`runAutoCheck()`, `login.ts`).
+- [ ] Đóng app, mở lại **CÙNG cách chạy** (vd `cargo tauri dev` cả hai lần) → **KHÔNG gõ gì** → nhảy thẳng sang Chọn kênh trước khi kịp thấy form Bước 1 (hoặc thấy "Đang kiểm tra phiên đăng nhập…" rất ngắn rồi chuyển).
+- [ ] Đóng app, mở lại bằng **cách chạy KHÁC** (vd lần trước `cargo tauri dev`, lần này `.exe` release, hoặc ngược lại) → vẫn **KHÔNG gõ gì** — đây là case đã lỗi ở bản `localStorage` (origin khác nhau), giờ phải ĐẠT vì đọc từ `credentials.json` (app-data, không phụ thuộc origin).
+- [ ] Xoá tay `credentials.json` rồi mở lại app → rơi về Bước 1, form TRỐNG (không prefill gì, vì không còn gì để đọc) — gõ lại đầy đủ một lần, `check_session()` vẫn nhận ra session thật (session.sqlite3 không bị xoá) nên nhảy thẳng luôn, KHÔNG hỏi lại OTP — xác nhận `credentials.json` mất không đồng nghĩa mất đăng nhập, chỉ mất tiện nghi tự điền.
+- [ ] Sau khi session hết hạn thật (hoặc xoá `session.sqlite3` để giả lập) → mở app → `check_session()` trả `false`/lỗi → Bước 1 hiện ra nhưng **tự điền sẵn cả 4 ô** từ `credentials.json` (API_ID, API_HASH, mã vùng, số điện thoại) — chỉ cần bấm "Tiếp tục" (hoặc sửa rồi bấm) để đăng nhập lại, không gõ lại từ đầu.
+
+### Nếu có gì vỡ
+
+- Vẫn phải gõ lại dù đã có `credentials.json` → kiểm `tryAutoLogin()` có thật sự gọi `loadSavedCredentials()` trước `checkSession()` không (log qua `tauri_plugin_log`, giờ đã bật cả ở release — xem `lib.rs`), và file `credentials.json` có đúng field `api_id` là số hợp lệ không (JSON hỏng/rỗng → `load_saved_credentials()` trả `None` thầm lặng, không lỗi).
+
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — màn Chọn kênh (2026-09-11)
+
+Liên quan: [docs/roadmap.md § Ingest](./roadmap.md#ingest). Cùng ghi chú môi trường như mục trên — "thiết bị thật" nghĩa là `cargo tauri dev` + tài khoản Telegram thật, không phải `cargo build`/`cargo clippy`/`ng build` (đã sạch, verify 2026-09-11, không cần MTProto).
+
+**KHÔNG chạy hộ bằng agent/Claude.** Admin tự chạy sau khi đã đăng nhập xong (mục trên).
+
+- [x] `cargo build --workspace`/`cargo clippy --workspace` sạch sau khi thêm `check_write_permission`/`read_pinned_catalog` + `AppState::selected_channel` — verify 2026-09-11.
+- [x] `pnpm --filter @tsmc/tsmc-ingest-desktop-ui run build` sạch sau khi thêm route `/channel` — verify 2026-09-11.
+- [x] `cargo build`/`cargo clippy`/`ng build` sạch sau khi thêm `list_own_channels`/`create_channel`/`select_channel` (picker + tạo kênh mới) — verify 2026-09-11.
+- [x] `ng build` sạch sau khi đổi UI sang kiểu Telegram (ô lọc + `mat-action-list` + nút "+") — verify 2026-09-11.
+- [ ] Sau khi đăng nhập xong, UI tự điều hướng sang `/channel` (`goToDone()` ở `login.ts`), danh sách kênh của admin tự tải NGAY (không cần bấm gì) — `list_own_channels()` chạy trong constructor `Channel`.
+- [ ] Tài khoản CÓ ít nhất một kênh là creator → danh sách hiện đúng, đối chiếu tay với app Telegram gốc (Settings → My Channels hoặc tương đương), KHÔNG hiện kênh cộng đồng đã join nhưng không sở hữu.
+- [ ] Tài khoản CÓ ít nhất một supergroup là creator (đã bật/nâng cấp — không phải group nhỏ mặc định) → supergroup đó XUẤT HIỆN trong danh sách (không chỉ broadcast channel). Chọn nó → `check_write_permission`/`read_pinned_catalog` chạy đúng, KHÔNG lỗi "peer không phải InputPeer::Channel".
+- [ ] Tài khoản CÓ một group nhỏ CHƯA nâng cấp supergroup là creator → group đó KHÔNG xuất hiện trong danh sách, và gõ @username/link của nó vào ô lọc (nếu có username) không cho ra kết quả tìm kiếm — đúng thiết kế (group nhỏ không tương thích `channels.*` API, xem ADR-0017 addendum 2026-09-11).
+- [ ] Tài khoản CHƯA có kênh nào là creator → hiện đúng hint rỗng ("Chưa có kênh nào bạn là chủ sở hữu…"), không lỗi, không đơ.
+- [ ] Gõ vào ô lọc một phần tên của MỘT kênh đã có trong danh sách → danh sách tự lọc còn đúng kênh khớp (substring, không phân biệt hoa/thường) — không gọi RPC nào cho việc lọc tại chỗ này (chỉ lọc mảng đã tải).
+- [ ] Gõ đúng `@username` của một kênh **của chính tài khoản đang đăng nhập** nhưng KHÔNG khớp tên hiển thị trong danh sách (vd username khác hẳn title) → sau ~500ms hiện thêm MỘT dòng "kết quả tìm kiếm" phía trên/trong cùng danh sách, `searching()` hint biến mất đúng lúc.
+- [ ] Bấm dòng "kết quả tìm kiếm" đó (`is_own: true`) → `finishSelecting()` chạy thẳng, KHÔNG gọi lại `resolve_channel` lần hai (kiểm bằng log — object đã resolve lúc debounce được dùng lại nguyên vẹn).
+- [ ] Gõ đúng `@username`/link của một kênh **KHÔNG thuộc tài khoản đang đăng nhập** (vd kênh cộng đồng bất kỳ đã join) → dòng "kết quả tìm kiếm" vẫn hiện (resolve thành công), nhưng bấm vào → `is_own: false` → chặn ngay, hiện đúng thông báo "không thể chọn", KHÔNG gọi `check_write_permission`/`read_pinned_catalog` (CLAUDE.md bất biến #5).
+- [ ] Gõ một ID số thô (vd `123456789`) vào ô lọc → hiện lỗi "Không dùng ID thô…" ngay, KHÔNG debounce, KHÔNG gọi `resolve_channel` (CLAUDE.md bất biến #10) — danh sách kênh của admin (nếu title tình cờ chứa chuỗi số đó) vẫn lọc bình thường, không bị chặn.
+- [ ] Gõ một ref không tồn tại/không phải channel → không có gì xảy ra sau debounce (silent catch, đây là tìm kiếm ngầm) — danh sách không đổi, không có lỗi đỏ nào bật lên khi đang gõ dở.
+- [ ] Bấm nút "+" cạnh ô lọc → panel "Tạo kênh mới" mở ra (nút đổi màu `active`); bấm lại → đóng. Gõ tên + bấm "Tạo kênh" (`create_channel`) → kênh mới xuất hiện thật trong app Telegram gốc (broadcast channel, không phải group/supergroup) → panel tự đóng, UI tự chuyển sang "đã chọn", `check_write_permission` trả `true`, `read_pinned_catalog` trả "chưa có gì ghim" (kênh mới toanh).
+  - **Đã gặp thật (2026-09-11): `USER_RESTRICTED`** — Telegram từ chối `channels.createChannel` cho tài khoản test (thường do tài khoản còn mới/chưa đủ tin cậy). **Đây KHÔNG phải bug của app** — không có cách né hợp lệ (CLAUDE.md: tôn trọng giới hạn tài khoản thật). Đã cải thiện thông báo lỗi từ dạng kỹ thuật thô sang câu tiếng Việt giải thích rõ (`to_rpc_error()`, `rpc.rs`) — verify lại UI hiện đúng câu mới, không phải chuỗi `"request error: rpc error 403..."` thô nữa. Nếu tài khoản test vẫn bị hạn chế, thử tài khoản khác đã hoạt động lâu hơn để verify nhánh THÀNH CÔNG.
+- [ ] Sau khi tạo kênh mới, bấm "Chọn kênh khác" quay lại màn Chọn kênh → kênh vừa tạo XUẤT HIỆN trong danh sách (thêm tại chỗ vào `ownChannels`, không gọi lại `list_own_channels()` — kiểm không có request thừa nào qua log).
+- [ ] Kênh đã chọn (bất kỳ đường nào) CHƯA có gì ghim → UI hiện "chưa có catalog nào được ghim" (không lỗi, không crash).
+- [ ] Kênh đã chọn ĐÃ ghim đúng `catalog.v1.json` (vd kênh dùng ở SPIKE-06/apps/web) → UI hiện đúng số item đếm được (đối chiếu tay với nội dung catalog thật) — xác nhận nhánh `tryDescribeCatalog()` phòng thủ trong `channel.ts` đọc đúng `spec`/`items`, không throw.
+
+### Nếu có gì vỡ
+
+- Lỗi "chưa resolve_channel() — gọi trước check_write_permission()/read_pinned_catalog()" dù đã chọn kênh thành công → kiểm `AppState::selected_channel` có bị `submit_otp`/`submit_password` sai reset `ConnState::Disconnected` xoá mất `GrammersIngestRpc` (và cache `Peer` bên trong nó) hay không — `selected_channel` ở `AppState` KHÔNG bị xoá theo, nhưng `rpc.check_write_permission()`/`read_pinned_catalog()` sẽ lỗi khác (không `Ready`) nếu vậy; phải chọn lại kênh sau khi đăng nhập lại.
+- Bấm dòng "kết quả tìm kiếm" báo lỗi "chưa resolve_channel()..." → nghi ngờ đầu tiên: user gõ tiếp SAU khi debounce trả về (đổi `filterToken`) rồi mới bấm — `searchResult` phía UI có thể đang hiện một kênh KHÁC với kênh `selected_channel` phía Rust nếu có race; đối chiếu `filterToken` lúc `runSearch()` hoàn tất với lúc bấm.
+- `list_own_channels` trả rỗng dù admin CÓ kênh sở hữu → nghi ngờ đầu tiên: `chan.raw.creator` sai với kênh migrate từ group cũ (Telegram có case group→supergroup giữ nguyên id nhưng đổi cờ creator) — đối chiếu tay bằng `channels.GetFullChannel` cho đúng kênh đó.
+- `create_channel` lỗi "channels.createChannel không trả Updates chứa danh sách chats" → Telegram trả về biến thể `Updates` khác `Updates`/`Combined` (hiếm, nhưng có thể) — ghi lại nguyên văn biến thể gặp phải để bổ sung nhánh match ở `ingest-grammers/src/rpc.rs::create_channel()`.
+- `read_pinned_catalog` trả `None` dù kênh CÓ ghim gì đó → đối chiếu `ingest-grammers/src/rpc.rs` ghi chú `tl::enums::ChatFull` có 2 biến thể (`Full` vs `ChannelFull`) — bug thật đã gặp ở SPIKE-10 nếu build cũ.
 - Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0017 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
 
 ## Player: hiển thị phụ đề (`subs[]`) (2026-08-31)

@@ -1,0 +1,121 @@
+<section class="channel">
+  <h1 class="title">Chọn kênh</h1>
+
+  @if (status() === 'form') {
+    <div class="filter-row">
+      <mat-form-field appearance="outline" class="filter-field">
+        <mat-label>Lọc / tìm kênh, nhóm</mat-label>
+        <input
+          matInput
+          #filterInput
+          placeholder="Tên kênh/nhóm, @username hoặc t.me/…"
+          [value]="filterText()"
+          (input)="onFilterInput(filterInput.value)"
+        />
+        @if (searching()) {
+          <mat-hint>Đang tìm…</mat-hint>
+        }
+      </mat-form-field>
+      <button
+        mat-icon-button
+        type="button"
+        class="add-button"
+        [class.active]="createPanelOpen()"
+        aria-label="Tạo kênh mới"
+        title="Tạo kênh mới"
+        (click)="onToggleCreatePanel()"
+      >
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      </button>
+    </div>
+
+    @if (filterRawIdError(); as message) {
+      <p class="error">{{ message }}</p>
+    }
+
+    @if (createPanelOpen()) {
+      <form class="create-panel" (submit)="onCreateChannel($event, titleInput)">
+        <mat-form-field appearance="outline">
+          <mat-label>Tên kênh mới</mat-label>
+          <input matInput #titleInput required placeholder="Tên kênh media mới" />
+        </mat-form-field>
+        @if (createError(); as message) {
+          <p class="error">{{ message }}</p>
+        }
+        <button mat-flat-button color="primary" type="submit" [disabled]="creatingChannel()">
+          {{ creatingChannel() ? 'Đang tạo…' : 'Tạo kênh' }}
+        </button>
+      </form>
+    }
+
+    @if (loadingChannels()) {
+      <p class="hint">Đang tải danh sách kênh…</p>
+    } @else if (channelsError(); as message) {
+      <p class="error">{{ message }}</p>
+    } @else {
+      <mat-action-list class="channel-list">
+        @if (showSearchResult(); as result) {
+          <button mat-list-item type="button" [disabled]="submitting()" (click)="onPickChannel(result, true)">
+            <span class="channel-row">
+              <span>{{ result.title }}</span>
+              <span class="badge">kết quả tìm kiếm</span>
+            </span>
+          </button>
+        }
+        @for (channel of filteredChannels(); track channel.id) {
+          <button mat-list-item type="button" [disabled]="submitting()" (click)="onPickChannel(channel, false)">
+            {{ channel.title }}
+          </button>
+        }
+        @if (filteredChannels()?.length === 0 && showSearchResult() === null) {
+          <p class="hint empty-hint">
+            @if (filterText().trim()) {
+              Không tìm thấy kênh/nhóm nào khớp — thử gõ đúng @username hoặc link t.me, hoặc tạo kênh mới.
+            } @else {
+              Chưa có kênh/nhóm nào bạn là chủ sở hữu — gõ @username/link để tìm kênh khác, hoặc tạo kênh mới.
+            }
+          </p>
+        }
+      </mat-action-list>
+    }
+
+    @if (errorMessage(); as message) {
+      <p class="error">{{ message }}</p>
+    }
+  } @else if (resolvedChannel(); as channel) {
+    <div class="result-panel">
+      <p class="channel-title">{{ channel.title }}</p>
+
+      @if (!channel.is_own) {
+        <p class="error">
+          Kênh/nhóm này không thuộc tài khoản đang đăng nhập — không thể chọn. Công cụ này chỉ ghi vào kênh/nhóm
+          của chính bạn.
+        </p>
+      } @else {
+        <p class="status-line">
+          Quyền ghi:
+          @if (writable()) {
+            <span class="ok">✓ có</span>
+          } @else {
+            <span class="warn">✗ không có</span>
+          }
+        </p>
+        <p class="status-line">Catalog đã ghim: {{ catalogSummary() }}</p>
+
+        @if (writable()) {
+          <div class="done-hint">
+            <p>Đã chọn kênh này.</p>
+            <p class="hint">
+              Workspace hàng đợi (bảng metadata, upload) chưa có ở slice này — xem
+              <code>docs/ux-design.md</code> § Phụ lục A.3.
+            </p>
+          </div>
+        }
+      }
+    </div>
+
+    <button mat-stroked-button type="button" (click)="onChooseAnother()">Chọn kênh khác</button>
+  }
+</section>

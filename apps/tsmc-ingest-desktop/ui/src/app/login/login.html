@@ -32,11 +32,7 @@
           <circle cx="12" cy="12" r="10" />
           <path d="M8 12l3 3 5-6" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
-        <p>Đã đăng nhập.</p>
-        <p class="hint">
-          Các màn tiếp theo (chọn kênh, workspace hàng đợi) chưa có ở slice này — xem
-          <code>docs/ux-design.md</code> § Phụ lục A.4.
-        </p>
+        <p>Đã đăng nhập. Đang chuyển sang màn Chọn kênh…</p>
       </div>
     } @else {
       <!-- linear=false: xem chú thích ADR-0016 addendum ở login.ts — race điều
@@ -72,7 +68,7 @@
                 [value]="savedApiIdPrefill()"
                 (input)="onApiIdInput(apiIdInput.value)"
               />
-              <mat-hint>Chỉ số</mat-hint>
+              <mat-hint>Chỉ số @if (autoChecking()) { — đang tự kiểm tra phiên đăng nhập cũ… }</mat-hint>
             </mat-form-field>
             <mat-form-field appearance="outline">
               <mat-label>API_HASH</mat-label>
@@ -81,6 +77,7 @@
                 #apiHashInput
                 required
                 pattern="[0-9a-fA-F]{32}"
+                [value]="savedApiHashPrefill()"
                 (input)="onApiHashInput(apiHashInput.value)"
               />
               <mat-hint>Chuỗi hexa 32 ký tự</mat-hint>
@@ -88,7 +85,7 @@
             <div class="phone-row">
               <mat-form-field appearance="outline" class="dial-code">
                 <mat-label>Mã vùng</mat-label>
-                <select matNativeControl #dialCodeSelect required [value]="defaultDialCode">
+                <select matNativeControl #dialCodeSelect required [value]="dialCodePrefill()">
                   @for (country of countryDialCodes; track country.iso2) {
                     <option [value]="country.dialCode">+{{ country.dialCode }} {{ country.name }}</option>
                   }
@@ -96,7 +93,15 @@
               </mat-form-field>
               <mat-form-field appearance="outline" class="national-number">
                 <mat-label>Số điện thoại</mat-label>
-                <input matInput type="tel" inputmode="numeric" #phoneInput placeholder="912345678" required />
+                <input
+                  matInput
+                  type="tel"
+                  inputmode="numeric"
+                  #phoneInput
+                  placeholder="912345678"
+                  required
+                  [value]="savedNationalNumberPrefill()"
+                />
               </mat-form-field>
             </div>
             <button mat-flat-button color="primary" type="submit" [disabled]="submitting() || floodWaitRemaining() !== null">

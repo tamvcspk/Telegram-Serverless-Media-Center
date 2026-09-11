@@ -1,12 +1,14 @@
-//! Năm Tauri command cho khung sườn này — `check_session` +
-//! `request_login_code`/`submit_otp`/`submit_password` (đăng nhập, chia
-//! nhiều bước vì webview không có stdin để chặn chờ OTP như CLI
-//! `tools/spike-10/r3-grammers`) + `resolve_channel` (chứng minh đường IPC
-//! chạy hết tới `IngestRpc` thật). Bốn thao tác còn lại của `IngestRpc`
-//! (check_write_permission, read_pinned_catalog, download_document,
-//! upload_video, upload_subtitle, publish_catalog) ĐÃ có implementation đầy
-//! đủ ở `ingest-grammers` nhưng CHƯA wire thành command — để dành cho slice
-//! UI thật (mockup A.3, docs/ux-design.md § Phụ lục A).
+//! Mười hai Tauri command — `check_session` + `request_login_code`/`submit_otp`/
+//! `submit_password` (đăng nhập, chia nhiều bước vì webview không có stdin để
+//! chặn chờ OTP như CLI `tools/spike-10/r3-grammers`) + `load_saved_credentials`/
+//! `save_credentials` (nhớ API_ID/API_HASH/số điện thoại ở app-data, KHÔNG
+//! phải `localStorage` — xem doc comment `SavedCredentialsDto`) +
+//! `resolve_channel`/`list_own_channels`/`create_channel`/`select_channel`/
+//! `check_write_permission`/`read_pinned_catalog` (màn "Chọn kênh", A.4).
+//! Bốn thao tác còn lại của `IngestRpc` (download_document, upload_video,
+//! upload_subtitle, publish_catalog) ĐÃ có implementation đầy đủ ở
+//! `ingest-grammers` nhưng CHƯA wire thành command — để dành cho slice
+//! workspace ba vùng (mockup A.3, docs/ux-design.md § Phụ lục A).
 //!
 //! **Đơn giản hoá có chủ đích của khung sườn này:** nếu `submit_otp`/
 //! `submit_password` thất bại (sai mã/sai mật khẩu), state bị reset về
@@ -17,10 +19,10 @@
 
 use grammers_client::client::SignInError;
 use ingest_grammers::connect;
-use ingest_rpc_trait::IngestRpc;
+use ingest_rpc_trait::{IngestRpc, ResolvedChannel};
 use tauri::{AppHandle, Manager, State};
 
-use crate::dto::{IngestRpcErrorDto, LoginOutcomeDto, ResolvedChannelDto};
+use crate::dto::{IngestRpcErrorDto, LoginOutcomeDto, PinnedCatalogDto, ResolvedChannelDto, SavedCredentialsDto};
 use crate::state::{AppState, ConnState};
 
 /// Session SQLite lưu ở thư mục app-data do HĐH quản lý (KHÔNG phải cwd như
@@ -30,6 +32,35 @@ fn session_path(app: &AppHandle) -> Result<String, IngestRpcErrorDto> {
     let dir = app.path().app_data_dir().map_err(|e| IngestRpcErrorDto::other(e.to_string()))?;
     std::fs::create_dir_all(&dir).map_err(|e| IngestRpcErrorDto::other(e.to_string()))?;
     Ok(dir.join("session.sqlite3").to_string_lossy().into_owned())
+}
+
+fn credentials_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join("credentials.json"))
+}
+
+/// Đọc credential đã nhớ (nếu có) — dùng để UI tự điền form Bước 1 + tự
+/// `check_session()` ngay lúc mở app mà KHÔNG cần user gõ gì, bất kể origin
+/// webview đang phục vụ UI (`localStorage` tách theo origin, xem
+/// `SavedCredentialsDto`). `None` nếu chưa từng lưu hoặc file hỏng/thiếu —
+/// coi như chưa có gì nhớ, không phải lỗi cần báo (best-effort).
+#[tauri::command]
+pub fn load_saved_credentials(app: AppHandle) -> Option<SavedCredentialsDto> {
+    let path = credentials_path(&app).ok()?;
+    let bytes = std::fs::read(path).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+/// Ghi credential — best-effort (không trả lỗi ra UI): lỗi ghi chỉ làm mất
+/// tiện nghi tự điền lần sau, không được phép chặn luồng đăng nhập đang chạy.
+#[tauri::command]
+pub fn save_credentials(app: AppHandle, api_id: i32, api_hash: String, dial_code: String, national_number: String) {
+    let Ok(path) = credentials_path(&app) else { return };
+    let data = SavedCredentialsDto { api_id, api_hash, dial_code, national_number };
+    if let Ok(bytes) = serde_json::to_vec_pretty(&data) {
+        let _ = std::fs::write(path, bytes);
+    }
 }
 
 /// Mở/khôi phục session, kiểm tra đã đăng nhập chưa. LUÔN gọi trước các
@@ -135,5 +166,78 @@ pub async fn resolve_channel(state: State<'_, AppState>, channel_ref: String) ->
         return Err(IngestRpcErrorDto::other("chưa đăng nhập xong — gọi check_session()/luồng đăng nhập trước resolve_channel()"));
     };
     let resolved = rpc.resolve_channel(&channel_ref).await.map_err(IngestRpcErrorDto::from)?;
+    // Nhớ lại channel vừa resolve — check_write_permission()/
+    // read_pinned_catalog() đọc lại từ đây (xem doc comment AppState::
+    // selected_channel: peer cache của GrammersIngestRpc chỉ có đúng channel
+    // của lần resolve gần nhất).
+    *state.selected_channel.lock().await = Some(resolved.clone());
     Ok(ResolvedChannelDto::from(resolved))
+}
+
+/// Liệt kê channel/broadcast mà tài khoản đang đăng nhập là creator — nguồn
+/// cho picker ở màn "Chọn kênh" (A.4), thay vì bắt user tự gõ username.
+#[tauri::command]
+pub async fn list_own_channels(state: State<'_, AppState>) -> Result<Vec<ResolvedChannelDto>, IngestRpcErrorDto> {
+    let conn = state.conn.lock().await;
+    let ConnState::Ready { rpc, .. } = &*conn else {
+        return Err(IngestRpcErrorDto::other("chưa đăng nhập xong"));
+    };
+    let channels = rpc.list_own_channels().await.map_err(IngestRpcErrorDto::from)?;
+    Ok(channels.into_iter().map(ResolvedChannelDto::from).collect())
+}
+
+/// Tạo một channel/broadcast media MỚI rồi chọn luôn làm kênh đang làm việc
+/// (cùng hiệu ứng `selected_channel` như `resolve_channel`) — gộp "tạo" +
+/// "chọn" thành một bước cho UI, vì sau khi tạo xong không có lý do gì để
+/// KHÔNG chọn kênh vừa tạo.
+#[tauri::command]
+pub async fn create_channel(state: State<'_, AppState>, title: String) -> Result<ResolvedChannelDto, IngestRpcErrorDto> {
+    let conn = state.conn.lock().await;
+    let ConnState::Ready { rpc, .. } = &*conn else {
+        return Err(IngestRpcErrorDto::other("chưa đăng nhập xong"));
+    };
+    let resolved = rpc.create_channel(&title).await.map_err(IngestRpcErrorDto::from)?;
+    *state.selected_channel.lock().await = Some(resolved.clone());
+    Ok(ResolvedChannelDto::from(resolved))
+}
+
+/// Chọn một channel đã có trong kết quả `list_own_channels()` làm kênh đang
+/// làm việc — KHÔNG gọi lại `resolve_channel()` (không cần, peer cache của
+/// `GrammersIngestRpc` đã có entry từ lần `list_own_channels()` liệt kê nó).
+/// `access_hash` luôn rỗng ở implementation grammers (không dùng tới, xem
+/// doc comment `resolve_channel`) nên dựng lại `ResolvedChannel` từ đúng 3
+/// field DTO mang qua IPC là đủ, không mất thông tin.
+#[tauri::command]
+pub async fn select_channel(state: State<'_, AppState>, id: String, title: String, is_own: bool) -> Result<(), IngestRpcErrorDto> {
+    *state.selected_channel.lock().await = Some(ResolvedChannel { id, access_hash: String::new(), title, is_own });
+    Ok(())
+}
+
+/// Màn "Chọn kênh" (docs/ux-design.md § Phụ lục A.4) — kiểm tra quyền ghi
+/// của channel vừa `resolve_channel()`. Không nhận tham số: luôn thao tác
+/// trên `selected_channel` để không bắt UI gửi lại `ResolvedChannel` (kể cả
+/// `access_hash`) qua IPC.
+#[tauri::command]
+pub async fn check_write_permission(state: State<'_, AppState>) -> Result<bool, IngestRpcErrorDto> {
+    let conn = state.conn.lock().await;
+    let ConnState::Ready { rpc, .. } = &*conn else {
+        return Err(IngestRpcErrorDto::other("chưa đăng nhập xong"));
+    };
+    let selected = state.selected_channel.lock().await;
+    let channel = selected.as_ref().ok_or_else(|| IngestRpcErrorDto::other("chưa resolve_channel() — gọi trước check_write_permission()"))?;
+    rpc.check_write_permission(channel).await.map_err(IngestRpcErrorDto::from)
+}
+
+/// Đọc document đang ghim của channel vừa `resolve_channel()`, nếu có — dùng
+/// để hiện "tình trạng catalog đã ghim" ở màn Chọn kênh (A.4).
+#[tauri::command]
+pub async fn read_pinned_catalog(state: State<'_, AppState>) -> Result<Option<PinnedCatalogDto>, IngestRpcErrorDto> {
+    let conn = state.conn.lock().await;
+    let ConnState::Ready { rpc, .. } = &*conn else {
+        return Err(IngestRpcErrorDto::other("chưa đăng nhập xong"));
+    };
+    let selected = state.selected_channel.lock().await;
+    let channel = selected.as_ref().ok_or_else(|| IngestRpcErrorDto::other("chưa resolve_channel() — gọi trước read_pinned_catalog()"))?;
+    let pinned = rpc.read_pinned_catalog(channel).await.map_err(IngestRpcErrorDto::from)?;
+    Ok(pinned.map(PinnedCatalogDto::from))
 }
