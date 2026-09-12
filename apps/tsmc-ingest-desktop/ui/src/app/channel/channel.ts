@@ -3,6 +3,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatListModule } from '@angular/material/list';
+import { Router } from '@angular/router';
 import {
   checkWritePermission,
   createChannel,
@@ -14,6 +15,7 @@ import {
   toIngestRpcError
 } from '../core/ingest-rpc';
 import type { PinnedCatalogDto, ResolvedChannelDto } from '../core/ingest-rpc.types';
+import { SelectedChannelStore } from '../core/selected-channel';
 
 type ChannelStatus = 'form' | 'result';
 
@@ -92,6 +94,8 @@ function tryDescribeCatalog(raw: string): string {
 })
 export class Channel {
   private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
+  private readonly selectedChannelStore = inject(SelectedChannelStore);
 
   protected readonly status = signal<ChannelStatus>('form');
   protected readonly submitting = signal(false);
@@ -287,6 +291,14 @@ export class Channel {
     this.writable.set(await checkWritePermission());
     this.pinnedCatalog.set(await readPinnedCatalog());
     this.status.set('result');
+
+    if (this.writable()) {
+      this.selectedChannelStore.set(resolved, this.catalogSummary());
+    }
+  }
+
+  protected onGoToWorkspace(): void {
+    void this.router.navigateByUrl('/workspace');
   }
 
   protected onChooseAnother(): void {

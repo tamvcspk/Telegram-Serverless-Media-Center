@@ -1,6 +1,9 @@
 mod commands;
 mod dto;
+mod pipeline;
+mod probe;
 mod state;
+mod upload;
 
 use state::AppState;
 
@@ -36,6 +39,15 @@ pub fn run() {
             commands::select_channel,
             commands::check_write_permission,
             commands::read_pinned_catalog,
+            probe::list_media_files,
+            probe::probe_media,
+            probe::list_dir_entries,
+            pipeline::prepare_upload,
+            pipeline::cleanup_temp_dir,
+            upload::upload_video,
+            upload::upload_subtitle,
+            upload::publish_catalog,
+            upload::cancel_upload,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

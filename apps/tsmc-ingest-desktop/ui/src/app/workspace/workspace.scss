@@ -1,0 +1,333 @@
+.workspace {
+  --ws-border-20: color-mix(in srgb, var(--mat-sys-on-surface) 20%, transparent);
+  --ws-border-12: color-mix(in srgb, var(--mat-sys-on-surface) 12%, transparent);
+  --ws-border-8: color-mix(in srgb, var(--mat-sys-on-surface) 8%, transparent);
+
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  box-sizing: border-box;
+
+  .topbar {
+    flex: 0 0 auto;
+    gap: 1rem;
+    font-size: 0.9rem;
+
+    .channel-name {
+      font-weight: 500;
+    }
+
+    .catalog-summary {
+      opacity: 0.75;
+    }
+  }
+
+  .panes {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    gap: 1rem;
+    margin: 1rem;
+  }
+
+  .rank-badge {
+    flex: 0 0 auto;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.1rem 0.4rem;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .rank-A {
+    background: color-mix(in srgb, #2e7d32 18%, transparent);
+    color: #2e7d32;
+  }
+
+  .rank-B {
+    background: color-mix(in srgb, #b28900 18%, transparent);
+    color: #b28900;
+  }
+
+  .rank-C {
+    background: color-mix(in srgb, #e65100 18%, transparent);
+    color: #e65100;
+  }
+
+  .rank-D,
+  .rank-err {
+    background: color-mix(in srgb, var(--mat-sys-error, #b3261e) 18%, transparent);
+    color: var(--mat-sys-error, #b3261e);
+  }
+
+  .rank-pending {
+    background: var(--ws-border-12);
+    color: var(--mat-sys-on-surface-variant, currentColor);
+  }
+
+  // Dùng chung ở cả hai vùng (nút huỷ/dismiss trong hàng đợi, nút xoá khỏi
+  // bảng metadata) — thu nhỏ qua HAI custom property của `mat-icon-button`
+  // (M3 theming), KHÔNG tự ép `width`/`height`/`line-height` như bản đầu:
+  // padding nội bộ của Material tính từ `calc((state-layer-size - icon-size)
+  // / 2)` — ép cứng width/height mà không đổi hai biến này làm ripple/icon
+  // lệch tâm so với khung nút đã bị bóp nhỏ (phát hiện thật, user report).
+  .row-action-button {
+    --mat-icon-button-state-layer-size: 28px;
+    --mat-icon-button-icon-size: 16px;
+    flex: 0 0 auto;
+    color: var(--mat-sys-on-surface-variant, currentColor);
+  }
+
+  .queue-pane {
+    flex: 0 0 18rem;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    border: 2px dashed var(--ws-border-20);
+    border-radius: 0.75rem;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+
+    &.drag-over {
+      border-color: var(--mat-sys-primary);
+      background: color-mix(in srgb, var(--mat-sys-primary) 6%, transparent);
+    }
+
+    .drop-hint {
+      padding: 1rem;
+      text-align: center;
+
+      p {
+        margin: 0 0 0.25rem;
+      }
+
+      .hint {
+        font-size: 0.8rem;
+        opacity: 0.7;
+      }
+    }
+
+    .queue-list {
+      flex: 1 1 auto;
+      min-height: 0;
+      // `cdk-virtual-scroll-viewport` tự đặt `overflow: auto` CẢ HAI trục —
+      // trục ngang không cần cuộn ở đây (nội dung phải ellipsis vừa khung,
+      // không phải cuộn ngang để đọc hết tên file) — phát hiện thật (user
+      // report): thiếu dòng này khiến trình duyệt hiện thanh cuộn ngang và
+      // tên file bị cắt cụt thay vì hiện "…".
+      overflow-x: hidden;
+
+      ::ng-deep .cdk-virtual-scroll-content-wrapper {
+        width: 100%;
+      }
+    }
+
+    .queue-footer {
+      flex: 0 0 auto;
+      padding: 0.4rem 0.75rem;
+      font-size: 0.75rem;
+      opacity: 0.75;
+      border-top: 1px solid var(--ws-border-8);
+      text-align: center;
+    }
+
+    // `mat-list-item` (Material thật, thay div tự vẽ bản đầu) — `itemSize`
+    // của `cdk-virtual-scroll-viewport` trong template (64px) khớp
+    // `--mat-list-list-item-two-line-container-height` mặc định của MDC
+    // (title + đúng MỘT `matListItemLine`, xem `list.mjs` biên dịch sẵn).
+    .queue-row {
+      min-width: 0;
+      max-width: 100%;
+
+      &.error {
+        --mat-list-list-item-container-color: color-mix(in srgb, var(--mat-sys-error, #b3261e) 8%, transparent);
+      }
+
+      &.flood-wait {
+        --mat-list-list-item-container-color: color-mix(in srgb, #b28900 10%, transparent);
+      }
+
+      &.done .status-avatar {
+        color: #2e7d32;
+      }
+
+      &.error .status-avatar {
+        color: var(--mat-sys-error, #b3261e);
+      }
+
+      .status-avatar {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--mat-sys-on-surface-variant, currentColor);
+      }
+
+      // Số ở GIỮA vòng `mat-progress-spinner` (tận dụng avatar làm luôn chỗ
+      // hiện %/giây FLOOD_WAIT, yêu cầu user) — overlay tuyệt đối, spinner
+      // vẽ vòng NGOÀI, span này chỉ là con số nằm đúng tâm.
+      .spinner-wrap {
+        position: relative;
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .spinner-percent {
+        position: absolute;
+        font-size: 0.6rem;
+        font-weight: 600;
+      }
+
+      .file-name {
+        display: block;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .stage-line {
+        display: block;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 0.75rem;
+        opacity: 0.75;
+      }
+    }
+  }
+
+  .metadata-pane {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+
+    // Dùng chung cho `.search-input` (toolbar) và `input` (mỗi ô bảng) —
+    // `@extend` gộp selector ở CSS biên dịch thay vì lặp lại toàn bộ khai
+    // báo, giữ file dưới ngân sách `anyComponentStyle` (angular.json).
+    %ws-text-input {
+      box-sizing: border-box;
+      border: 1px solid var(--ws-border-20);
+      font: inherit;
+      font-size: 0.85rem;
+      background: var(--mat-sys-surface, transparent);
+      color: var(--mat-sys-on-surface, inherit);
+
+      &:focus {
+        outline: none;
+        border-color: var(--mat-sys-primary);
+      }
+    }
+
+    // Đẩy phần tử sau qua phải — cùng cách `.example-spacer` của mat-toolbar
+    // (flex: 1 1 auto chiếm hết khoảng trống còn lại). Dùng chung cho
+    // `.metadata-toolbar` VÀ `.metadata-footer`.
+    .toolbar-spacer {
+      flex: 1 1 auto;
+    }
+
+    .metadata-toolbar {
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+      flex-wrap: wrap;
+      height: auto;
+      min-height: 56px;
+
+      .search-input {
+        @extend %ws-text-input;
+        flex: 0 1 16rem;
+        min-width: 8rem;
+        border-radius: 999px;
+        padding: 0.35rem 0.9rem;
+      }
+    }
+
+    .empty-hint {
+      padding: 0.75rem;
+      margin: 0;
+      font-size: 0.85rem;
+      opacity: 0.7;
+    }
+
+    .metadata-footer {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.6rem 0.75rem 0;
+      flex-wrap: wrap;
+
+      .selected-hint {
+        font-size: 0.8rem;
+        opacity: 0.7;
+      }
+
+      .publish-status {
+        font-size: 0.8rem;
+
+        &.ok {
+          color: #2e7d32;
+        }
+
+        &.error {
+          color: var(--mat-sys-error, #b3261e);
+        }
+      }
+    }
+
+    // Tám cột: checkbox · Tên file · Title · Season · Ep · Năm · hạng · xoá —
+    // header và mỗi hàng PHẢI dùng cùng một `grid-template-columns` để cột
+    // thẳng hàng nhau (header nằm ngoài viewport ảo, hàng nằm trong).
+    $columns: 2.5rem minmax(0, 1.6fr) minmax(0, 1fr) 4.5rem 3.5rem 5rem 3.5rem 2rem;
+
+    .metadata-header-row {
+      display: grid;
+      grid-template-columns: $columns;
+      gap: 0.5rem;
+      align-items: center;
+      padding: 0.4rem 0.75rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      opacity: 0.7;
+      border-bottom: 1px solid var(--ws-border-12);
+    }
+
+    .metadata-list {
+      flex: 1 1 auto;
+      min-height: 0;
+      border: 1px solid var(--ws-border-12);
+      border-radius: 0.5rem;
+    }
+
+    .metadata-row {
+      display: grid;
+      grid-template-columns: $columns;
+      gap: 0.5rem;
+      align-items: center;
+      height: 48px;
+      padding: 0 0.75rem;
+      border-top: 1px solid var(--ws-border-8);
+
+      .file-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 0.85rem;
+      }
+
+      input {
+        @extend %ws-text-input;
+        width: 100%;
+        border-radius: 0.25rem;
+        padding: 0.3rem 0.4rem;
+      }
+
+      .num-input {
+        text-align: right;
+      }
+    }
+  }
+}

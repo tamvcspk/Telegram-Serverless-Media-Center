@@ -3,7 +3,8 @@
 //! `serde`) vì nó là hợp đồng dùng chung, có thể còn tiêu thụ bởi một
 //! implementation MTProto khác sau này (ADR-0017 điều kiện bắt buộc #2).
 
-use ingest_rpc_trait::{IngestRpcError, PinnedCatalog, ResolvedChannel};
+use ingest_ffmpeg::{Container, ProbeAudioStream, ProbeResult, ProbeSubtitleStream, ProbeVideoStream};
+use ingest_rpc_trait::{IngestRpcError, PinnedCatalog, ResolvedChannel, UploadProgress, UploadedRef};
 use serde::{Deserialize, Serialize};
 
 /// KHÔNG collapse lỗi về `String` trần — `FloodWait` phải giữ nguyên số giây
@@ -93,4 +94,181 @@ pub struct SavedCredentialsDto {
 pub enum LoginOutcomeDto {
     LoggedIn,
     PasswordRequired,
+}
+
+/// Khớp `Container` của `ingest-ffmpeg` — `rename_all = "lowercase"` cho ra
+/// ĐÚNG bốn chuỗi mà `Container` (`libs/core-ingest/src/compat-rank.ts`)
+/// định nghĩa ("mp4"/"matroska"/"mpegts"/"avi"/"other"), để phía Angular gán
+/// thẳng field này vào `ProbeResult` của core-ingest mà không cần map chuỗi.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ContainerDto {
+    Mp4,
+    Matroska,
+    Mpegts,
+    Avi,
+    Other,
+}
+
+impl From<Container> for ContainerDto {
+    fn from(c: Container) -> Self {
+        match c {
+            Container::Mp4 => Self::Mp4,
+            Container::Matroska => Self::Matroska,
+            Container::Mpegts => Self::Mpegts,
+            Container::Avi => Self::Avi,
+            Container::Other => Self::Other,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProbeVideoStreamDto {
+    pub codec: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl From<ProbeVideoStream> for ProbeVideoStreamDto {
+    fn from(v: ProbeVideoStream) -> Self {
+        Self { codec: v.codec, width: v.width, height: v.height }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProbeAudioStreamDto {
+    pub codec: String,
+    pub lang: Option<String>,
+    pub index: i64,
+}
+
+impl From<ProbeAudioStream> for ProbeAudioStreamDto {
+    fn from(a: ProbeAudioStream) -> Self {
+        Self { codec: a.codec, lang: a.lang, index: a.index }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProbeSubtitleStreamDto {
+    pub codec: String,
+    pub lang: Option<String>,
+    pub index: i64,
+}
+
+impl From<ProbeSubtitleStream> for ProbeSubtitleStreamDto {
+    fn from(s: ProbeSubtitleStream) -> Self {
+        Self { codec: s.codec, lang: s.lang, index: s.index }
+    }
+}
+
+/// Khớp NGUYÊN VẸN field-cho-field `ProbeResult` của
+/// `libs/core-ingest/src/compat-rank.ts` NGOẠI TRỪ tên field
+/// `duration_sec` (giữ snake_case đúng quy ước DTO ở file này — dto.rs không
+/// `rename_all = "camelCase"`, xem đầu file) — phía Angular tự map sang
+/// `durationSec` bằng một hàm chuyển đổi một dòng trước khi gọi
+/// `classifyCompatRank()`, không đổi quy ước DTO chỉ vì một field.
+#[derive(Debug, Serialize)]
+pub struct ProbeResultDto {
+    pub container: ContainerDto,
+    pub duration_sec: f64,
+    pub video: Option<ProbeVideoStreamDto>,
+    pub audio: Vec<ProbeAudioStreamDto>,
+    pub subtitles: Vec<ProbeSubtitleStreamDto>,
+}
+
+impl From<ProbeResult> for ProbeResultDto {
+    fn from(p: ProbeResult) -> Self {
+        Self {
+            container: p.container.into(),
+            duration_sec: p.duration_sec,
+            video: p.video.map(ProbeVideoStreamDto::from),
+            audio: p.audio.into_iter().map(ProbeAudioStreamDto::from).collect(),
+            subtitles: p.subtitles.into_iter().map(ProbeSubtitleStreamDto::from).collect(),
+        }
+    }
+}
+
+/// Khớp `UploadedRef` — kết quả một lần `sendFile` (video/subtitle/catalog),
+/// `msg_id` là message ID thật Telegram vừa cấp.
+#[derive(Debug, Serialize)]
+pub struct UploadedRefDto {
+    pub msg_id: i64,
+}
+
+impl From<UploadedRef> for UploadedRefDto {
+    fn from(r: UploadedRef) -> Self {
+        Self { msg_id: r.msg_id }
+    }
+}
+
+/// Sự kiện tiến trình upload video — bắn qua `app.emit("upload-progress", ..)`
+/// (không phải giá trị trả về của `invoke()`, vì một lần upload có NHIỀU lần
+/// cập nhật). `path` là khoá tương quan (CLAUDE.md: "mọi message xuyên luồng
+/// phải có correlation id") — UI chỉ áp dụng update cho đúng dòng đang
+/// upload, phòng trường hợp một event trễ tới sau khi item đã chuyển dòng
+/// khác (dù pipeline hiện tại chạy tuần tự, không có hai upload chồng nhau).
+#[derive(Debug, Clone, Serialize)]
+pub struct UploadProgressDto {
+    pub path: String,
+    pub bytes_sent: u64,
+    pub total_bytes: u64,
+}
+
+impl UploadProgressDto {
+    pub fn new(path: String, p: UploadProgress) -> Self {
+        Self { path, bytes_sent: p.bytes_sent, total_bytes: p.total_bytes }
+    }
+}
+
+/// Cách xử lý video ở bước đầu `prepare_upload` — do TẦNG GỌI quyết định dựa
+/// trên hạng đã `classifyCompatRank()` (ADR-0017 điều kiện bắt buộc #4,
+/// crate/command này không tự quyết): `Copy` (Hạng A/B, `remux()` stream-copy
+/// cả hai track) — `ReencodeAudio` (Hạng C, `remux()` copy video/encode AAC)
+/// — `ReencodeAll` (Hạng D, `reencode_to_mp4()` — ĐẮT, decode+encode CẢ
+/// video, tầng gọi phải hỏi xác nhận TRƯỚC khi gửi mode này, mockup A.2 mục 1).
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RemuxModeDto {
+    Copy,
+    ReencodeAudio,
+    ReencodeAll
+}
+
+/// Track phụ đề TEXT cần rút — Angular tự lọc bỏ track dạng ẢNH (PGS/DVD
+/// subtitle, xem `apps/tsmc-ingest/src/ffmpeg.ts::IMAGE_SUBTITLE_CODECS`,
+/// lặp lại có chủ đích ở `workspace.ts`) trước khi gửi mảng này —
+/// `prepare_upload` không tự quyết codec nào là "ảnh" (ADR-0017 điều kiện
+/// bắt buộc #4).
+#[derive(Debug, Clone, Deserialize)]
+pub struct SubtitleTrackDto {
+    pub index: i64,
+    pub lang: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PreparedSubtitleDto {
+    pub lang: Option<String>,
+    pub path: String,
+}
+
+/// Kết quả `prepare_upload` — remux/thumbnail/rút phụ đề CỤC BỘ xong, sẵn
+/// sàng cho `upload_video()`/`upload_subtitle()`. `final_probe` là probe LẠI
+/// file ĐÃ remux (không phải file gốc) — Angular tự `deriveCompat()` từ đây
+/// để biết nhãn `compat` thật ghi vào catalog (ADR-0017 điều kiện bắt buộc
+/// #4: crate/command không tự quyết compat).
+#[derive(Debug, Serialize)]
+pub struct PreparedUploadDto {
+    pub temp_dir: String,
+    pub remuxed_path: String,
+    pub thumbnail_path: String,
+    pub subtitles: Vec<PreparedSubtitleDto>,
+    pub final_probe: ProbeResultDto,
+}
+
+/// Sự kiện đổi stage của `prepare_upload` — bắn qua `app.emit("pipeline-stage",
+/// ..)`, khớp mockup A.2 mục 4 ("Tiến trình phải nói đang ở stage nào").
+#[derive(Debug, Clone, Serialize)]
+pub struct PipelineStageDto {
+    pub path: String,
+    pub stage: String,
 }

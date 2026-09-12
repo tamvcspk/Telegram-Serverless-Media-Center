@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["ingest-rpc-trait", "ingest-grammers", "src-tauri"]
+members = ["ingest-rpc-trait", "ingest-grammers", "ingest-ffmpeg", "src-tauri"]
 
 [workspace.package]
 version = "0.0.0"
@@ -22,3 +22,9 @@ async-trait = "0.1"
 thiserror = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "fs", "sync", "time"] }
 serde = { version = "1", features = ["derive"] }
+
+# Cùng version đã verify thật ở SPIKE-09 (tools/spike-09/Cargo.toml,
+# docs/adr/0013-bot-dong-hanh-va-pipeline-ingest.md § addendum 2026-09-03/04)
+# — không ghim cứng "=" như grammers-* (rủi ro khác nhau: grammers bị archive,
+# ffmpeg-next vẫn đang bảo trì bình thường).
+ffmpeg-next = "7"

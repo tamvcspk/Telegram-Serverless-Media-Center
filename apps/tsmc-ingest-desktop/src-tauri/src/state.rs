@@ -11,7 +11,7 @@ use grammers_client::Client;
 use grammers_client::client::{LoginToken, PasswordToken};
 use grammers_session::storages::SqliteSession;
 use ingest_grammers::GrammersIngestRpc;
-use ingest_rpc_trait::ResolvedChannel;
+use ingest_rpc_trait::{CancelFlag, ResolvedChannel};
 
 #[derive(Default)]
 pub enum ConnState {
@@ -47,4 +47,11 @@ pub struct AppState {
     /// điền bởi lần `resolve_channel()` tương ứng, nên hai lệnh này CHỈ hợp
     /// lệ sau một `resolve_channel()` thành công trong cùng phiên `Ready`.
     pub selected_channel: tokio::sync::Mutex<Option<ResolvedChannel>>,
+    /// Cờ huỷ của lần `upload_video()` ĐANG chạy, nếu có — `cancel_upload()`
+    /// đọc lại từ đây để gọi `.cancel()` mà không cần Angular tự sinh/quản
+    /// một id nào (pipeline hiện tại chạy TUẦN TỰ, không bao giờ có 2 lần
+    /// upload video chồng nhau — SPIKE-10 M5 "huỷ dừng lưu lượng ≤ 3s" chỉ
+    /// cần đúng MỘT cờ sống tại một thời điểm). `None` khi không có upload
+    /// video nào đang chạy — `cancel_upload()` gọi lúc đó là no-op an toàn.
+    pub active_cancel: tokio::sync::Mutex<Option<CancelFlag>>,
 }

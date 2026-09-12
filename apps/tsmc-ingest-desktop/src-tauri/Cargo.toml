@@ -20,6 +20,7 @@ tauri-build = { version = "2.6.3", features = [] }
 [dependencies]
 ingest-rpc-trait = { path = "../ingest-rpc-trait" }
 ingest-grammers = { path = "../ingest-grammers" }
+ingest-ffmpeg = { path = "../ingest-ffmpeg" }
 grammers-client = { workspace = true }
 grammers-session = { workspace = true }
 tokio = { workspace = true }

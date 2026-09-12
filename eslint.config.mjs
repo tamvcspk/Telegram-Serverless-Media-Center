@@ -40,6 +40,7 @@ export default tseslint.config(
       '**/node_modules/**',
       '**/.angular/**',
       '**/out-tsc/**',
+      '**/target/**',
       'apps/web/public/**',
       'spike/**'
     ]
@@ -87,10 +88,13 @@ export default tseslint.config(
   {
     // apps/tsmc-ingest-desktop/ui — app Angular RIÊNG (package.json/
     // angular.json của chính nó, xem pnpm-workspace.yaml), không chung
-    // project Angular với apps/web. Chưa import @tsmc/* nào (chỉ gọi
-    // @tauri-apps/api/core), nên chưa cần policy boundaries/dependencies
-    // riêng — đăng ký type để sẵn sàng khi slice sau import core-ingest
-    // (docs/ux-design.md § Phụ lục A.1: "logic thuần dùng lại core-ingest").
+    // project Angular với apps/web. Từ slice workspace ba vùng (A.3,
+    // 2026-09-12) đã import `@tsmc/core-ingest` (lib-core) thật —
+    // `classifyCompatRank()` là nguồn sự thật duy nhất cho phân hạng A/B/C/D
+    // (ADR-0017 điều kiện bắt buộc #4, docs/ux-design.md § Phụ lục A.1).
+    // Chưa cần policy boundaries/dependencies riêng: default 'allow' đã đúng
+    // ý (app này ĐƯỢC phép import lib-core, khác `app` (apps/web) — không
+    // đụng core-mtproto/core-download nên không cần disallow nào).
     files: ['apps/tsmc-ingest-desktop/ui/src/**/*.ts'],
     extends: [js.configs.recommended, ...tseslint.configs.recommended, ...angular.configs.tsRecommended],
     processor: angular.processInlineTemplates,

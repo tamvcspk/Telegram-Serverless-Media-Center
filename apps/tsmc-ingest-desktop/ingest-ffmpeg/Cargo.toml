@@ -1,0 +1,10 @@
+[package]
+name = "ingest-ffmpeg"
+version.workspace = true
+edition.workspace = true
+publish = false
+description = "Probe media bằng ffmpeg-next (native FFI, SPIKE-09/ADR-0013 § addendum 2026-09-03) cho công cụ ingest desktop."
+
+[dependencies]
+ffmpeg-next = { workspace = true }
+thiserror = { workspace = true }

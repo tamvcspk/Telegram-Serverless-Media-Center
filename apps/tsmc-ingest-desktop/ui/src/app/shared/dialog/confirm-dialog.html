@@ -1,0 +1,12 @@
+<h2 mat-dialog-title>{{ data.title }}</h2>
+<mat-dialog-content>
+  <p>{{ data.message }}</p>
+</mat-dialog-content>
+<mat-dialog-actions align="end">
+  @if (data.mode === 'confirm') {
+    <button mat-button type="button" (click)="onCancel()">{{ data.cancelText ?? 'Huỷ' }}</button>
+  }
+  <button mat-flat-button type="button" [color]="data.tone === 'warn' ? 'warn' : 'primary'" (click)="onConfirm()">
+    {{ data.confirmText ?? 'Đồng ý' }}
+  </button>
+</mat-dialog-actions>

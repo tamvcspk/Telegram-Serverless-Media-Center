@@ -107,10 +107,7 @@
         @if (writable()) {
           <div class="done-hint">
             <p>Đã chọn kênh này.</p>
-            <p class="hint">
-              Workspace hàng đợi (bảng metadata, upload) chưa có ở slice này — xem
-              <code>docs/ux-design.md</code> § Phụ lục A.3.
-            </p>
+            <button mat-flat-button color="primary" type="button" (click)="onGoToWorkspace()">Vào workspace →</button>
           </div>
         }
       }

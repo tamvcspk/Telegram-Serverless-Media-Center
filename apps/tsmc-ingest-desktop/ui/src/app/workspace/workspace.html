@@ -1,0 +1,204 @@
+<section class="workspace">
+  <mat-toolbar class="topbar">
+    <button mat-icon-button type="button" (click)="onBackToChannel()" aria-label="Chọn kênh khác" title="Chọn kênh khác" matTooltip="Chọn kênh khác">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M19 12H5M11 18l-6-6 6-6" />
+      </svg>
+    </button>
+
+    <span class="channel-name">Kênh: {{ selectedChannelStore.channel()?.title }}</span>
+    <span class="catalog-summary">catalog: {{ selectedChannelStore.catalogSummary() }}</span>
+  </mat-toolbar>
+
+  <div class="panes">
+    <!-- Hàng đợi upload (kiểu FileZilla "Queued files" / trạng thái gửi mail
+         Apple Mail) — RỖNG cho tới khi bấm "Upload". Vẫn là vùng thả file. -->
+    <div class="queue-pane" [class.drag-over]="dragOver()">
+      <div class="drop-hint">
+        <p>+ Thả file hoặc folder vào đây</p>
+        <p class="hint">Phân hạng hiện ngay khi thả — trước khi upload byte nào.</p>
+      </div>
+
+      @if (uploadQueue().length > 0) {
+        <cdk-virtual-scroll-viewport itemSize="64" class="queue-list">
+          <mat-list>
+            <mat-list-item
+              *cdkVirtualFor="let item of uploadQueue(); trackBy: trackByPath"
+              class="queue-row"
+              [class.error]="item.stage === 'error'"
+              [class.done]="item.stage === 'done'"
+              [class.flood-wait]="item.floodWaitSeconds !== undefined"
+              [matTooltip]="item.error ?? ''"
+              matTooltipPosition="right"
+            >
+              <div matListItemAvatar class="status-avatar">
+                @switch (item.stage) {
+                  @case ('done') {
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M5 13l4 4L19 7" />
+                    </svg>
+                  }
+                  @case ('error') {
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
+                      <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  }
+                  @case ('queued') {
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 7v5l3 3" />
+                    </svg>
+                  }
+                  @default {
+                    <div class="spinner-wrap">
+                      <mat-progress-spinner [mode]="queueItemProgressMode(item)" [value]="queueItemProgressPercent(item)" [diameter]="32" [strokeWidth]="3" />
+                      @if (spinnerCenterText(item); as text) {
+                        <span class="spinner-percent">{{ text }}</span>
+                      }
+                    </div>
+                  }
+                }
+              </div>
+
+              <span matListItemTitle class="file-name" [matTooltip]="item.name">{{ item.name }}</span>
+              <span matListItemLine class="stage-line">{{ uploadStageLabel(item) }}</span>
+
+              <div matListItemMeta>
+                @if (currentUploadPath() === item.path && item.stage === 'uploading_video') {
+                  <button mat-icon-button type="button" class="row-action-button" color="warn" (click)="onCancelCurrentUpload()" aria-label="Huỷ upload" title="Huỷ upload" matTooltip="Huỷ upload">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+                      <rect x="6" y="6" width="12" height="12" rx="1.5" />
+                    </svg>
+                  </button>
+                } @else if (item.stage === 'done' || item.stage === 'error') {
+                  <button mat-icon-button type="button" class="row-action-button" (click)="dismissQueueItem(item.path)" aria-label="Bỏ khỏi hàng đợi" title="Bỏ khỏi hàng đợi" matTooltip="Bỏ khỏi hàng đợi">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                      <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </button>
+                }
+              </div>
+            </mat-list-item>
+          </mat-list>
+        </cdk-virtual-scroll-viewport>
+
+        @if (globalProgressLabel(); as label) {
+          <div class="queue-footer">{{ label }}</div>
+        }
+      }
+    </div>
+
+    <div class="metadata-pane">
+      <mat-toolbar class="metadata-toolbar">
+        <input
+          class="search-input"
+          type="search"
+          placeholder="Tìm theo tên file/Title…"
+          [value]="searchText()"
+          (input)="onSearchInput($any($event.target).value)"
+        />
+
+        <span class="toolbar-spacer"></span>
+
+        <button mat-button type="button" [matMenuTriggerFor]="fillMenu" [disabled]="selectedCount() < 2">Điền xuống ▾</button>
+        <mat-menu #fillMenu="matMenu">
+          <button mat-menu-item type="button" (click)="fillDown('title')">Title</button>
+          <button mat-menu-item type="button" (click)="fillDown('season')">Season</button>
+          <button mat-menu-item type="button" (click)="fillDown('year')">Năm</button>
+        </mat-menu>
+        <button mat-button type="button" [disabled]="selectedCount() === 0" (click)="autoNumberEpisodes()">Đánh số tập tự động</button>
+        <button
+          mat-icon-button
+          type="button"
+          color="warn"
+          [disabled]="selectedCount() === 0"
+          (click)="removeSelected()"
+          aria-label="Xoá khỏi hàng"
+          title="Xoá khỏi hàng"
+          matTooltip="Xoá khỏi hàng"
+        >
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m2 0-1 12a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2L7 7" />
+          </svg>
+        </button>
+
+        <button mat-raised-button type="button" color="primary" [disabled]="uploading() || uploadableItems().length === 0" (click)="startUpload()">
+          {{ uploading() ? 'Đang upload…' : 'Upload (' + uploadableItems().length + ')' }}
+        </button>
+      </mat-toolbar>
+
+      @if (queue().length > 0) {
+        <div class="metadata-header-row">
+          <mat-checkbox [checked]="allSelected()" (change)="toggleSelectAll($event.checked)" />
+          <span>Tên file</span>
+          <span>Title</span>
+          <span>Season</span>
+          <span>Ep</span>
+          <span>Năm</span>
+          <span>🚦</span>
+          <span></span>
+        </div>
+        @if (filteredQueue().length === 0) {
+          <p class="empty-hint">Không có dòng nào khớp "{{ searchText() }}".</p>
+        }
+        <cdk-virtual-scroll-viewport itemSize="48" class="metadata-list">
+          <div *cdkVirtualFor="let item of filteredQueue(); trackBy: trackByPath" class="metadata-row">
+            <mat-checkbox [checked]="item.selected" (change)="toggleSelected(item.path, $event.checked)" />
+            <span class="file-name" [title]="item.name">{{ item.name }}</span>
+            <input
+              class="title-input"
+              type="text"
+              [value]="item.metadata.title ?? ''"
+              (change)="onTitleInput(item.path, $any($event.target).value)"
+            />
+            <input
+              class="num-input"
+              type="number"
+              [value]="item.metadata.series?.season ?? ''"
+              (change)="onSeasonInput(item.path, $any($event.target).value)"
+            />
+            <input
+              class="num-input"
+              type="number"
+              [value]="item.metadata.series?.episode ?? ''"
+              (change)="onEpisodeInput(item.path, $any($event.target).value)"
+            />
+            <input
+              class="num-input"
+              type="number"
+              [value]="item.metadata.year ?? ''"
+              (change)="onYearInput(item.path, $any($event.target).value)"
+            />
+            <span class="rank-badge" [class]="'rank-' + (item.rank ?? (item.status === 'error' ? 'err' : 'pending'))">
+              {{ item.status === 'error' ? 'Lỗi' : rankLabel(item.rank) }}
+            </span>
+            <button mat-icon-button type="button" class="row-action-button" (click)="onRemove(item.path)" aria-label="Xoá khỏi bảng" title="Xoá khỏi bảng" matTooltip="Xoá khỏi bảng">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+          </div>
+        </cdk-virtual-scroll-viewport>
+        <div class="metadata-footer">
+          <span class="selected-hint">{{ selectedCount() }}/{{ queue().length }} đã chọn</span>
+
+          <span class="toolbar-spacer"></span>
+
+          @if (publishing()) {
+            <span class="publish-status">
+              @if (publishFloodWaitSeconds(); as s) {
+                Đang publish catalog — FLOOD_WAIT {{ s }}s…
+              } @else {
+                Đang publish catalog…
+              }
+            </span>
+          } @else if (publishError(); as err) {
+            <span class="publish-status error">Publish lỗi: {{ err }}</span>
+          } @else if (publishResult(); as result) {
+            <span class="publish-status ok">Đã publish — {{ result.totalItems }} item ({{ result.newItems }} mới).</span>
+          }
+        </div>
+      }
+    </div>
+  </div>
+</section>
