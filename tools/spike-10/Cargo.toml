@@ -1,3 +1,0 @@
-[workspace]
-resolver = "2"
-members = ["rpc-trait", "r3-grammers", "r4-ferogram"]

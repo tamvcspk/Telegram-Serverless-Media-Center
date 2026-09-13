@@ -5,17 +5,12 @@ import angular from 'angular-eslint';
 import boundaries from 'eslint-plugin-boundaries';
 
 // Ranh giới phụ thuộc ADR-0012 §2, ép bằng lint chứ không phải thoả thuận
-// miệng (CLAUDE.md). Loại phần tử: app (web), app-ingest (tsmc-ingest CLI),
-// lib-mtproto, lib-download, lib-core (index/search/sync/storage/worker-host
-// /ingest), lib-shared (shared-models).
-//
-// `app-ingest` KHÔNG được gộp vào `app` — policy "app không import lib-mtproto
-// trực tiếp" (dưới đây) đúng cho web (phải qua worker-host, ADR-0012 §2) NHƯNG
-// sai cho CLI: tsmc-ingest chạy ngoài trình duyệt, không có worker-host để đi
-// qua, cần import @tsmc/core-mtproto thẳng (giống cách worker-host đang làm).
+// miệng (CLAUDE.md). Loại phần tử: app (web), lib-mtproto, lib-download,
+// lib-core (index/search/sync/storage/worker-host/ingest), lib-shared
+// (shared-models). `app-ingest` (tsmc-ingest CLI) đã GỠ 2026-09-13 — CLI
+// khai tử cùng lúc @tsmc_bot deprecated, xem ADR-0013 § addendum tương ứng.
 const boundariesElements = [
   { type: 'app', pattern: 'apps/web/src/**' },
-  { type: 'app-ingest', pattern: 'apps/tsmc-ingest/src/**' },
   { type: 'app-ingest-desktop-ui', pattern: 'apps/tsmc-ingest-desktop/ui/src/**' },
   { type: 'lib-mtproto', pattern: 'libs/core-mtproto/src/**' },
   { type: 'lib-download', pattern: 'libs/core-download/src/**' },
@@ -109,15 +104,6 @@ export default tseslint.config(
     files: ['apps/tsmc-ingest-desktop/ui/src/**/*.html'],
     extends: [...angular.configs.templateRecommended, ...angular.configs.templateAccessibility],
     rules: {}
-  },
-  {
-    // CLI Node thuần (tsmc-ingest) — không Angular, chưa khớp glob nào ở
-    // trên/dưới (apps/web/src/** hay libs/**) nên cần block riêng, nếu không
-    // sẽ không được lint gì cả.
-    files: ['apps/tsmc-ingest/src/**/*.ts'],
-    extends: [js.configs.recommended, ...tseslint.configs.recommended],
-    plugins: { boundaries },
-    settings: { 'boundaries/elements': boundariesElements }
   },
   {
     files: ['libs/**/*.ts', 'sw/**/*.ts'],

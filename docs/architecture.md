@@ -61,8 +61,9 @@
                               │ ghi (chỉ phía tác giả nội dung)
       ┌───────────────────────┴─────────────────────────┐
       │ PHÍA ADMIN KÊNH — ngoài đường chạy người xem    │
-      │  tsmc-ingest CLI (MTProto, ffmpeg)  → upload    │
-      │  @tsmc_bot (Bot API)  → catalog.json + hậu kiểm │
+      │  GUI ingest desktop (Tauri, MTProto+ffmpeg native)│
+      │  → upload + publish catalog.json trực tiếp      │
+      │  (tsmc-ingest CLI, @tsmc_bot: khai tử 2026-09-13)│
       └─────────────────────────────────────────────────┘
 ```
 

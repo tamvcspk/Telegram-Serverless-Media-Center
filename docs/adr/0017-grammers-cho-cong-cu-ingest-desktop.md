@@ -27,7 +27,7 @@
 
 **R3 ngược lại có thể vá được, an toàn, bằng API công khai:** `grammers-mtsender` lộ công khai `connect_with_auth()`, `Sender::invoke()`, và `Session::dc_option()`/`home_dc_id()` — đủ để tự mở thêm connection MTProto RAW tái dùng auth_key đã có, **đúng cách `SenderPool` tự làm nội bộ khi kết nối lần đầu** (không phải hack). Nhờ vậy M4 (13.5% → 24.4%, gấp 1.81 lần) cải thiện được mà không đụng gì tới API private.
 
-Chi tiết đầy đủ, mọi số liệu, và hai bug thật phát hiện lúc dựng (clap `--session` không nhận global, `.env` sai một cấp thư mục, `tl::enums::ChatFull` hai thư viện đặt tên biến thể channel khác nhau) ở [tools/spike-10/README.md](../../tools/spike-10/README.md).
+Chi tiết đầy đủ, mọi số liệu, và hai bug thật phát hiện lúc dựng (clap `--session` không nhận global, `.env` sai một cấp thư mục, `tl::enums::ChatFull` hai thư viện đặt tên biến thể channel khác nhau) ở [docs/spikes/README.md § SPIKE-10](../spikes/README.md#spike-10) (mã nguồn `tools/spike-10/` đã xoá sau khi khai tử `apps/tsmc-ingest` CLI, 2026-09-13 — số liệu vẫn đầy đủ ở đó).
 
 ## Các phương án
 
@@ -255,3 +255,15 @@ M7 (§ "Kết quả thật M3/M5/M7/M8" ở trên) đo được ngưỡng thật
 **Giới hạn thật của bản vá — ghi rõ, không giấu:** ngưỡng `4_000_000_000` byte là con số công khai "~4000 MB cho tài khoản Premium", nằm giữa hai mốc M7 đã đo (2.307 GiB ĐẠT / 4.327 GiB TRƯỢT) nhưng **chưa bisect chính xác từng byte** (M7 đã ghi rõ điều này, không phải bỏ sót lúc vá). **Chưa kiểm chứng ngưỡng cho tài khoản KHÔNG Premium** — tài liệu công khai Telegram ghi thấp hơn (ví dụ 2GB); hằng số này chỉ bảo vệ đúng trường hợp Premium đã đo thật, tài khoản thường có thể vẫn gặp `FILE_PARTS_INVALID` thô ở một ngưỡng thấp hơn chưa biết.
 
 **Việc tiếp theo:** admin tự verify lại bằng tài khoản thật — checklist ở [docs/pending-device-tests.md](../pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--workspace-ba-vùng-bắt-đầu-upload-2026-09-12). Nếu có bằng chứng thật về ngưỡng tài khoản không Premium, cập nhật addendum mới — không đoán trước khi có số liệu.
+
+## Cập nhật sau khi Accepted (2026-09-13, verify bản vá + số liệu thật ngưỡng tài khoản không Premium)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết
+> định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó —
+> quyết định gốc **vẫn đứng vững**.
+
+**Verify 2026-09-13, ĐẠT:** user xác nhận bản vá `MAX_UPLOAD_BYTES` hoạt động đúng — thả lại file >4GB, hiện đúng thông báo `FileTooLarge` thân thiện thay vì `FILE_PARTS_INVALID` thô.
+
+**Số liệu thật mới, gỡ đúng câu "chưa kiểm chứng" ở trên:** ngưỡng tài khoản KHÔNG Premium là **2GB** (user xác nhận). Đây là **gap thật còn lại, chưa vá**: `MAX_UPLOAD_BYTES = 4_000_000_000` hiện hardcode CHUNG cho mọi tài khoản — một tài khoản KHÔNG Premium thả file 2.5GB (dưới trần 4GB hiện tại) sẽ qua được check `FileTooLarge`, rồi vẫn dính `FILE_PARTS_INVALID` thô ở tầng `multi_connection_upload()` — đúng loại lỗi mà bản vá này được viết ra để ngăn, chỉ là cho SAI đối tượng tài khoản. **Chưa vá** — hướng vá đã xác định rõ (đọc code, không phải đoán): `grammers-client::Client::get_me()` trả về `User` với field `pub raw: tl::enums::User` công khai; `tl::enums::User::User(u) => u.premium` (field `bool` có thật trong schema TL `user#31774388`, xem `grammers-tl-types-0.10.0/tl/api.tl`) cho biết tài khoản có Premium hay không — gọi một lần lúc đăng nhập xong, cache vào `AppState`, dùng để chọn `MAX_UPLOAD_BYTES` đúng theo tài khoản (2GB hoặc 4GB) thay vì hardcode một số cho tất cả. Để dành làm việc riêng, không tự vá kèm ADR này.
+
+**Việc tiếp theo:** vá tier-aware threshold theo hướng đã ghi ở trên — xem `docs/roadmap.md § Ingest`.

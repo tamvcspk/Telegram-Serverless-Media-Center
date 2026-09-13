@@ -183,14 +183,14 @@ Liên quan: [docs/changelog.md § 2026-09-12, wire Bắt đầu upload](./change
 
 **PR2 — hydration/singleton store/guard rời màn/dialog Hạng D gộp (thêm 2026-09-13, [ADR-0018](./adr/0018-task-id-lam-khoa-tuong-quan-ipc-ingest-desktop.md) § addendum PR2, CHƯA verify):**
 
-- [ ] Thả 2-3 file → KHÔNG bấm "Upload", điền dở metadata một dòng → bấm nút back (Chọn kênh) → dialog "Rời khỏi Workspace?" hiện đúng số "N file nháp chưa upload" → bấm "Ở lại" → vẫn ở Workspace, dữ liệu KHÔNG mất.
-- [ ] Lặp lại, lần này bấm "Rời khỏi" → điều hướng sang `/channel` thành công, bảng metadata mất hết (đã xoá đúng thiết kế).
-- [ ] Bấm "Upload (N)" với ít nhất 1 file → NGAY LÚC đang "Đang upload video…", bấm nút back → dialog hiện đúng "N tác vụ đang chạy" (không phải "N file nháp") → bấm "Rời khỏi" → điều hướng sang `/channel` → quay lại `/workspace` (chọn LẠI đúng kênh cũ) → hàng đợi vẫn hiện đúng dòng đang chạy, KHÔNG rỗng, tiến trình tiếp tục cập nhật % (không đứng yên ở giá trị lúc rời màn) — đây là phép thử chính của `QueueStore` root-provided + `get_current_task()` hydration.
-- [ ] Trong lúc đang có file đang chạy (như trên), bấm nút X đóng cửa sổ Tauri → dialog "Đóng ứng dụng?" hiện ra (khác hẳn dialog "Rời khỏi Workspace?" — text khác, cảnh báo dừng tiến trình NGAY LẬP TỨC) → bấm "Ở lại" → app KHÔNG đóng, vẫn dùng được bình thường.
-- [ ] Bấm X lần nữa, lần này bấm "Đóng ứng dụng" → app đóng thật (không bị kẹt lại, không phải bấm X hai lần).
-- [ ] Không có gì đang chạy/nháp (bảng trống, hàng đợi trống) → bấm back HOẶC bấm X → không có dialog nào hiện ra, chuyển màn/đóng app ngay lập tức (như hành vi cũ trước ADR-0018) — **đây chính là nhánh gây bug thật "không đóng được app" (thiếu quyền `core:window:allow-destroy`, đã vá 2026-09-13) — ưu tiên test nhánh này trước, không chỉ nhánh có cảnh báo.**
-- [ ] Chọn 2+ file Hạng D lẫn với vài file A/B/C → bấm "Upload (N)" → hiện MỘT dialog "Re-encode video Hạng D?" liệt kê TẤT CẢ file D (không phải nhiều dialog liên tiếp), mỗi dòng có checkbox mặc định TICK sẵn, kèm số phút ước tính riêng từng file.
-- [ ] Trong dialog đó, bỏ tick MỘT file D rồi bấm "Xác nhận chạy" → batch chạy: file D còn tick + mọi file A/B/C đều vào hàng đợi và upload bình thường; file D bị bỏ tick VẪN NẰM LẠI bảng metadata (không mất, không tự động thử lại).
+- [x] Thả 2-3 file → KHÔNG bấm "Upload", điền dở metadata một dòng → bấm nút back (Chọn kênh) → dialog "Rời khỏi Workspace?" hiện đúng số "N file nháp chưa upload" → bấm "Ở lại" → vẫn ở Workspace, dữ liệu KHÔNG mất.
+- [x] Lặp lại, lần này bấm "Rời khỏi" → điều hướng sang `/channel` thành công, bảng metadata mất hết (đã xoá đúng thiết kế).
+- [x] Bấm "Upload (N)" với ít nhất 1 file → NGAY LÚC đang "Đang upload video…", bấm nút back → dialog hiện đúng "N tác vụ đang chạy" (không phải "N file nháp") → bấm "Rời khỏi" → điều hướng sang `/channel` → quay lại `/workspace` (chọn LẠI đúng kênh cũ) → hàng đợi vẫn hiện đúng dòng đang chạy, KHÔNG rỗng, tiến trình tiếp tục cập nhật % (không đứng yên ở giá trị lúc rời màn) — đây là phép thử chính của `QueueStore` root-provided + `get_current_task()` hydration.
+- [x] Trong lúc đang có file đang chạy (như trên), bấm nút X đóng cửa sổ Tauri → dialog "Đóng ứng dụng?" hiện ra (khác hẳn dialog "Rời khỏi Workspace?" — text khác, cảnh báo dừng tiến trình NGAY LẬP TỨC) → bấm "Ở lại" → app KHÔNG đóng, vẫn dùng được bình thường.
+- [x] Bấm X lần nữa, lần này bấm "Đóng ứng dụng" → app đóng thật (không bị kẹt lại, không phải bấm X hai lần).
+- [x] **Verify 2026-09-13, ĐẠT (user xác nhận "confirmed").** Không có gì đang chạy/nháp (bảng trống, hàng đợi trống) → bấm back HOẶC bấm X → không có dialog nào hiện ra, chuyển màn/đóng app ngay lập tức (như hành vi cũ trước ADR-0018) — đây chính là nhánh từng gây bug thật "không đóng được app" (thiếu quyền `core:window:allow-destroy`), nay đã vá đúng. Nhánh CÓ cảnh báo (dòng 2 mục ở trên, đang chạy tác vụ) chưa có xác nhận riêng.
+- [x] Chọn 2+ file Hạng D lẫn với vài file A/B/C → bấm "Upload (N)" → hiện MỘT dialog "Re-encode video Hạng D?" liệt kê TẤT CẢ file D (không phải nhiều dialog liên tiếp), mỗi dòng có checkbox mặc định TICK sẵn, kèm số phút ước tính riêng từng file.
+- [x] Trong dialog đó, bỏ tick MỘT file D rồi bấm "Xác nhận chạy" → batch chạy: file D còn tick + mọi file A/B/C đều vào hàng đợi và upload bình thường; file D bị bỏ tick VẪN NẰM LẠI bảng metadata (không mất, không tự động thử lại).
 
 ### Đường hỏng
 
@@ -199,7 +199,7 @@ Liên quan: [docs/changelog.md § 2026-09-12, wire Bắt đầu upload](./change
 - [ ] Một file bị lỗi giữa chừng (vd xoá tay file gốc khỏi đĩa sau khi đã probe xong nhưng trước khi bấm "Bắt đầu upload") → dòng đó "Lỗi" với thông báo hợp lý, CÁC FILE KHÁC trong batch vẫn upload/publish bình thường (không có file nào upload thành công thì bỏ qua bước publish, xem mục dưới).
 - [ ] TẤT CẢ file trong batch đều lỗi (0 file upload thành công) → KHÔNG gọi `publish_catalog` (footer không hiện trạng thái publish nào) — catalog kênh giữ nguyên, không ghi đè bằng danh sách rỗng.
 - [ ] Rời màn Workspace (bấm nút back) NGAY TRONG LÚC đang upload → không rõ hành vi thiết kế (chưa có logic huỷ/cảnh báo khi rời màn giữa chừng) — quan sát THẬT xảy ra gì (có thể tiến trình nền vẫn chạy ngầm dù đã rời màn) và ghi lại, đây là gap đã biết trước (xem "Nếu có gì vỡ").
-- [ ] Thả một file THẬT nặng hơn 4GB (vd `tools/spike-10/sample-4gb.mp4`, 4 645 817 639 byte) → tick chọn → bấm "Upload" → dòng đó chuyển "Lỗi" NGAY (không đợi remux/upload chạy xong) với thông báo cụ thể "File nặng 4.65 GB, vượt trần 4.00 GB..." — KHÔNG phải lỗi giao thức thô `FILE_PARTS_INVALID` như trước bản vá 2026-09-13 (xem "Nếu có gì vỡ"). CÁC FILE KHÁC trong batch (dưới trần) vẫn upload bình thường.
+- [x] **Verify 2026-09-13, ĐẠT (user xác nhận "confirmed").** Thả một file THẬT nặng hơn 4GB (fixture gốc `tools/spike-10/sample-4gb.mp4` đã xoá cùng đợt dọn spike — dùng file thật bất kỳ >4GB khác nếu cần lặp lại) → tick chọn → bấm "Upload" → dòng đó chuyển "Lỗi" NGAY (không đợi remux/upload chạy xong) với thông báo cụ thể "File nặng X GB, vượt trần 4.00 GB..." — KHÔNG phải lỗi giao thức thô `FILE_PARTS_INVALID` như trước bản vá. CÁC FILE KHÁC trong batch (dưới trần) vẫn upload bình thường. **Lưu ý còn hở:** ngưỡng `4_000_000_000` hiện áp dụng CHUNG cho mọi tài khoản — tài khoản KHÔNG Premium thật ra chỉ có trần ~2GB (số liệu thật, xem ADR-0017 § addendum 2026-09-13) nên vẫn có thể dính `FILE_PARTS_INVALID` thô với file 2-4GB — chưa vá (roadmap).
 
 ### Nếu có gì vỡ
 
@@ -224,10 +224,10 @@ Liên quan: [ADR-0013 § addendum 2026-09-13](./adr/0013-bot-dong-hanh-va-pipeli
 
 ### Các bước (máy sạch — KHÔNG cài `vcpkg`/LLVM/Rust/Node)
 
-- [x] **Verify 2026-09-13, ĐẠT (user xác nhận "đã work")** — cài đặt + mở app từ bản đóng gói chạy đúng, không còn lỗi "thiếu library cần thiết của ffmpeg" đã gặp trước bản vá. Chưa có chi tiết từng bước riêng (dung lượng cài đặt thật, danh sách file đối chiếu đúng 7 DLL, có thử riêng Hạng D trên máy đó không) nên các dòng con dưới đây VẪN mở:
-  - [ ] Copy file `.msi` (hoặc `...-setup.exe` của NSIS) sang một máy Windows khác/VM sạch → chạy installer → cài đặt xong không báo lỗi.
-  - [ ] Thử riêng Hạng D (re-encode) trên máy sạch này → xác nhận `h264_mf` (Windows Media Foundation) hoạt động đúng mà không cần cài thêm gì.
-  - [ ] Ghi lại **tổng dung lượng cài đặt** (Đ1 yêu cầu: "ghi tổng MB installer + số file runtime") và danh sách file thật nằm trong thư mục cài đặt — đối chiếu đúng 7 DLL, không thiếu/thừa file lạ.
+- [x] **Verify 2026-09-13, ĐẠT ("chạy được hết")** — cài đặt + mở app từ bản đóng gói chạy đúng trên máy sạch, không còn lỗi "thiếu library cần thiết của ffmpeg" đã gặp trước bản vá; Hạng D (re-encode qua `h264_mf`) cũng chạy đúng trên máy đó. Chỉ còn thiếu số liệu tham khảo (dung lượng cài đặt, danh sách file) — không chặn tiến độ:
+  - [x] **Verify 2026-09-13, ĐẠT ("chạy được hết").** Copy file `.msi` (hoặc `...-setup.exe` của NSIS) sang một máy Windows khác/VM sạch → chạy installer → cài đặt xong không báo lỗi.
+  - [x] **Verify 2026-09-13, ĐẠT ("chạy được hết").** Thử riêng Hạng D (re-encode) trên máy sạch này → xác nhận `h264_mf` (Windows Media Foundation) hoạt động đúng mà không cần cài thêm gì.
+  - [ ] Ghi lại **tổng dung lượng cài đặt** (Đ1 yêu cầu: "ghi tổng MB installer + số file runtime") và danh sách file thật nằm trong thư mục cài đặt — đối chiếu đúng 7 DLL, không thiếu/thừa file lạ. (Chưa có số liệu cụ thể, chỉ mang tính tham khảo — không chặn tiến độ.)
 
 ### Nếu có gì vỡ
 
@@ -248,8 +248,8 @@ Liên quan: [ADR-0019](./adr/0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md). Cần 
 - [x] **Verify 2026-09-13, ĐẠT (user xác nhận "đã verify và work")** — luồng TMDB hoạt động đúng bằng API key thật. Chưa có chi tiết từng bước riêng (dòng con dưới đây VẪN mở, để xác nhận từng nhánh cụ thể sau nếu cần):
   - [ ] Chưa từng lưu key (xoá tay `tmdb_api_key.json` ở app-data nếu đã test trước đó) → bấm nút "Tra TMDB" (icon kính lúp) ở một dòng bảng metadata → hiện dialog "Nhập TMDB API Key" kèm link lấy key → dán key thật → bấm "Lưu" → dialog tìm kiếm mở NGAY SAU ĐÓ (không phải bấm lại nút TMDB lần nữa).
   - [ ] Sửa lại ô tìm kiếm trong dialog (vd gõ tên chính xác hơn) → bấm "Tìm" (hoặc Enter) → danh sách kết quả cập nhật đúng theo query mới.
-  - [ ] Với item `kind: 'episode'` (tên file có `SxxExx`) → tra TMDB phải tìm TV show (`search/tv`) chứ không phải phim lẻ — xác nhận bằng kết quả trả về đúng là series, không phải phim.
-  - [ ] Đóng dialog tìm kiếm bằng Esc/bấm ra ngoài (không chọn gì) → Title/Năm dòng đó GIỮ NGUYÊN, không bị xoá/đổi thành rỗng.
+  - [x] **Verify 2026-09-13, ĐẠT.** Với item `kind: 'episode'` (tên file có `SxxExx`) → tra TMDB phải tìm TV show (`search/tv`) chứ không phải phim lẻ — xác nhận bằng kết quả trả về đúng là series, không phải phim.
+  - [x] **Verify 2026-09-13, ĐẠT.** Đóng dialog tìm kiếm bằng Esc/bấm ra ngoài (không chọn gì) → Title/Năm dòng đó GIỮ NGUYÊN, không bị xoá/đổi thành rỗng.
 
 ### Nếu có gì vỡ
 
@@ -277,6 +277,8 @@ Phát video có `subs[]` trên staging bằng tài khoản thật — phụ đ�
 - Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0005 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
 
 ## `tsmc-ingest` CLI — login/probe/upload thật (2026-08-29)
+
+> **CLI đã khai tử (2026-09-13)** — `apps/tsmc-ingest/` đã xoá khỏi repo, GUI ingest desktop (Tauri) thay thế hoàn toàn (xem [ADR-0013 § addendum tương ứng](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-09-13-khai-tử-tsmc-ingest-cli--tsmc_bot--chốt-ba-thành-phần-gốc-còn-đúng-một)). Mục này giữ lại THUẦN LÀM HỒ SƠ LỊCH SỬ (số liệu thật — vd baseline 40.8x realtime Hạng C vẫn được SPIKE-09 dùng làm mốc so sánh) — KHÔNG còn gì "pending" ở đây, không ai cần chạy lại các bước dưới.
 
 Liên quan: [ADR-0013 § Cập nhật 2026-08-29, lần code đầu tiên](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-08-29-tsmc-ingest-cli--lần-code-đầu-tiên), [docs/roadmap.md § Ingest](./roadmap.md#ingest). Khác các mục khác trong file này — đây không phải tính năng web deploy lên staging, mà một CLI chạy trên **máy admin**, nên "thiết bị thật" ở đây nghĩa là: tài khoản Telegram thật + `ffmpeg`/`ffprobe` cài thật + file video mẫu thật (không phải fixture JSON giả lập ffprobe như unit test hiện có).
 

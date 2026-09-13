@@ -20,7 +20,14 @@
   } @else {
     <ul class="result-list">
       @for (result of results(); track result.id) {
-        <li class="result-row" (click)="onSelect(result)">
+        <li
+          class="result-row"
+          role="button"
+          tabindex="0"
+          (click)="onSelect(result)"
+          (keydown.enter)="onSelect(result)"
+          (keydown.space)="onSelect(result)"
+        >
           @if (result.poster_url; as poster) {
             <img [src]="poster" [alt]="result.title" class="poster" />
           } @else {

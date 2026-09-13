@@ -427,3 +427,20 @@ DLL — xem `tools/spike-09/README.md`.
 **Đóng gói DLL FFmpeg thật lần đầu** (`apps/tsmc-ingest-desktop/src-tauri/build.rs` mới + `tauri.conf.json::bundle.resources`): `build.rs` copy đúng 7 DLL (danh sách khớp `tools/spike-09/README.md`) từ `$FFMPEG_DIR/bin` vào `ffmpeg-runtime/` (gitignored) TRƯỚC KHI gọi `tauri_build::build()` — phát hiện thật lúc code: gọi sau sẽ panic ngay trên build sạch vì `tauri_build::build()` tự validate glob `bundle.resources` NGAY LÚC BUILD, không chỉ lúc đóng gói, và glob rỗng (`ffmpeg-runtime/` chưa tồn tại) làm nó lỗi thẳng. `resources` map trong `tauri.conf.json` trỏ target `""` (rỗng) để NSIS/MSI đặt DLL NGAY CẠNH `.exe` (không phải thư mục con) — đúng thứ tự Windows tìm DLL (thư mục chứa `.exe` trước `PATH`), khớp kết luận đã có sẵn ở `tools/spike-09/README.md`. Verify thật: `cargo tauri build` chạy trọn (MSI 16.8MB + NSIS setup 12MB), cả 7 DLL xuất hiện đúng trong `target/release/` cạnh exe. **CHƯA verify cài đặt+chạy trên máy sạch thật** (SPIKE-10 Đ1: "máy không có vcpkg/Node/LLVM/PATH liên quan → cài và chạy được") — chỉ verify build/copy đúng, không phải bằng chứng chạy được sau khi cài trên máy khác.
 
 **Việc tiếp theo:** Đ1 (verify cài+chạy trên máy sạch) vẫn để ngỏ — checklist mới ở [docs/pending-device-tests.md](../pending-device-tests.md). Nếu sau này thật sự cần chất lượng encode tốt hơn `h264_mf` mặc định (vd cho phép chọn CRF/preset thật), cần quyết định lại có đáng đánh đổi để có `libx264` (kéo GPL) hay tự tìm AVOption tương đương của `h264_mf` — chưa cấp thiết, không tự quyết ở đây.
+
+## Cập nhật sau khi Accepted (2026-09-13, khai tử `tsmc-ingest` CLI + `@tsmc_bot` — chốt "ba thành phần" gốc còn đúng MỘT)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết
+> định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó —
+> quyết định gốc (ba thành phần CLI/bot/chế độ admin web) **KHÔNG còn đứng
+> vững nguyên trạng** — đây là lần đầu một addendum ADR-0013 thật sự RÚT LẠI
+> một phần bức tranh gốc, không chỉ bổ sung. Quyết định gốc vẫn đúng cho
+> đúng LÝ DO ra đời (bối cảnh § trên) — chỉ đổi CÁCH đạt được nó.
+
+**Quyết định: khai tử `apps/tsmc-ingest` CLI.** GUI ingest desktop (Tauri, ADR-0017) đã đạt parity đầy đủ và hơn: cả 4 hạng A/B/C/D đã verify thật qua tài khoản Telegram thật (khác CLI — Hạng D re-encode CLI chưa từng verify thật), cộng thêm hydration/Task ID chuẩn (ADR-0018), tra cứu TMDB (ADR-0019), đóng gói `.exe` phân phối được (addendum trên). Không còn lý do giữ song song hai đường ingest — CLI chỉ còn là gánh nặng bảo trì (2 pipeline FFmpeg/MTProto phải đồng bộ tay). **Đã xoá `apps/tsmc-ingest/` khỏi repo** (tracked qua `git rm`, lịch sử đầy đủ còn trong git log) — không phải "đánh dấu deprecated rồi giữ code chết", vì không có lý do kỹ thuật nào để giữ (không ai import package `@tsmc/tsmc-ingest`, xác nhận bằng grep dependency trước khi xoá).
+
+**Quyết định: `@tsmc_bot` deprecated, không làm nữa.** Xác nhận thật (grep toàn repo trước khi ghi dòng này): **`@tsmc_bot` chưa từng có một dòng code nào** — mục 2 của ADR gốc (bối cảnh phía trên) chỉ là kế hoạch, chưa hiện thực hoá. Lý do không làm nữa: GUI ingest desktop đã tự làm được `/publish` (nút "Upload") và `/check` (bảng metadata hiện hạng màu ngay khi thả file, không cần hỏi bot) — đúng câu hỏi "còn cần bot không" mà ADR-0017 § Việc để ngỏ đặt ra, nay trả lời: KHÔNG cần. Không có code để xoá, chỉ cần gỡ khỏi mọi sơ đồ/roadmap còn liệt kê nó như việc sẽ làm.
+
+**Dọn theo (không phải quyết định kiến trúc, chỉ liệt kê cho đủ vết):** gỡ script `build:ingest` (`package.json` gốc), gỡ boundary type `app-ingest` + block ESLint riêng cho `apps/tsmc-ingest/src/**` (`eslint.config.mjs`), cập nhật sơ đồ kiến trúc (`docs/architecture.md` §2) và README gốc — không còn nhắc CLI/bot như "chưa dựng", mà là "khai tử, không làm nữa". `tools/spike-09/`, `tools/spike-10/` (nguồn của `ingest-ffmpeg`/`ingest-grammers`, đã port hoàn chỉnh từ lâu) cũng xoá cùng đợt — xem ghi chú "Mã nguồn đã xoá" ở đầu mỗi mục [SPIKE-09](../spikes/README.md#spike-09)/[SPIKE-10](../spikes/README.md#spike-10).
+
+**Việc tiếp theo:** không còn — đây là dọn dẹp, không mở thêm việc mới.

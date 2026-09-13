@@ -100,4 +100,12 @@ Các quyết định UX sau được chốt trong cùng buổi thảo luận, �
 
 **Bug thật đã gặp + vá (2026-09-13) — KHÔNG ĐÓNG ĐƯỢC APP:** user report lỗi console `"window.destroy not allowed. Permissions associated with this command: core:window:allow-destroy"` ngay sau khi thêm `onCloseRequested` ở `app.ts` (mục "Quyết định kèm theo" ở trên) — không tắt được app bằng bất kỳ cách nào. Nguyên nhân đọc thẳng `node_modules/@tauri-apps/api/window.js`: wrapper `onCloseRequested()` tự gọi `await this.destroy()` sau khi handler chạy xong NẾU handler không `preventDefault()` — tức MỌI lần đóng (kể cả nhánh không có draft/queue nào cần cảnh báo) đều cần quyền `core:window:allow-destroy`, không chỉ nhánh có dialog. `capabilities/default.json` trước đó chỉ có `core:default`, thiếu quyền này — lỗi lọt qua vì `ng build` không có cách nào bắt lỗi permission-lúc-chạy này (đây là lỗi runtime của Tauri, không phải TypeScript). Vá: thêm `"core:window:allow-destroy"` vào `capabilities/default.json`; đổi `guardWindowClose()` từ gọi `appWindow.close()` sang `appWindow.destroy()` (theo đúng doc `@tauri-apps/api/window`: `close()` chỉ emit lại `closeRequested`, `destroy()` mới thật sự đóng) — bỏ luôn cờ `closeConfirmed` chống lặp vô hạn vì `destroy()` không re-emit sự kiện nên không còn cần.
 
-**Việc tiếp theo:** admin tự verify bằng `cargo tauri dev` + tài khoản thật — checklist mới ở [docs/pending-device-tests.md](../pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--workspace-ba-vùng-bắt-đầu-upload-2026-09-12). PR3 (tích hợp TMDB ở bước Draft) chưa bắt đầu.
+**Việc tiếp theo:** admin tự verify bằng `cargo tauri dev` + tài khoản thật — checklist mới ở [docs/pending-device-tests.md](../pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--workspace-ba-vùng-bắt-đầu-upload-2026-09-12). ~~PR3 (tích hợp TMDB ở bước Draft) chưa bắt đầu.~~ Đã làm — xem [ADR-0019](./0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md).
+
+## Cập nhật sau khi Accepted (2026-09-13, verify bug KHÔNG ĐÓNG ĐƯỢC APP — ĐẠT)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết
+> định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó —
+> quyết định gốc **vẫn đứng vững**.
+
+User xác nhận bản vá `core:window:allow-destroy` + đổi `close()` → `destroy()` hoạt động đúng — đóng được app bình thường ở cả hai nhánh (có/không có draft-queue cần cảnh báo).

@@ -1,7 +1,0 @@
-/target
-fixtures/*
-!fixtures/sub.srt
-out.mp4
-out.srt
-thumb.jpg
-output_dir/

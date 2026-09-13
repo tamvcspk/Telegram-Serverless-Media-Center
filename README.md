@@ -23,7 +23,8 @@ libs/       core-mtproto (TelegramGateway thật), core-storage (Dexie), worker-
             core-sync/shared-models — skeleton, chưa có logic nghiệp vụ
 sw/         Service Worker build riêng bằng esbuild + Workbox injectManifest — skeleton
 tools/      docs-check — có sẵn
-            tsmc-ingest CLI, tsmc-bot — chưa dựng (ADR-0013)
+            tsmc-ingest CLI, tsmc-bot — khai tử 2026-09-13, không làm nữa
+            (GUI ingest desktop thay thế hoàn toàn, xem ADR-0013 § addendum)
 docs/       architecture.md · adr/ · spikes/ · catalog-spec.md
 .claude/    skills dùng chung cho contributor: /adr, /spike, /docs-check
 ```
