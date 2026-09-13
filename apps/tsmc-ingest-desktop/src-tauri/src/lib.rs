@@ -3,6 +3,7 @@ mod dto;
 mod pipeline;
 mod probe;
 mod state;
+mod tmdb;
 mod upload;
 
 use state::AppState;
@@ -48,6 +49,11 @@ pub fn run() {
             upload::upload_subtitle,
             upload::publish_catalog,
             upload::cancel_upload,
+            upload::get_current_task,
+            upload::clear_current_task,
+            tmdb::tmdb_has_key,
+            tmdb::tmdb_save_key,
+            tmdb::tmdb_search,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

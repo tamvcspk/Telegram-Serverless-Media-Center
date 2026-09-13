@@ -35,6 +35,9 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    },
+    "resources": {
+      "ffmpeg-runtime/*.dll": ""
     }
   }
 }

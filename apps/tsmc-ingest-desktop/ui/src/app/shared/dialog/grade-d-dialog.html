@@ -1,0 +1,16 @@
+<h2 mat-dialog-title>Re-encode video Hạng D?</h2>
+<mat-dialog-content>
+  <p>{{ data.items.length }} file cần re-encode video (đắt — không phải remux). Bỏ tick file nào muốn để lại làm sau (vẫn nằm trong bảng metadata).</p>
+  <ul class="grade-d-list">
+    @for (item of data.items; track item.path) {
+      <li>
+        <mat-checkbox [checked]="isChecked(item.path)" (change)="toggle(item.path, $event.checked)">
+          {{ item.name }} <span class="estimate">(~{{ item.estimateMin }} phút)</span>
+        </mat-checkbox>
+      </li>
+    }
+  </ul>
+</mat-dialog-content>
+<mat-dialog-actions align="end">
+  <button mat-flat-button type="button" color="warn" (click)="onConfirm()">Xác nhận chạy</button>
+</mat-dialog-actions>

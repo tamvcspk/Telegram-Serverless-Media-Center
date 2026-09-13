@@ -2,7 +2,7 @@
 
 - **Trạng thái:** Accepted
 - **Ngày:** 2026-09-07
-- **Liên quan:** [ADR-0003](./0003-chon-thu-vien-mtproto-gramjs.md), [ADR-0012](./0012-trien-khai-static-pwa-va-cau-truc-workspace.md), [ADR-0013](./0013-bot-dong-hanh-va-pipeline-ingest.md)
+- **Liên quan:** [ADR-0003](./0003-chon-thu-vien-mtproto-gramjs.md), [ADR-0012](./0012-trien-khai-static-pwa-va-cau-truc-workspace.md), [ADR-0013](./0013-bot-dong-hanh-va-pipeline-ingest.md), [ADR-0018](./0018-task-id-lam-khoa-tuong-quan-ipc-ingest-desktop.md), [ADR-0019](./0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md) (chốt hướng tra cứu TMDB, gỡ "để ngỏ")
 
 ## Bối cảnh
 
@@ -239,3 +239,19 @@ thay vì báo ngay lúc chọn kênh. Logic gộp vào một helper dùng chung
 `channel_like_creator()` (`ingest-grammers/src/rpc.rs`) cho cả
 `resolve_channel()` lẫn `list_own_channels()`, tránh lặp lại phân loại
 Channel/Group ở hai chỗ.
+
+## Cập nhật sau khi Accepted (2026-09-13, đóng gap thật của M7 — chặn kích thước file TRƯỚC khi upload)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết
+> định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó —
+> quyết định gốc **vẫn đứng vững**.
+
+M7 (§ "Kết quả thật M3/M5/M7/M8" ở trên) đo được ngưỡng thật và khuyến nghị tường minh trong `tools/spike-10/README.md`: "một implementation client thật phải tự tính `total_parts` từ kích thước file TRƯỚC khi mở kết nối... và chặn ở UI ngay — không phụ thuộc server phản hồi nhanh hay chậm". Khuyến nghị này **chưa từng được port** vào `ingest-grammers` thật khi scaffold ban đầu (addendum 2026-09-10) — `IngestRpcError::FileTooLarge` được định nghĩa sẵn trong trait nhưng không nơi nào từng ném ra nó, nên `upload_video()` cứ để `multi_connection_upload()` chạy thẳng và nhận `FILE_PARTS_INVALID` (lỗi giao thức thô, khó hiểu với người dùng) từ Telegram khi file vượt trần.
+
+**Phát hiện lại đúng bằng verify thật 2026-09-13:** admin thả `tools/spike-10/sample-4gb.mp4` (4 645 817 639 byte — đúng file M7 đã dùng để đo ngưỡng) vào Workspace thật, gặp lại đúng `FILE_PARTS_INVALID`. Không phải hồi quy hay bug mới — là gap đã biết từ SPIKE-10 nhưng chưa đóng.
+
+**Vá:** thêm hằng số `MAX_UPLOAD_BYTES = 4_000_000_000` (`ingest-grammers/src/rpc.rs`), chặn ngay đầu `upload_video()` — dùng `total` đã có sẵn từ `tokio::fs::metadata(&input.file_path)` (đọc TRƯỚC khi gọi `multi_connection_upload()`), trả `IngestRpcError::FileTooLarge { max_bytes, actual_bytes }` nếu vượt trần thay vì mở kết nối. `describeIngestError()` (Angular) đổi từ thông báo chung chung sang hiện số GB cụ thể cả hai chiều.
+
+**Giới hạn thật của bản vá — ghi rõ, không giấu:** ngưỡng `4_000_000_000` byte là con số công khai "~4000 MB cho tài khoản Premium", nằm giữa hai mốc M7 đã đo (2.307 GiB ĐẠT / 4.327 GiB TRƯỢT) nhưng **chưa bisect chính xác từng byte** (M7 đã ghi rõ điều này, không phải bỏ sót lúc vá). **Chưa kiểm chứng ngưỡng cho tài khoản KHÔNG Premium** — tài liệu công khai Telegram ghi thấp hơn (ví dụ 2GB); hằng số này chỉ bảo vệ đúng trường hợp Premium đã đo thật, tài khoản thường có thể vẫn gặp `FILE_PARTS_INVALID` thô ở một ngưỡng thấp hơn chưa biết.
+
+**Việc tiếp theo:** admin tự verify lại bằng tài khoản thật — checklist ở [docs/pending-device-tests.md](../pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--workspace-ba-vùng-bắt-đầu-upload-2026-09-12). Nếu có bằng chứng thật về ngưỡng tài khoản không Premium, cập nhật addendum mới — không đoán trước khi có số liệu.

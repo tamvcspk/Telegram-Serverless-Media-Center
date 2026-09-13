@@ -4,6 +4,76 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-09-13 — GUI ingest desktop: đóng gói DLL FFmpeg vào bản phân phối — trả lời Đ2 (SPIKE-10), giữ được LGPL
+
+Lần đầu `cargo tauri build` chạy trọn cho `apps/tsmc-ingest-desktop` (trước đó chỉ chạy `cargo tauri dev` nhờ vcpkg sẵn trên máy dev). Thêm `src-tauri/build.rs`: copy 7 DLL FFmpeg (danh sách khớp `tools/spike-09/README.md`) từ `$FFMPEG_DIR/bin` vào `ffmpeg-runtime/` (gitignored) **TRƯỚC KHI** gọi `tauri_build::build()` — phát hiện thật lúc code: gọi sau sẽ panic ngay trên build sạch vì `tauri_build::build()` tự validate glob `bundle.resources` NGAY LÚC BUILD. `tauri.conf.json::bundle.resources` map `ffmpeg-runtime/*.dll` → `""` để NSIS/MSI đặt DLL NGAY CẠNH `.exe` (đúng thứ tự Windows tìm DLL — thư mục exe trước `PATH`). Verify thật: `cargo tauri build` ra cả MSI (16.8MB) lẫn NSIS setup (12MB), 7 DLL xuất hiện đúng cạnh exe trong `target/release/`.
+
+Nhân dịp đóng gói thật lần đầu, trả lời luôn câu hỏi Đ2 (SPIKE-10, để ngỏ từ 2026-09-07): grep configure string nhúng trong `avcodec-61.dll` ra `--disable-libx264 --disable-libx265`, và script mới `ingest-ffmpeg/examples/check_h264_encoder.rs` xác nhận encoder H264 THẬT ở `reencode.rs` (Hạng D) là `h264_mf` (Windows Media Foundation) — KHÔNG PHẢI `libx264` như comment cũ mô tả. **Kết luận: giữ LGPL, không kéo GPL.** Phát hiện phụ: option `preset=medium` (AVOption của libx264) gần như chắc chắn bị `h264_mf` bỏ qua thầm lặng — không phải bug (Hạng D đã verify chạy đúng thật), chỉ chạy bằng tham số mặc định thay vì preset developer định chọn. Sửa comment `reencode.rs` cho đúng sự thật, chưa đổi hành vi.
+
+`cargo build`/`cargo clippy --workspace` (0 warning, gồm example mới) sạch. Chi tiết: [ADR-0013 § addendum 2026-09-13](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-09-13-trả-lời-đ2--đóng-gói-dll-ffmpeg-thật-lần-đầu), [docs/spikes/README.md § SPIKE-10](./spikes/README.md#cập-nhật-sau-khi-đóng-2026-09-13-đo-đ2-thật--lần-đầu-app-đóng-gói-exe).
+
+## 2026-09-13 — GUI ingest desktop: verify TMDB (PR3) bằng API key thật — ĐẠT
+
+User xác nhận đã verify bằng API key TMDB thật: nút "Tra TMDB" → dialog nhập key (lần đầu) → dialog tìm kiếm → chọn kết quả → Title/Năm cập nhật đúng. Xác nhận field response TMDB thật (`title`/`release_date`/`poster_path`...) khớp giả định ghi trong [ADR-0019](./adr/0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md) — không cần sửa `tmdb.rs`. Chưa có chi tiết từng bước riêng (nhánh `kind: 'episode'`/`search/tv`, đóng dialog không chọn gì). Checklist: [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--tích-hợp-tra-cứu-tmdb-pr3-2026-09-13).
+
+## 2026-09-13 — GUI ingest desktop: tích hợp tra cứu TMDB ở bước Draft (PR3, ADR-0019)
+
+Đóng gap "để ngỏ" từ ADR-0017/ux-design.md — tra metadata online, opt-in mặc định tắt. Thiết kế đầy đủ + phương án đã loại ở [ADR-0019](./adr/0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md), tóm tắt code thật:
+
+- **Rust (`tmdb.rs` mới, không thuộc `IngestRpc`):** `tmdb_has_key`/`tmdb_save_key` (key TMDB v3 lưu app-data `tmdb_api_key.json`, CÙNG mô hình `credentials.json` — không phải `localStorage`) + `tmdb_search(query, kind)` dùng `reqwest` mới thêm vào `Cargo.toml`, gọi `search/movie` hoặc `search/tv` tuỳ `kind`, gộp kết quả về một shape chung (`TmdbSearchResultDto`: id/title/year/poster_url).
+- **Angular:** nút "Tra TMDB" (icon kính lúp) mỗi dòng bảng metadata (Draft) — chưa có key thì mở `TmdbKeyDialog` trước (opt-in tự nhiên, không cần màn Settings); có key thì mở `TmdbSearchDialog` (query mặc định = title đã seed, admin sửa lại được, danh sách kết quả có poster nhỏ để TỰ CHỌN — không tự động điền). Chọn xong chỉ ghi `title`+`year`, `metaSource: 'manual'` (không thêm `'tmdb'` vào enum — tránh đổi Catalog Spec ADR-0010).
+- Bảng metadata đổi từ 8 sang 9 cột (`workspace.scss::$columns`) để chứa nút mới.
+
+`cargo build`/`cargo clippy --workspace` (0 warning) + `ng build` (322.16KB, không đổi budget) sạch. **CHƯA verify bằng API key TMDB thật** — field name (`title`/`name`/`release_date`/`first_air_date`/`poster_path`) dựa trên tài liệu TMDB v3 công khai, không phải đã đo (ADR-0019 § "Giới hạn thật"). Cần admin tự có key thật để test.
+
+## 2026-09-13 — GUI ingest desktop: verify Đ1 (SPIKE-10) — ĐẠT, cài+chạy bản đóng gói trên máy sạch
+
+User xác nhận cài đặt bản `.msi`/NSIS setup (kèm 7 DLL FFmpeg qua `build.rs` mới) trên một máy KHÔNG có `vcpkg`/LLVM/Rust/Node → mở app chạy đúng, không còn lỗi "thiếu library cần thiết của ffmpeg" đã gặp trước bản vá ở mục trên. Mức bằng chứng: "cài + mở chạy được" — chưa có số liệu chi tiết (tổng MB installer, danh sách file runtime đối chiếu từng cái, thử riêng Hạng D trên máy đó). Đ1+Đ2 (SPIKE-10) nay đều ĐẠT — spike vẫn giữ nguyên trạng thái đóng 🟡 (lý do gốc là M6 `FLOOD_WAIT` để ngỏ có chủ đích, không đổi). Checklist còn mở: [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--đóng-gói-bản-phân-phối-exeinstaller-trên-máy-sạch-2026-09-13).
+
+## 2026-09-13 — GUI ingest desktop: vá bug KHÔNG ĐÓNG ĐƯỢC APP — thiếu quyền `core:window:allow-destroy` (regression từ PR2)
+
+User báo lỗi console `"window.destroy not allowed. Permissions associated with this command: core:window:allow-destroy"` và không tắt được app sau khi thêm guard `onCloseRequested` ở PR2 (mục dưới). Nguyên nhân đọc thẳng `node_modules/@tauri-apps/api/window.js`: wrapper `onCloseRequested()` tự gọi `await this.destroy()` SAU KHI handler chạy xong nếu handler không `preventDefault()` — nghĩa là chỉ CẦN đăng ký listener này, MỌI lần đóng (kể cả nhánh không có draft/queue nào) đều cần quyền `core:window:allow-destroy`, không phải chỉ nhánh có cảnh báo. `capabilities/default.json` trước đó chỉ có `core:default` (không gồm quyền window). Đây là bug do tôi (assistant) gây ra ở PR2 — chưa test thật trường hợp "không có gì đang chạy" trước khi báo hoàn tất.
+
+Vá: thêm `"core:window:allow-destroy"` vào `capabilities/default.json`; đổi `app.ts::guardWindowClose()` từ gọi `appWindow.close()` sang `appWindow.destroy()` khi user xác nhận đóng (doc `@tauri-apps/api/window`: `close()` chỉ EMIT LẠI chính sự kiện `closeRequested`, `destroy()` mới thật sự đóng và không lặp lại sự kiện — bỏ luôn cờ `closeConfirmed` chống lặp vô hạn vì không còn cần).
+
+`cargo build --workspace` sạch (regenerate ACL bindings từ capability mới) + `ng build` sạch, budget không đổi (321.72KB) — **CHƯA verify lại bằng app thật** (cả nhánh đóng bình thường lẫn nhánh có cảnh báo). Checklist: [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--workspace-ba-vùng-bắt-đầu-upload-2026-09-12).
+
+## 2026-09-13 — GUI ingest desktop: chặn kích thước file TRƯỚC khi upload — đóng gap thật của SPIKE-10 M7 (ADR-0017)
+
+Verify thật: thả `tools/spike-10/sample-4gb.mp4` (4 645 817 639 byte — đúng file M7 đã dùng đo ngưỡng) vào Workspace → upload thất bại với lỗi giao thức thô `FILE_PARTS_INVALID` (RPC 400) thay vì thông báo dễ hiểu. **Không phải bug mới** — SPIKE-10 M7 đã đo đúng ngưỡng này và khuyến nghị tường minh "chặn TRƯỚC khi mở kết nối, không phụ thuộc server phản hồi nhanh/chậm" (`tools/spike-10/README.md`), nhưng khuyến nghị đó chưa từng được port vào `ingest-grammers` thật khi scaffold — `IngestRpcError::FileTooLarge` tồn tại sẵn trong trait nhưng không nơi nào từng ném ra nó. 5 file còn lại trong đợt test (dưới trần) upload thành công; vùng bảng metadata verify đúng.
+
+Vá: hằng số `MAX_UPLOAD_BYTES = 4_000_000_000` (`ingest-grammers/src/rpc.rs`), chặn ngay đầu `upload_video()` bằng `total` đã có sẵn (`tokio::fs::metadata`), trả `FileTooLarge { max_bytes, actual_bytes }` thay vì mở kết nối. `describeIngestError()` (Angular) đổi sang hiện số GB cụ thể cả hai chiều thay vì câu chung chung.
+
+`cargo build`/`cargo clippy --workspace` (0 warning) + `ng build` (321.72KB, không đổi budget) sạch — **CHƯA verify lại bằng tài khoản thật sau bản vá**. Giới hạn đã biết: ngưỡng `4_000_000_000` byte là con số công khai Premium, chưa bisect chính xác byte; **chưa kiểm chứng ngưỡng tài khoản không Premium** (có thể thấp hơn). Chi tiết: [ADR-0017 § addendum 2026-09-13](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-13-đóng-gap-thật-của-m7--chặn-kích-thước-file-trước-khi-upload), checklist [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--workspace-ba-vùng-bắt-đầu-upload-2026-09-12).
+
+## 2026-09-13 — GUI ingest desktop: hydration + singleton store + guard rời màn + dialog Hạng D gộp (PR2, ADR-0018)
+
+Hoàn thiện phần còn lại của [ADR-0018](./adr/0018-task-id-lam-khoa-tuong-quan-ipc-ingest-desktop.md) sau bản vá Task ID (PR1, mục dưới):
+
+- **Hydration** (`get_current_task()`/`clear_current_task()`, Rust): `AppState.current_task` (snapshot 1-slot, `std::sync::Mutex` — lý do chọn thay `tokio::sync::Mutex` xem addendum ADR) cập nhật ở mọi điểm emit `"upload-progress"`/`"pipeline-stage"`. `workspace.ts` gọi SAU KHI đăng ký xong hai listener, vá khoảng hở "listener bị gỡ lúc component unmount, event phát ra trong lúc đó bị lọt mất".
+- **`DraftStore`/`QueueStore`** (`core/draft-store.ts`, `core/queue-store.ts`, `providedIn: 'root'`): tách state (không phải logic) khỏi `WorkspaceComponent` — phát hiện lúc code: `startUpload()` là async/await JS thuần, router huỷ component KHÔNG huỷ theo Promise chain đang chạy dở, nên cần state sống ngoài vòng đời component để remount thấy đúng tiến trình thật thay vì rỗng. `workspace.ts` alias biến cũ thẳng vào signal store, không đổi logic nghiệp vụ.
+- **`canDeactivateWorkspace`** (`workspace-deactivate.guard.ts`) + **`onCloseRequested`** (`app.ts`): cảnh báo mất Draft/tác vụ đang chạy trước khi rời `/workspace` hoặc đóng cửa sổ Tauri trực tiếp — xác nhận thì xoá Draft, giữ nguyên Queue (tiến trình Rust chạy ngầm, không quan tâm route Angular).
+- **Dialog Hạng D gộp** (`shared/dialog/grade-d-dialog.ts`): một dialog cho cả batch, toggle riêng từng file (mặc định checked) — thay hỏi từng file một dialog riêng.
+- **Vá bug ngân sách bundle thật:** `inject(DialogService)` tĩnh ở `App`/guard (cả hai đều eager, không qua `loadComponent`) kéo `MatDialogModule` vào bundle chính, `ng build` báo vượt 500KB (567KB) — vá bằng `import()` động + `runInInjectionContext`, về lại 321.72KB.
+
+`cargo build`/`cargo clippy --workspace` (0 warning) + `ng build` sạch, dưới budget — **CHƯA verify bằng tài khoản Telegram thật**. Checklist: [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--workspace-ba-vùng-bắt-đầu-upload-2026-09-12). Chi tiết đầy đủ: [ADR-0018 § Cập nhật 2026-09-13, PR2](./adr/0018-task-id-lam-khoa-tuong-quan-ipc-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-13-pr2--hydration--singleton-store--guard--dialog-hạng-d-code-thật).
+
+## 2026-09-13 — GUI ingest desktop: verify thật bản vá Task ID — ĐẠT
+
+User xác nhận đã chạy `cargo tauri dev` + tài khoản Telegram thật sau bản vá Task ID ở mục dưới: progress upload chuyển đúng sang xác định (%) với Hạng B/C/D, không còn đứng mãi ở `indeterminate`. Chưa có chi tiết từng bước riêng (hạng cụ thể nào, có quan sát race huỷ-nhầm-file lúc giao ca giữa 2 file hay không) — checklist tương ứng cập nhật ở [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--workspace-ba-vùng-bắt-đầu-upload-2026-09-12).
+
+## 2026-09-13 — GUI ingest desktop: vá bug progress "indeterminate" — Task ID (UUID) thay path làm khoá tương quan IPC, ADR-0018
+
+Vá open issue ghi ở mục dưới (2026-09-12), theo [ADR-0018](./adr/0018-task-id-lam-khoa-tuong-quan-ipc-ingest-desktop.md): UUID (`crypto.randomUUID()`) sinh phía Angular ngay lúc đẩy item từ bảng metadata sang hàng đợi (`startUpload()`), gắn vào `UploadQueueItem.taskId`, truyền xuống MỌI command/event liên quan tới item đó thay vì `path`:
+
+- `upload_video`/`prepare_upload`/`cancel_upload` (Tauri command) nhận thêm tham số `task_id`; `UploadProgressDto`/`PipelineStageDto` thêm field `task_id` làm khoá tương quan thật — `path` giữ lại CHỈ để hiển thị/log.
+- `AppState.active_cancel` đổi từ `Mutex<Option<CancelFlag>>` sang `Mutex<Option<(String, CancelFlag)>>` — `cancel_upload(task_id)` giờ **idempotent theo id**: no-op nếu `task_id` không khớp task đang giữ cờ, vá luôn một race có thật (lệnh huỷ trễ tới đúng lúc giao ca sang file kế tiếp trong queue có thể huỷ NHẦM file đó ở bản cũ không có id).
+- `workspace.ts`: mọi chỗ so khớp `item.path` để cập nhật `uploadQueue` đổi sang so khớp `item.taskId` (`updateQueueItem`, `dismissQueueItem`, nút Huỷ, `trackByTaskId` mới cho `*cdkVirtualFor` của hàng đợi). Bảng metadata (`queue`, Draft) không đổi — vẫn dùng `path`, không cần `taskId` vì không bao giờ nhận event Rust.
+
+Phạm vi CỐ Ý thu hẹp so với thảo luận thiết kế ban đầu (đã đọc code trước khi viết ADR, phát hiện giả định sai): pipeline hiện chạy TUẦN TỰ thật (`AppState.active_cancel` chỉ có 1 slot, không phải registry đa tác vụ) — quyết định giữ đúng mô hình "một current-task", KHÔNG dựng `DashMap`/danh sách tác vụ đang chạy. Hydration khi remount (`get_current_task()`), singleton `QueueStore`/`DraftStore`, `CanDeactivate` guard, và dialog Hạng D dạng toggle từng file (ghi ở ADR-0018 § "Quyết định kèm theo") **CHƯA làm ở slice này** — để dành PR kế tiếp (hand-off UI dựa trên `taskId`).
+
+`cargo build`/`cargo clippy --workspace` (0 warning) + `ng build` (`apps/tsmc-ingest-desktop/ui`) sạch — **CHƯA verify bằng `cargo tauri dev` + tài khoản Telegram thật** (vùng code này đã verify thật cho Hạng C/D trước khi đổi IPC — đổi vào đây là rủi ro hồi quy, cần admin tự chạy lại, CLAUDE.md: không chạy đăng nhập MTProto hộ người dùng). Checklist cập nhật ở [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--workspace-ba-vùng-bắt-đầu-upload-2026-09-12).
+
 ## 2026-09-12 — GUI ingest desktop: wrap phiên — phát hiện, CHƯA vá, open issue "progress upload luôn indeterminate"
 
 User báo tiếp: sau bản vá spinner ở mục dưới, spinner lúc "Đang upload video…" xoay đúng, NHƯNG luôn ở chế độ `indeterminate` (vòng xoay vô định) — KHÔNG BAO GIỜ chuyển sang `determinate` để hiện % byte thật, dù `queueItemProgressMode()` (đã sửa ở mục dưới) đúng lý sẽ chuyển ngay khi có mẫu tiến trình đầu tiên.

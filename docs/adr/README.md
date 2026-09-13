@@ -25,3 +25,5 @@ Mỗi ADR ghi lại **một** quyết định kiến trúc: bối cảnh, các p
 | [0015](./0015-moi-truong-kiem-thu-firebase-hosting.md) | Môi trường kiểm thử trên Google Cloud free tier | Accepted |
 | [0016](./0016-angular-material-va-cdk.md) | Angular Material + CDK làm thư viện UI | Accepted |
 | [0017](./0017-grammers-cho-cong-cu-ingest-desktop.md) | `grammers` làm MTProto library cho công cụ ingest desktop (Tauri) | Accepted |
+| [0018](./0018-task-id-lam-khoa-tuong-quan-ipc-ingest-desktop.md) | Task ID (UUID) làm khoá tương quan IPC cho pipeline upload ingest desktop | Accepted |
+| [0019](./0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md) | Tích hợp tra cứu metadata TMDB tại bước Draft — ingest desktop | Accepted |

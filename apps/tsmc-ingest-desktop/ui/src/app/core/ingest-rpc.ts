@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { ProbeResult } from '@tsmc/core-ingest';
 import type {
+  CurrentTaskDto,
   IngestRpcErrorDto,
   LoginOutcomeDto,
   PinnedCatalogDto,
@@ -12,6 +13,9 @@ import type {
   ResolvedChannelDto,
   SavedCredentialsDto,
   SubtitleTrackDto,
+  TmdbErrorDto,
+  TmdbKind,
+  TmdbSearchResultDto,
   UploadedRefDto,
   UploadProgressDto
 } from './ingest-rpc.types';
@@ -130,8 +134,8 @@ export function toProbeResult(dto: ProbeResultDto): ProbeResult {
  * 'reencode_all'` (Hạng D) PHẢI đã hỏi xác nhận xong TRƯỚC khi gọi hàm này
  * (mockup A.2 mục 1 — "re-encode video luôn phải hỏi", `startUpload()` ở
  * `workspace.ts` lo việc này). */
-export function prepareUpload(inputPath: string, mode: RemuxModeDto, subtitleTracks: SubtitleTrackDto[]): Promise<PreparedUploadDto> {
-  return invoke<PreparedUploadDto>('prepare_upload', { inputPath, mode, subtitleTracks });
+export function prepareUpload(taskId: string, inputPath: string, mode: RemuxModeDto, subtitleTracks: SubtitleTrackDto[]): Promise<PreparedUploadDto> {
+  return invoke<PreparedUploadDto>('prepare_upload', { taskId, inputPath, mode, subtitleTracks });
 }
 
 /** Dọn thư mục tạm của `prepareUpload()` sau khi upload xong (thành công hay
@@ -142,8 +146,12 @@ export function cleanupTempDir(dirPath: string): Promise<void> {
 
 /** Upload video kèm thumbnail — thao tác DUY NHẤT bắn sự kiện `"upload-
  * progress"` trong lúc chạy (dùng `onUploadProgress()` bên dưới để lắng
- * nghe), và DUY NHẤT huỷ được giữa chừng (`cancelUpload()`). */
+ * nghe), và DUY NHẤT huỷ được giữa chừng (`cancelUpload(taskId)`). `taskId`
+ * (UUID sinh phía Angular lúc đẩy item vào hàng đợi) là correlation id gắn
+ * vào mọi event `"upload-progress"` phát sinh (ADR-0018) — dùng đúng giá trị
+ * này để so khớp ở `onUploadProgress()`, không dùng `filePath`. */
 export function uploadVideo(input: {
+  taskId: string;
   filePath: string;
   fileName: string;
   width: number;
@@ -168,10 +176,26 @@ export function publishCatalog(json: string, previousMsgId: number | null): Prom
   return invoke<UploadedRefDto>('publish_catalog', { json, previousMsgId });
 }
 
-/** Huỷ lần `uploadVideo()` ĐANG chạy, nếu có — no-op an toàn nếu không có gì
- * đang upload. */
-export function cancelUpload(): Promise<void> {
-  return invoke<void>('cancel_upload');
+/** Huỷ lần `uploadVideo()` ĐANG chạy, nếu `taskId` khớp task đang giữ cờ huỷ
+ * phía Rust — idempotent (ADR-0018): no-op an toàn nếu không có gì đang
+ * upload, hoặc nếu task đó đã xong/lỗi trước khi lệnh huỷ này tới nơi. */
+export function cancelUpload(taskId: string): Promise<void> {
+  return invoke<void>('cancel_upload', { taskId });
+}
+
+/** Đọc snapshot task đang chạy (ADR-0018 mục 5) — gọi lúc `WorkspaceComponent`
+ * remount, LUÔN sau khi đã đăng ký xong `onUploadProgress()`/`onPipelineStage()`
+ * (thứ tự bắt buộc — tránh lọt mất event phát ra trong lúc chờ response lệnh
+ * này). `null` nếu không có gì đang chạy. */
+export function getCurrentTask(): Promise<CurrentTaskDto | null> {
+  return invoke<CurrentTaskDto | null>('get_current_task');
+}
+
+/** Xoá snapshot task — gọi NGAY khi một item hoàn tất (thành công/lỗi/huỷ),
+ * KHÔNG phải lúc riêng `uploadVideo()` trả về (item còn có thể ở bước upload
+ * phụ đề sau đó). Idempotent theo `taskId`, cùng nguyên tắc `cancelUpload()`. */
+export function clearCurrentTask(taskId: string): Promise<void> {
+  return invoke<void>('clear_current_task', { taskId });
 }
 
 /** Lắng nghe sự kiện `"upload-progress"` (`app.emit()` phía Rust, KHÔNG phải
@@ -205,12 +229,60 @@ export function describeIngestError(err: IngestRpcErrorDto): string {
   switch (err.kind) {
     case 'FloodWait':
       return `Telegram yêu cầu chờ ${err.detail.seconds}s trước khi thử lại (FLOOD_WAIT) — không có cách né hợp lệ, đây là giới hạn thật của tài khoản.`;
-    case 'FileTooLarge':
-      return 'File vượt quá kích thước cho phép.';
+    case 'FileTooLarge': {
+      const actualGb = (err.detail.actual_bytes / 1_000_000_000).toFixed(2);
+      const maxGb = (err.detail.max_bytes / 1_000_000_000).toFixed(2);
+      return `File nặng ${actualGb} GB, vượt trần ${maxGb} GB (giới hạn thật đo được của tài khoản Premium, SPIKE-10 M7) — Telegram sẽ từ chối bằng lỗi giao thức thô nếu vẫn cố upload, không có cách né hợp lệ.`;
+    }
     case 'NotAuthorized':
       return 'Chưa đăng nhập — thực hiện lại luồng đăng nhập từ đầu.';
     case 'Cancelled':
       return 'Đã huỷ thao tác.';
+    case 'Other':
+      return err.detail;
+  }
+}
+
+/** Tra cứu TMDB (ADR-0019) — ba command KHÔNG thuộc `IngestRpc` (không phải
+ * RPC MTProto, cùng nhóm với `cancelUpload`/`getCurrentTask`). */
+
+/** Đọc nhanh có API key TMDB lưu sẵn chưa — dùng để quyết định hiện dialog
+ * "Nhập TMDB API Key" hay gọi thẳng `tmdbSearch()` (ADR-0019 mục 2: đây là
+ * cách "opt-in, mặc định tắt" không cần màn Settings). */
+export function tmdbHasKey(): Promise<boolean> {
+  return invoke<boolean>('tmdb_has_key');
+}
+
+/** Lưu API key vào app-data (`tmdb_api_key.json`, CÙNG mô hình
+ * `credentials.json` — KHÔNG phải `localStorage`, ADR-0011). Best-effort,
+ * không throw. */
+export function tmdbSaveKey(apiKey: string): Promise<void> {
+  return invoke<void>('tmdb_save_key', { apiKey });
+}
+
+/** `kind: 'episode'` → `search/tv`, `'movie'` → `search/movie` (ADR-0019
+ * mục 3) — gọi SAU KHI đã xác nhận `tmdbHasKey()` trả `true`, nếu không sẽ
+ * reject bằng `{ kind: 'NoApiKey' }`. */
+export function tmdbSearch(query: string, kind: TmdbKind): Promise<TmdbSearchResultDto[]> {
+  return invoke<TmdbSearchResultDto[]>('tmdb_search', { query, kind });
+}
+
+/** Cùng vai trò `toIngestRpcError()` nhưng cho `TmdbErrorDto` — TMDB là
+ * dịch vụ Internet thật, không phải RPC MTProto, nên lỗi khác hẳn loại
+ * (không có `FloodWait`/`NotAuthorized`). */
+export function toTmdbError(err: unknown): TmdbErrorDto {
+  if (typeof err === 'object' && err !== null && 'kind' in err) {
+    return err as TmdbErrorDto;
+  }
+  return { kind: 'Other', detail: err instanceof Error ? err.message : String(err) };
+}
+
+export function describeTmdbError(err: TmdbErrorDto): string {
+  switch (err.kind) {
+    case 'NoApiKey':
+      return 'Chưa có TMDB API Key.';
+    case 'Network':
+      return `Lỗi mạng khi gọi TMDB: ${err.detail}`;
     case 'Other':
       return err.detail;
   }

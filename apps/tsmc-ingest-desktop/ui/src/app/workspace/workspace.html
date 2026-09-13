@@ -23,7 +23,7 @@
         <cdk-virtual-scroll-viewport itemSize="64" class="queue-list">
           <mat-list>
             <mat-list-item
-              *cdkVirtualFor="let item of uploadQueue(); trackBy: trackByPath"
+              *cdkVirtualFor="let item of uploadQueue(); trackBy: trackByTaskId"
               class="queue-row"
               [class.error]="item.stage === 'error'"
               [class.done]="item.stage === 'done'"
@@ -64,14 +64,14 @@
               <span matListItemLine class="stage-line">{{ uploadStageLabel(item) }}</span>
 
               <div matListItemMeta>
-                @if (currentUploadPath() === item.path && item.stage === 'uploading_video') {
+                @if (currentUploadTaskId() === item.taskId && item.stage === 'uploading_video') {
                   <button mat-icon-button type="button" class="row-action-button" color="warn" (click)="onCancelCurrentUpload()" aria-label="Huỷ upload" title="Huỷ upload" matTooltip="Huỷ upload">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
                       <rect x="6" y="6" width="12" height="12" rx="1.5" />
                     </svg>
                   </button>
                 } @else if (item.stage === 'done' || item.stage === 'error') {
-                  <button mat-icon-button type="button" class="row-action-button" (click)="dismissQueueItem(item.path)" aria-label="Bỏ khỏi hàng đợi" title="Bỏ khỏi hàng đợi" matTooltip="Bỏ khỏi hàng đợi">
+                  <button mat-icon-button type="button" class="row-action-button" (click)="dismissQueueItem(item.taskId)" aria-label="Bỏ khỏi hàng đợi" title="Bỏ khỏi hàng đợi" matTooltip="Bỏ khỏi hàng đợi">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
                       <path d="M6 6l12 12M18 6L6 18" />
                     </svg>
@@ -137,6 +137,7 @@
           <span>Năm</span>
           <span>🚦</span>
           <span></span>
+          <span></span>
         </div>
         @if (filteredQueue().length === 0) {
           <p class="empty-hint">Không có dòng nào khớp "{{ searchText() }}".</p>
@@ -172,6 +173,12 @@
             <span class="rank-badge" [class]="'rank-' + (item.rank ?? (item.status === 'error' ? 'err' : 'pending'))">
               {{ item.status === 'error' ? 'Lỗi' : rankLabel(item.rank) }}
             </span>
+            <button mat-icon-button type="button" class="row-action-button" (click)="onTmdbLookup(item)" aria-label="Tra TMDB" title="Tra TMDB" matTooltip="Tra TMDB">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m21 21-4.35-4.35" />
+              </svg>
+            </button>
             <button mat-icon-button type="button" class="row-action-button" (click)="onRemove(item.path)" aria-label="Xoá khỏi bảng" title="Xoá khỏi bảng" matTooltip="Xoá khỏi bảng">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
                 <path d="M6 6l12 12M18 6L6 18" />

@@ -83,18 +83,35 @@ export interface UploadedRefDto {
 }
 
 /** Payload sự kiện `"upload-progress"` (`app.emit()`, KHÔNG phải giá trị trả
- * về của `invoke()` — một lần `uploadVideo()` bắn NHIỀU sự kiện này). `path`
- * là correlation id — chỉ áp dụng update cho đúng item đang khớp path đó. */
+ * về của `invoke()` — một lần `uploadVideo()` bắn NHIỀU sự kiện này). `task_id`
+ * (UUID sinh phía Angular) là correlation id (ADR-0018) — chỉ áp dụng update
+ * cho đúng item đang khớp `task_id` đó. `path` chỉ còn để hiển thị/log, KHÔNG
+ * dùng để so khớp (path đổi tên/đổi đuôi qua từng bước pipeline nên không ổn
+ * định — nguyên nhân bug "progress bar indeterminate" đã sửa ở ADR-0018). */
 export interface UploadProgressDto {
+  task_id: string;
   path: string;
   bytes_sent: number;
   total_bytes: number;
 }
 
+/** Khớp `CurrentTaskDto` — snapshot task đang chạy, đọc bằng `getCurrentTask()`
+ * để hydrate `QueueStore` khi `WorkspaceComponent` remount (ADR-0018 mục 5).
+ * `bytes_sent`/`total_bytes` `null` ở mọi stage KHÔNG phải `uploading_video`. */
+export interface CurrentTaskDto {
+  task_id: string;
+  path: string;
+  stage: string;
+  bytes_sent: number | null;
+  total_bytes: number | null;
+}
+
 /** Payload sự kiện `"pipeline-stage"` — mockup A.2 mục 4. `reencoding` chỉ
  * xảy ra với `mode: 'reencode_all'` (Hạng D — ĐẮT hơn hẳn `remuxing`, xem
- * `RemuxModeDto`). */
+ * `RemuxModeDto`). `task_id` là correlation id, cùng quy ước với
+ * `UploadProgressDto` (ADR-0018). */
 export interface PipelineStageDto {
+  task_id: string;
   path: string;
   stage: 'remuxing' | 'reencoding' | 'generating_thumbnail' | 'extracting_subtitles';
 }
@@ -126,3 +143,21 @@ export interface PreparedUploadDto {
   subtitles: PreparedSubtitleDto[];
   final_probe: ProbeResultDto;
 }
+
+/** Khớp `TmdbKindDto` (ADR-0019) — `'episode'` → `search/tv`, `'movie'` →
+ * `search/movie`. Tầng gọi (`workspace.ts`) tự quyết theo `item.metadata.kind`. */
+export type TmdbKind = 'movie' | 'episode';
+
+/** Khớp `TmdbSearchResultDto` — một kết quả tìm kiếm TMDB đã chuẩn hoá
+ * (movie/tv gộp về cùng shape). `poster_url` đã ghép sẵn base URL ảnh TMDB,
+ * gán thẳng vào `<img src>` được, `null` nếu TMDB không có poster. */
+export interface TmdbSearchResultDto {
+  id: number;
+  title: string;
+  year: number | null;
+  poster_url: string | null;
+}
+
+/** Khớp `#[serde(tag = "kind", content = "detail")] TmdbErrorDto`. `NoApiKey`
+ * để Angular tự mở dialog nhập key thay vì hiện lỗi mạng mơ hồ. */
+export type TmdbErrorDto = { kind: 'NoApiKey' } | { kind: 'Network'; detail: string } | { kind: 'Other'; detail: string };

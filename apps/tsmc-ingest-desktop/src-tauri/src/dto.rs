@@ -203,20 +203,23 @@ impl From<UploadedRef> for UploadedRefDto {
 
 /// Sự kiện tiến trình upload video — bắn qua `app.emit("upload-progress", ..)`
 /// (không phải giá trị trả về của `invoke()`, vì một lần upload có NHIỀU lần
-/// cập nhật). `path` là khoá tương quan (CLAUDE.md: "mọi message xuyên luồng
-/// phải có correlation id") — UI chỉ áp dụng update cho đúng dòng đang
-/// upload, phòng trường hợp một event trễ tới sau khi item đã chuyển dòng
-/// khác (dù pipeline hiện tại chạy tuần tự, không có hai upload chồng nhau).
+/// cập nhật). `task_id` (UUID sinh phía Angular lúc đẩy item vào hàng đợi) là
+/// khoá tương quan (ADR-0018) — trước đây dùng `path`, nhưng path đổi tên/đổi
+/// đuôi qua từng bước pipeline (remux → thumbnail → ...) nên không ổn định
+/// (bug thật: event mang path file tạm sau remux, UI so khớp bằng path file
+/// gốc, không bao giờ khớp). `path` vẫn giữ lại CHỈ để hiển thị/log, KHÔNG
+/// còn là khoá so khớp.
 #[derive(Debug, Clone, Serialize)]
 pub struct UploadProgressDto {
+    pub task_id: String,
     pub path: String,
     pub bytes_sent: u64,
     pub total_bytes: u64,
 }
 
 impl UploadProgressDto {
-    pub fn new(path: String, p: UploadProgress) -> Self {
-        Self { path, bytes_sent: p.bytes_sent, total_bytes: p.total_bytes }
+    pub fn new(task_id: String, path: String, p: UploadProgress) -> Self {
+        Self { task_id, path, bytes_sent: p.bytes_sent, total_bytes: p.total_bytes }
     }
 }
 
@@ -265,10 +268,62 @@ pub struct PreparedUploadDto {
     pub final_probe: ProbeResultDto,
 }
 
-/// Sự kiện đổi stage của `prepare_upload` — bắn qua `app.emit("pipeline-stage",
-/// ..)`, khớp mockup A.2 mục 4 ("Tiến trình phải nói đang ở stage nào").
+/// Snapshot của task upload/pipeline ĐANG chạy — dùng để hydrate lại UI khi
+/// `WorkspaceComponent` remount trong cùng phiên Tauri còn sống (ADR-0018
+/// mục 5, đọc bằng `get_current_task()`). CHỈ MỘT slot (khớp mô hình tuần
+/// tự thật — `AppState.active_cancel` cũng chỉ có một, xem `state.rs`),
+/// KHÔNG phải danh sách nhiều task. `bytes_sent`/`total_bytes` `None` ở mọi
+/// stage KHÔNG phải `uploading_video` (không có số byte thật để hiện).
 #[derive(Debug, Clone, Serialize)]
-pub struct PipelineStageDto {
+pub struct CurrentTaskDto {
+    pub task_id: String,
     pub path: String,
     pub stage: String,
+    pub bytes_sent: Option<u64>,
+    pub total_bytes: Option<u64>,
+}
+
+/// Sự kiện đổi stage của `prepare_upload` — bắn qua `app.emit("pipeline-stage",
+/// ..)`, khớp mockup A.2 mục 4 ("Tiến trình phải nói đang ở stage nào").
+/// `task_id` là khoá tương quan (ADR-0018, cùng quy ước với `UploadProgressDto`
+/// — xem doc comment ở đó); `path` chỉ còn để hiển thị/log.
+#[derive(Debug, Clone, Serialize)]
+pub struct PipelineStageDto {
+    pub task_id: String,
+    pub path: String,
+    pub stage: String,
+}
+
+/// Tra cứu TMDB (ADR-0019) — `kind` do tầng gọi (Angular) quyết dựa trên
+/// `item.metadata.kind` ('episode' → `search/tv`, còn lại → `search/movie'),
+/// `tmdb.rs` không tự suy luận. Khớp union `'movie' | 'episode'` phía TS.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TmdbKindDto {
+    Movie,
+    Episode,
+}
+
+/// Lỗi tra cứu TMDB — TÁCH RIÊNG khỏi `IngestRpcErrorDto` vì đây không phải
+/// lỗi RPC MTProto (không có `FloodWait`/`NotAuthorized` kiểu Telegram).
+/// `NoApiKey` để Angular tự mở dialog nhập key thay vì hiện lỗi mạng mơ hồ.
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", content = "detail")]
+pub enum TmdbErrorDto {
+    NoApiKey,
+    Network(String),
+    Other(String),
+}
+
+/// Một kết quả tìm kiếm TMDB đã chuẩn hoá — `tmdb.rs` gộp field khác nhau
+/// của `search/movie` (`title`/`release_date`) và `search/tv`
+/// (`name`/`first_air_date`) về CÙNG một shape cho Angular, không phân biệt
+/// movie/tv nữa ở tầng UI. `poster_url` đã ghép sẵn base URL ảnh TMDB —
+/// Angular chỉ cần gán thẳng vào `<img src>`.
+#[derive(Debug, Clone, Serialize)]
+pub struct TmdbSearchResultDto {
+    pub id: i64,
+    pub title: String,
+    pub year: Option<i32>,
+    pub poster_url: Option<String>,
 }

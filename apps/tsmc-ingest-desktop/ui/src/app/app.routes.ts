@@ -1,4 +1,5 @@
 import { Routes } from '@angular/router';
+import { canDeactivateWorkspace } from './workspace/workspace-deactivate.guard';
 
 // Ba route thật ở slice này — Đăng nhập + Chọn kênh + Workspace ba vùng
 // (docs/ux-design.md § Phụ lục A.4/A.3, workspace mới chỉ có vùng HÀNG ĐỢI,
@@ -18,6 +19,9 @@ export const routes: Routes = [
   },
   {
     path: 'workspace',
-    loadComponent: () => import('./workspace/workspace').then((m) => m.Workspace)
+    loadComponent: () => import('./workspace/workspace').then((m) => m.Workspace),
+    // Cảnh báo mất Draft/Queue trước khi rời màn (ADR-0018) — CHỈ chặn điều
+    // hướng trong app, xem doc comment ở workspace-deactivate.guard.ts.
+    canDeactivate: [canDeactivateWorkspace]
   }
 ];

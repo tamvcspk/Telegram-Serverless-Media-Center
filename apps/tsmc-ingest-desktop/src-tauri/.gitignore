@@ -2,3 +2,7 @@
 # will have compiled files and executables
 /target/
 /gen/schemas
+
+# Copy DLL FFmpeg runtime từ $FFMPEG_DIR/bin (build.rs) — sinh lại mỗi lần
+# build, không commit (khác nhau theo máy/phiên bản FFmpeg đã cài).
+/ffmpeg-runtime/

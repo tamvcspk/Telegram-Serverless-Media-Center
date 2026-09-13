@@ -13,6 +13,8 @@ use grammers_session::storages::SqliteSession;
 use ingest_grammers::GrammersIngestRpc;
 use ingest_rpc_trait::{CancelFlag, ResolvedChannel};
 
+use crate::dto::CurrentTaskDto;
+
 #[derive(Default)]
 pub enum ConnState {
     /// Chưa gọi `check_session()` lần nào trong phiên chạy app này.
@@ -47,11 +49,26 @@ pub struct AppState {
     /// điền bởi lần `resolve_channel()` tương ứng, nên hai lệnh này CHỈ hợp
     /// lệ sau một `resolve_channel()` thành công trong cùng phiên `Ready`.
     pub selected_channel: tokio::sync::Mutex<Option<ResolvedChannel>>,
-    /// Cờ huỷ của lần `upload_video()` ĐANG chạy, nếu có — `cancel_upload()`
-    /// đọc lại từ đây để gọi `.cancel()` mà không cần Angular tự sinh/quản
-    /// một id nào (pipeline hiện tại chạy TUẦN TỰ, không bao giờ có 2 lần
-    /// upload video chồng nhau — SPIKE-10 M5 "huỷ dừng lưu lượng ≤ 3s" chỉ
-    /// cần đúng MỘT cờ sống tại một thời điểm). `None` khi không có upload
-    /// video nào đang chạy — `cancel_upload()` gọi lúc đó là no-op an toàn.
-    pub active_cancel: tokio::sync::Mutex<Option<CancelFlag>>,
+    /// Cờ huỷ của lần `upload_video()` ĐANG chạy, nếu có, kèm `task_id` (UUID
+    /// Angular sinh — ADR-0018) của chính task đó. Pipeline hiện tại chạy
+    /// TUẦN TỰ, không bao giờ có 2 lần upload video chồng nhau (SPIKE-10 M5
+    /// "huỷ dừng lưu lượng ≤ 3s" chỉ cần đúng MỘT cờ sống tại một thời điểm)
+    /// — nên KHÔNG cần map/registry đa tác vụ, chỉ một slot. `task_id` đi kèm
+    /// để `cancel_upload(task_id)` so khớp trước khi `.cancel()`: nếu
+    /// `task_id` không khớp (task đã xong, hoặc lệnh huỷ trễ tới đúng lúc
+    /// giao ca sang file kế tiếp trong queue) thì no-op — tránh huỷ NHẦM file
+    /// kế tiếp, một race có thật khi `cancel_upload()` cũ không nhận tham số.
+    /// `None` khi không có upload video nào đang chạy.
+    pub active_cancel: tokio::sync::Mutex<Option<(String, CancelFlag)>>,
+    /// Snapshot task đang chạy — đọc bằng `get_current_task()` để hydrate UI
+    /// khi `WorkspaceComponent` remount (ADR-0018 mục 5). `std::sync::Mutex`
+    /// (KHÔNG phải `tokio::sync::Mutex`) có chủ đích: ghi vào đây xảy ra từ
+    /// CẢ closure đồng bộ trong `spawn_blocking` (`pipeline.rs::emit_stage`)
+    /// LẪN closure bất đồng bộ chạy trên Tokio runtime
+    /// (`upload.rs::on_progress`, gọi từ trong `async fn upload_video()` của
+    /// `ingest-grammers`) — `tokio::sync::Mutex::blocking_lock()` PANIC nếu
+    /// gọi từ ngữ cảnh async, nên không dùng được ở cả hai nơi bằng MỘT kiểu
+    /// khoá. Giữ tay khoá trong thời gian NGẮN, không bao giờ `.await` khi
+    /// đang giữ, nên `std::sync::Mutex` an toàn ở cả hai ngữ cảnh.
+    pub current_task: std::sync::Mutex<Option<CurrentTaskDto>>,
 }

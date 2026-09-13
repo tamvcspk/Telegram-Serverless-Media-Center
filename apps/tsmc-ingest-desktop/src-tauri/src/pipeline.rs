@@ -15,12 +15,22 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
-use crate::dto::{IngestRpcErrorDto, PipelineStageDto, PreparedSubtitleDto, PreparedUploadDto, ProbeResultDto, RemuxModeDto, SubtitleTrackDto};
+use crate::dto::{CurrentTaskDto, IngestRpcErrorDto, PipelineStageDto, PreparedSubtitleDto, PreparedUploadDto, ProbeResultDto, RemuxModeDto, SubtitleTrackDto};
+use crate::state::AppState;
 
-fn emit_stage(app: &AppHandle, path: &str, stage: &str) {
-    let _ = app.emit("pipeline-stage", PipelineStageDto { path: path.to_string(), stage: stage.to_string() });
+/// Bắn `"pipeline-stage"` VÀ cập nhật `AppState.current_task` (ADR-0018 mục
+/// 5) — hai việc luôn đi cùng nhau vì cùng một nguồn sự thật (stage hiện
+/// tại của task). Gọi được từ closure ĐỒNG BỘ trong `spawn_blocking` (chỗ
+/// duy nhất `emit_stage` được gọi hiện tại) vì `AppState.current_task` là
+/// `std::sync::Mutex`, không phải `tokio::sync::Mutex` (xem doc comment ở
+/// `state.rs`).
+fn emit_stage(app: &AppHandle, task_id: &str, path: &str, stage: &str) {
+    if let Ok(mut current) = app.state::<AppState>().current_task.lock() {
+        *current = Some(CurrentTaskDto { task_id: task_id.to_string(), path: path.to_string(), stage: stage.to_string(), bytes_sent: None, total_bytes: None });
+    }
+    let _ = app.emit("pipeline-stage", PipelineStageDto { task_id: task_id.to_string(), path: path.to_string(), stage: stage.to_string() });
 }
 
 fn unique_suffix() -> String {
@@ -31,7 +41,7 @@ fn unique_suffix() -> String {
 }
 
 #[tauri::command]
-pub async fn prepare_upload(app: AppHandle, input_path: String, mode: RemuxModeDto, subtitle_tracks: Vec<SubtitleTrackDto>) -> Result<PreparedUploadDto, IngestRpcErrorDto> {
+pub async fn prepare_upload(app: AppHandle, task_id: String, input_path: String, mode: RemuxModeDto, subtitle_tracks: Vec<SubtitleTrackDto>) -> Result<PreparedUploadDto, IngestRpcErrorDto> {
     // Native FFI của ffmpeg-next chạy IN-PROCESS, CPU-bound (remux/decode) —
     // `spawn_blocking` để không giữ một worker thread Tokio async bận chờ
     // suốt quá trình đó (KHÔNG phải để né rủi ro segfault đã ghi ở ADR-0013 §
@@ -40,18 +50,18 @@ pub async fn prepare_upload(app: AppHandle, input_path: String, mode: RemuxModeD
     // đó, kể cả nhánh `ReencodeAll` (Hạng D) mới thêm — LẦN ĐẦU crate này gọi
     // `avcodec_send_frame()` cho VIDEO, cùng lớp rủi ro đã gặp thật ở audio
     // lúc SPIKE-09, xem doc comment `ingest-ffmpeg/src/reencode.rs`).
-    tokio::task::spawn_blocking(move || prepare_upload_blocking(&app, &input_path, mode, &subtitle_tracks))
+    tokio::task::spawn_blocking(move || prepare_upload_blocking(&app, &task_id, &input_path, mode, &subtitle_tracks))
         .await
         .map_err(|e| IngestRpcErrorDto::other(format!("tác vụ chuẩn bị upload panic: {e}")))?
 }
 
-fn prepare_upload_blocking(app: &AppHandle, input_path: &str, mode: RemuxModeDto, subtitle_tracks: &[SubtitleTrackDto]) -> Result<PreparedUploadDto, IngestRpcErrorDto> {
+fn prepare_upload_blocking(app: &AppHandle, task_id: &str, input_path: &str, mode: RemuxModeDto, subtitle_tracks: &[SubtitleTrackDto]) -> Result<PreparedUploadDto, IngestRpcErrorDto> {
     let temp_dir = std::env::temp_dir().join(format!("tsmc-ingest-desktop-{}", unique_suffix()));
     std::fs::create_dir_all(&temp_dir).map_err(|e| IngestRpcErrorDto::other(e.to_string()))?;
 
     let stem = std::path::Path::new(input_path).file_stem().and_then(|s| s.to_str()).unwrap_or("item");
 
-    emit_stage(app, input_path, if matches!(mode, RemuxModeDto::ReencodeAll) { "reencoding" } else { "remuxing" });
+    emit_stage(app, task_id, input_path, if matches!(mode, RemuxModeDto::ReencodeAll) { "reencoding" } else { "remuxing" });
     let remuxed_path = temp_dir.join(format!("{stem}.mp4"));
     let remuxed_path_str = remuxed_path.to_string_lossy().into_owned();
     match mode {
@@ -63,7 +73,7 @@ fn prepare_upload_blocking(app: &AppHandle, input_path: &str, mode: RemuxModeDto
 
     let final_probe = ingest_ffmpeg::probe(&remuxed_path_str).map_err(|e| IngestRpcErrorDto::other(format!("probe lại sau remux lỗi: {e}")))?;
 
-    emit_stage(app, input_path, "generating_thumbnail");
+    emit_stage(app, task_id, input_path, "generating_thumbnail");
     let seek_secs = (final_probe.duration_sec / 2.0).floor().max(1.0);
     let thumbnail_path = temp_dir.join("thumb.jpg");
     let thumbnail_path_str = thumbnail_path.to_string_lossy().into_owned();
@@ -71,7 +81,7 @@ fn prepare_upload_blocking(app: &AppHandle, input_path: &str, mode: RemuxModeDto
 
     let mut subtitles = Vec::new();
     if !subtitle_tracks.is_empty() {
-        emit_stage(app, input_path, "extracting_subtitles");
+        emit_stage(app, task_id, input_path, "extracting_subtitles");
         for track in subtitle_tracks {
             let sub_path = temp_dir.join(format!("sub-{}.srt", track.index));
             let sub_path_str = sub_path.to_string_lossy().into_owned();

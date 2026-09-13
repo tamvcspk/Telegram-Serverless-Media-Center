@@ -1,0 +1,13 @@
+<h2 mat-dialog-title>Nhập TMDB API Key</h2>
+<mat-dialog-content>
+  <p>Cần API Key của TMDB (The Movie Database) để tra cứu Title/Năm tự động. Key được lưu trên máy này, không gửi đi đâu khác ngoài TMDB.</p>
+  <p><a [href]="data.helpUrl" target="_blank" rel="noopener">Lấy API Key miễn phí tại đây</a></p>
+  <mat-form-field appearance="outline" class="key-field">
+    <mat-label>API Key</mat-label>
+    <input matInput type="text" [value]="apiKey()" (input)="apiKey.set($any($event.target).value)" autocomplete="off" spellcheck="false" />
+  </mat-form-field>
+</mat-dialog-content>
+<mat-dialog-actions align="end">
+  <button mat-button type="button" (click)="onCancel()">Huỷ</button>
+  <button mat-flat-button type="button" color="primary" [disabled]="apiKey().trim().length === 0" (click)="onSave()">Lưu</button>
+</mat-dialog-actions>

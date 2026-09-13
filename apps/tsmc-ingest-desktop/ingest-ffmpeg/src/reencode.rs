@@ -6,12 +6,31 @@
 //!
 //! Khung video: port gần nguyên văn ví dụ CHÍNH THỨC của `ffmpeg-next`
 //! (`examples/transcode-x264.rs` trong crate — decode → `send_frame`/
-//! `receive_packet` qua `libx264`, `preset=medium` khớp
-//! `apps/tsmc-ingest/src/ffmpeg.ts::reencodeToMp4()`). Khung audio: giữ
+//! `receive_packet` qua encoder tìm bằng `codec::Id::H264`, `preset=medium`
+//! khớp `apps/tsmc-ingest/src/ffmpeg.ts::reencodeToMp4()`). Khung audio: giữ
 //! NGUYÊN cách dựng encoder AAC + filter graph `anull` đã verify thật ở
 //! `remux.rs`/SPIKE-09 (không refactor dùng chung để tránh rủi ro đổi hành vi
 //! ở một chỗ đã chứng minh chạy đúng — hai file trùng lặp một đoạn ngắn, có
 //! chủ đích).
+//!
+//! **Phát hiện thật (2026-09-13, lúc đóng gói + trả lời câu hỏi giấy phép
+//! Đ2 SPIKE-10) — encoder H264 THẬT KHÔNG PHẢI `libx264`:** ví dụ gốc của
+//! `ffmpeg-next` giả định build có `libx264`, nhưng `encoder::find(codec::
+//! Id::H264)` chỉ tìm "một encoder H264 nào đó đã đăng ký", không ép cứng
+//! tên. Build FFmpeg thật của app này (vcpkg `ffmpeg:x64-windows`, xem
+//! `tools/spike-09/README.md`) build với `--disable-libx264` (đọc trực tiếp
+//! từ configure string nhúng trong `avcodec-61.dll`) — verify bằng
+//! `cargo run --example check_h264_encoder -p ingest-ffmpeg` xác nhận encoder
+//! THẬT ĐANG DÙNG là `h264_mf` ("H264 via MediaFoundation", codec của
+//! Windows, không phải FFmpeg). Hệ quả: (1) TIN TỐT cho Đ2 — không có GPL
+//! (x264) nào bị kéo vào bản phân phối, giữ đúng LGPL như `share/ffmpeg/
+//! copyright` của vcpkg ghi, xem addendum ADR-0013; (2) `x264_opts.set(
+//! "preset", "medium")` bên dưới là AVOption CỦA `libx264`, `h264_mf` không
+//! hiểu — gần như chắc chắn bị bỏ qua thầm lặng (không lỗi, vì `open_with()`
+//! không strict-check option lạ), encode vẫn chạy đúng bằng tham số MẶC
+//! ĐỊNH của `h264_mf`, không phải preset developer định chọn. Chưa sửa —
+//! để nguyên, ghi lại đúng sự thật thay vì sửa hành vi một pipeline đã
+//! verify chạy đúng trên tài khoản thật mà không hỏi trước.
 //!
 //! **Rủi ro đã ghi ở ADR-0013 § addendum 2026-09-03 áp dụng NGUYÊN VẸN ở
 //! đây, khác `remux()`/`extract_thumbnail()`/`extract_subtitles()`:** đây là
@@ -93,6 +112,10 @@ pub fn reencode_to_mp4(input_path: &str, output_path: &str) -> Result<(), ffmpeg
     if global_header {
         video_enc_ctx.set_flags(codec::flag::Flags::GLOBAL_HEADER);
     }
+    // Tên biến/option `preset` giữ nguyên theo ví dụ gốc `ffmpeg-next` — build
+    // FFmpeg thật của app này KHÔNG có `libx264` (xem doc comment đầu file),
+    // option này gần như chắc chắn bị `h264_mf` bỏ qua thầm lặng, không phải
+    // đang thật sự áp dụng preset x264 nào.
     let mut x264_opts = ffmpeg::Dictionary::new();
     x264_opts.set("preset", "medium");
     let mut video_encoder = video_enc_ctx.open_with(x264_opts)?;

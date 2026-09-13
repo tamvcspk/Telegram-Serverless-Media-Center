@@ -1,7 +1,15 @@
 import { Injectable, inject } from '@angular/core';
 import { MatDialog } from '@angular/material/dialog';
 import { firstValueFrom } from 'rxjs';
+import type { TmdbKind, TmdbSearchResultDto } from '../../core/ingest-rpc.types';
 import { ConfirmDialog, type ConfirmDialogData } from './confirm-dialog';
+import { GradeDDialog, type GradeDDialogItem } from './grade-d-dialog';
+import { TmdbKeyDialog, type TmdbKeyDialogData } from './tmdb-key-dialog';
+import { TmdbSearchDialog, type TmdbSearchDialogData } from './tmdb-search-dialog';
+
+/** Trang TMDB nơi tự đăng ký lấy API Key miễn phí — hardcode ở đây (không
+ * phải trong component dialog) để chỉ một chỗ cần sửa nếu TMDB đổi URL. */
+const TMDB_API_KEY_HELP_URL = 'https://www.themoviedb.org/settings/api';
 
 export type AlertOptions = Omit<ConfirmDialogData, 'mode' | 'cancelText'>;
 export type ConfirmOptions = Omit<ConfirmDialogData, 'mode'>;
@@ -38,5 +46,44 @@ export class DialogService {
     });
     const result = await firstValueFrom(ref.afterClosed());
     return result === true;
+  }
+
+  /** Xác nhận re-encode Hạng D cho CẢ BATCH trong một dialog, toggle riêng
+   * từng file (ADR-0018 § "Quyết định kèm theo") — thay hỏi từng file một
+   * dialog riêng. Trả về tập `path` các file VẪN được chọn chạy; đóng dialog
+   * bằng cách khác (Esc/bấm ra ngoài) → tập RỖNG (không file nào chạy, cùng
+   * nguyên tắc "đóng không phải xác nhận = từ chối" của `confirm()`). */
+  async confirmGradeD(items: GradeDDialogItem[]): Promise<ReadonlySet<string>> {
+    const ref = this.dialog.open<GradeDDialog, { items: GradeDDialogItem[] }, string[]>(GradeDDialog, {
+      data: { items },
+      width: '30rem'
+    });
+    const result = await firstValueFrom(ref.afterClosed());
+    return new Set(result ?? []);
+  }
+
+  /** Hiện dialog nhập TMDB API Key (ADR-0019 mục 2) — gọi khi
+   * `tmdbHasKey()` trả `false`. Trả về key đã nhập (chưa lưu — caller tự
+   * gọi `tmdbSaveKey()`), hoặc `null` nếu admin huỷ. */
+  async promptTmdbApiKey(): Promise<string | null> {
+    const ref = this.dialog.open<TmdbKeyDialog, TmdbKeyDialogData, string>(TmdbKeyDialog, {
+      data: { helpUrl: TMDB_API_KEY_HELP_URL },
+      width: '26rem'
+    });
+    const result = await firstValueFrom(ref.afterClosed());
+    return result ?? null;
+  }
+
+  /** Hiện dialog tìm TMDB (ADR-0019 mục 3/4) — `initialQuery` thường là
+   * `item.metadata.title` đã seed sẵn từ filename, admin sửa lại được trong
+   * dialog. Trả về kết quả admin CHỌN, hoặc `null` nếu đóng mà không chọn
+   * gì (cùng nguyên tắc "đóng không phải xác nhận = từ chối"). */
+  async searchTmdb(initialQuery: string, kind: TmdbKind): Promise<TmdbSearchResultDto | null> {
+    const ref = this.dialog.open<TmdbSearchDialog, TmdbSearchDialogData, TmdbSearchResultDto>(TmdbSearchDialog, {
+      data: { initialQuery, kind },
+      width: '28rem'
+    });
+    const result = await firstValueFrom(ref.afterClosed());
+    return result ?? null;
   }
 }

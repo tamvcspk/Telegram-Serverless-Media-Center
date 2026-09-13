@@ -22,10 +22,13 @@ import {
   seedMetadataFromFilename
 } from '@tsmc/core-ingest';
 import type { CatalogItemV1 } from '@tsmc/shared-models';
+import { DraftStore, type QueueItem } from '../core/draft-store';
 import {
   cancelUpload,
   cleanupTempDir,
+  clearCurrentTask,
   describeIngestError,
+  getCurrentTask,
   listDirEntries,
   listMediaFiles,
   onPipelineStage,
@@ -34,25 +37,19 @@ import {
   probeMedia,
   publishCatalog,
   readPinnedCatalog,
+  tmdbHasKey,
+  tmdbSaveKey,
   toIngestRpcError,
   toProbeResult,
   uploadSubtitle,
   uploadVideo
 } from '../core/ingest-rpc';
 import type { PreparedUploadDto, RemuxModeDto } from '../core/ingest-rpc.types';
+import { QueueStore, type UploadQueueItem, type UploadStage } from '../core/queue-store';
 import { SelectedChannelStore } from '../core/selected-channel';
 import { DialogService } from '../shared/dialog/dialog.service';
 
-type QueueItemStatus = 'probing' | 'ready' | 'error';
 type FillDownField = 'title' | 'season' | 'year';
-
-/** Stage của MỘT item trong hàng đợi upload — bốn cái đầu do sự kiện
- * `"pipeline-stage"` (Rust, cục bộ) báo, hai cái sau do chính `processItem()`
- * set khi gọi RPC MTProto thật. `reencoding` chỉ xảy ra với Hạng D (`mode:
- * 'reencode_all'`) — ĐẮT hơn hẳn `remuxing`, xem `reencode.rs`. `queued` là
- * trạng thái tức thời ngay lúc vừa đẩy từ bảng metadata sang, trước khi
- * `processItem()` kịp set stage đầu tiên. */
-type UploadStage = 'queued' | 'remuxing' | 'reencoding' | 'generating_thumbnail' | 'extracting_subtitles' | 'uploading_video' | 'uploading_subtitles' | 'done' | 'error';
 
 const UPLOAD_STAGE_LABEL: Record<UploadStage, string> = {
   queued: 'Trong hàng đợi…',
@@ -72,53 +69,6 @@ const UPLOAD_STAGE_LABEL: Record<UploadStage, string> = {
  * `apps/tsmc-ingest/src/ffmpeg.ts::IMAGE_SUBTITLE_CODECS` — hai app tách
  * runtime hoàn toàn, không có lib UI dùng chung (ADR-0017). */
 const IMAGE_SUBTITLE_CODECS = new Set(['hdmv_pgs_subtitle', 'pgssub', 'dvd_subtitle', 'dvdsub']);
-
-/** Dòng trong BẢNG METADATA (cột phải) — file CHƯA bắt đầu upload, còn sửa
- * được. Biến mất khỏi đây (chuyển sang `UploadQueueItem`) ngay khi
- * `startUpload()` đẩy nó vào hàng đợi — bảng này KHÔNG còn giữ trạng thái
- * upload nào (tách bạch với `UploadQueueItem`, xem doc comment class). */
-interface QueueItem {
-  path: string;
-  name: string;
-  status: QueueItemStatus;
-  rank?: CompatRank;
-  reasons?: string[];
-  errorMessage?: string;
-  /** Từ `ProbeResultDto.duration_sec` — dùng để ước tính thời gian re-encode
-   * lúc hỏi xác nhận Hạng D (mockup A.2 mục 1: "cảnh báo Hạng D bằng số phút
-   * cụ thể"), khớp công thức `apps/tsmc-ingest/src/commands/upload.ts`:
-   * `Math.max(1, Math.ceil(durationSec / 60))`. */
-  durationSec?: number;
-  /** `msgId: 0` placeholder — chưa có gì để gán, item chưa upload (ADR-0013
-   * mẫu `apps/tsmc-ingest/src/commands/upload.ts::resolveMetadataForFile()`
-   * cũng seed bằng 0 rồi ghi đè SAU khi upload xong, msgId thật chỉ Telegram
-   * mới cấp được). */
-  metadata: CatalogItemV1;
-  /** Mặc định `true`, TRỪ khi probe xong ra Hạng D (mockup A.5 "File Hạng D:
-   * mặc định bỏ chọn") — dùng cho thao tác hàng loạt (điền xuống/đánh
-   * số/xoá) VÀ để chọn item nào tham gia "Upload". */
-  selected: boolean;
-}
-
-/** Dòng trong HÀNG ĐỢI UPLOAD (sidebar trái) — file ĐÃ bấm "Upload", không
- * còn sửa metadata được nữa. Mang theo `rank`/`metadata`/`durationSec` từ
- * `QueueItem` gốc (snapshot tại thời điểm đẩy vào hàng đợi — `processItem()`
- * cần chúng để build `CatalogItemV1` cuối cùng, không có cách nào đọc lại từ
- * bảng metadata vì dòng đó đã bị xoá khỏi đó). */
-interface UploadQueueItem {
-  path: string;
-  name: string;
-  rank: CompatRank;
-  metadata: CatalogItemV1;
-  durationSec?: number;
-  stage: UploadStage;
-  progress?: { bytesSent: number; totalBytes: number };
-  error?: string;
-  /** Đếm ngược `FLOOD_WAIT` (giây còn lại) — ĐỘC LẬP với `stage` (mockup A.5:
-   * hàng đợi tạm dừng, đếm ngược hiện rõ, TỰ chạy tiếp — không phải một stage
-   * riêng, chỉ là một lớp phủ lên stage hiện tại). */
-  floodWaitSeconds?: number;
-}
 
 function basename(path: string): string {
   const normalized = path.replace(/\\/g, '/');
@@ -192,9 +142,23 @@ export class Workspace implements OnInit {
   private readonly router = inject(Router);
   private readonly dialogService = inject(DialogService);
   protected readonly selectedChannelStore = inject(SelectedChannelStore);
+  private readonly draftStore = inject(DraftStore);
+  private readonly queueStore = inject(QueueStore);
 
-  protected readonly queue = signal<QueueItem[]>([]);
-  protected readonly uploadQueue = signal<UploadQueueItem[]>([]);
+  // Alias TRỎ THẲNG vào signal của store root-provided (ADR-0018 mục 6),
+  // KHÔNG phải bản sao — `.set()`/`.update()` gọi qua các tên cũ này vẫn ghi
+  // đúng vào store dùng chung, giữ nguyên toàn bộ code bên dưới không đổi.
+  // Lý do tách store: một batch `startUpload()` là async/await JS thuần,
+  // tiếp tục chạy NGẦM dù router huỷ component này khi điều hướng sang Chọn
+  // kênh — cần signal sống ngoài vòng đời component để không "mất dấu" khi
+  // remount (xem doc comment `QueueStore`).
+  protected readonly queue = this.draftStore.items;
+  protected readonly uploadQueue = this.queueStore.items;
+  protected readonly uploading = this.queueStore.uploading;
+  protected readonly currentUploadTaskId = this.queueStore.currentTaskId;
+  protected readonly batchTotal = this.queueStore.batchTotal;
+  protected readonly batchDone = this.queueStore.batchDone;
+
   protected readonly dragOver = signal(false);
   protected readonly searchText = signal('');
 
@@ -202,13 +166,9 @@ export class Workspace implements OnInit {
   protected readonly allSelected = computed(() => this.queue().length > 0 && this.queue().every((item) => item.selected));
 
   /** Item ĐỦ ĐIỀU KIỆN "Upload": đã chọn, probe xong — bao gồm CẢ Hạng D
-   * (re-encode, hỏi xác nhận riêng từng file trong `startUpload()`). */
+   * (re-encode, hỏi xác nhận MỘT LẦN cho cả batch trong `startUpload()`). */
   protected readonly uploadableItems = computed(() => this.queue().filter((item) => item.selected && item.status === 'ready' && item.rank !== undefined));
 
-  protected readonly uploading = signal(false);
-  protected readonly currentUploadPath = signal<string | null>(null);
-  protected readonly batchTotal = signal(0);
-  protected readonly batchDone = signal(0);
   protected readonly publishing = signal(false);
   protected readonly publishFloodWaitSeconds = signal<number | null>(null);
   protected readonly publishError = signal<string | null>(null);
@@ -261,18 +221,41 @@ export class Workspace implements OnInit {
       })
       .then((unlisten) => this.destroyRef.onDestroy(unlisten));
 
-    // `path` là correlation id (CLAUDE.md) — chỉ cập nhật ĐÚNG dòng sự kiện
-    // báo, không giả định "luôn là item đang upload hiện tại" dù pipeline
-    // tuần tự không có 2 upload chồng nhau lúc này. Cả hai sự kiện đều nhắm
-    // vào `uploadQueue` — bảng metadata (`queue`) không còn giữ trạng thái
-    // upload nào từ slice này.
-    void onUploadProgress((p) => {
-      this.updateQueueItem(p.path, { progress: { bytesSent: p.bytes_sent, totalBytes: p.total_bytes } });
-    }).then((unlisten) => this.destroyRef.onDestroy(unlisten));
+    void this.attachUploadListenersAndHydrate();
+  }
 
-    void onPipelineStage((p) => {
-      this.updateQueueItem(p.path, { stage: p.stage });
-    }).then((unlisten) => this.destroyRef.onDestroy(unlisten));
+  /** Đăng ký listener `"upload-progress"`/`"pipeline-stage"` rồi MỚI gọi
+   * `getCurrentTask()` — thứ tự bắt buộc (ADR-0018 mục 5): đăng ký trước để
+   * không lọt mất event phát ra đúng lúc đang chờ response của lệnh hydrate.
+   * Cần thiết dù `QueueStore` đã root-provided (sống xuyên route): trong lúc
+   * `WorkspaceComponent` bị router huỷ (điều hướng sang Chọn kênh), CHÍNH
+   * listener này cũng bị `destroyRef.onDestroy()` gỡ theo — batch vẫn chạy
+   * ngầm phía Rust/JS, nhưng event phát ra trong khoảng đó KHÔNG có ai nghe,
+   * nên state cuối trong `QueueStore` có thể cũ hơn thực tế. `getCurrentTask()`
+   * đọc lại ĐÚNG snapshot Rust để vá khoảng hở đó ngay khi remount. */
+  private async attachUploadListenersAndHydrate(): Promise<void> {
+    // `task_id` là correlation id (ADR-0018) — chỉ cập nhật ĐÚNG dòng sự
+    // kiện báo, không giả định "luôn là item đang upload hiện tại" dù
+    // pipeline tuần tự không có 2 upload chồng nhau lúc này. Cả hai sự kiện
+    // đều nhắm vào `uploadQueue` — bảng metadata (`queue`) không còn giữ
+    // trạng thái upload nào từ slice này.
+    const unlistenProgress = await onUploadProgress((p) => {
+      this.updateQueueItem(p.task_id, { progress: { bytesSent: p.bytes_sent, totalBytes: p.total_bytes } });
+    });
+    this.destroyRef.onDestroy(unlistenProgress);
+
+    const unlistenStage = await onPipelineStage((p) => {
+      this.updateQueueItem(p.task_id, { stage: p.stage });
+    });
+    this.destroyRef.onDestroy(unlistenStage);
+
+    const snapshot = await getCurrentTask();
+    if (snapshot) {
+      this.updateQueueItem(snapshot.task_id, {
+        stage: snapshot.stage as UploadStage,
+        progress: snapshot.bytes_sent !== null && snapshot.total_bytes !== null ? { bytesSent: snapshot.bytes_sent, totalBytes: snapshot.total_bytes } : undefined
+      });
+    }
   }
 
   private async addPaths(paths: string[]): Promise<void> {
@@ -339,8 +322,8 @@ export class Workspace implements OnInit {
     this.queue.update((items) => items.map((item) => (item.path === path ? { ...item, metadata: fn(item.metadata) } : item)));
   }
 
-  private updateQueueItem(path: string, patch: Partial<UploadQueueItem>): void {
-    this.uploadQueue.update((items) => items.map((item) => (item.path === path ? { ...item, ...patch } : item)));
+  private updateQueueItem(taskId: string, patch: Partial<UploadQueueItem>): void {
+    this.uploadQueue.update((items) => items.map((item) => (item.taskId === taskId ? { ...item, ...patch } : item)));
   }
 
   protected onRemove(path: string): void {
@@ -350,8 +333,8 @@ export class Workspace implements OnInit {
   /** Bỏ MỘT dòng đã xong/lỗi khỏi hàng đợi (dọn bớt) — KHÔNG cho bỏ dòng
    * đang xử lý dở (template chỉ hiện nút này cho `stage === 'done' | 'error'`,
    * xem `workspace.html`). */
-  protected dismissQueueItem(path: string): void {
-    this.uploadQueue.update((items) => items.filter((item) => item.path !== path));
+  protected dismissQueueItem(taskId: string): void {
+    this.uploadQueue.update((items) => items.filter((item) => item.taskId !== taskId));
   }
 
   protected onSearchInput(value: string): void {
@@ -369,6 +352,10 @@ export class Workspace implements OnInit {
 
   protected trackByPath(_index: number, item: { path: string }): string {
     return item.path;
+  }
+
+  protected trackByTaskId(_index: number, item: { taskId: string }): string {
+    return item.taskId;
   }
 
   protected rankLabel(rank: CompatRank | undefined): string {
@@ -411,6 +398,29 @@ export class Workspace implements OnInit {
   protected onEpisodeInput(path: string, rawValue: string): void {
     const episode = parseOptionalInt(rawValue);
     this.updateMetadata(path, (m) => ({ ...m, kind: 'episode', series: { name: m.series?.name ?? m.title ?? '', season: m.series?.season, episode } }));
+  }
+
+  /** "Tra TMDB" (ADR-0019) — nếu chưa có API key lưu sẵn, hỏi nhập TRƯỚC
+   * (opt-in tự nhiên, không cần màn Settings); tìm bằng `item.metadata.title`
+   * đã seed sẵn (admin sửa lại được trong dialog); chỉ điền `title`/`year`
+   * khi admin BẤM CHỌN một kết quả cụ thể — không có "tự động điền kết quả
+   * đầu tiên" (đúng nguyên tắc `inheritMetadata()` đã áp dụng: gợi ý, không
+   * tự chốt). `metaSource: 'manual'` vì admin tự tay xác nhận (không thêm
+   * `'tmdb'` vào enum — xem ADR-0019 § "Đánh đổi chấp nhận"). */
+  protected async onTmdbLookup(item: QueueItem): Promise<void> {
+    if (!(await tmdbHasKey())) {
+      const key = await this.dialogService.promptTmdbApiKey();
+      if (!key) {
+        return;
+      }
+      await tmdbSaveKey(key);
+    }
+
+    const picked = await this.dialogService.searchTmdb(item.metadata.title ?? item.name, item.metadata.kind === 'episode' ? 'episode' : 'movie');
+    if (!picked) {
+      return;
+    }
+    this.updateMetadata(item.path, (m) => ({ ...m, title: picked.title, year: picked.year ?? m.year, metaSource: 'manual' }));
   }
 
   // --- Bảng metadata: thao tác hàng loạt trên các dòng đã chọn ---
@@ -556,7 +566,10 @@ export class Workspace implements OnInit {
    * còn lại — KHÔNG dừng cả batch, cùng triết lý "một file lỗi không chặn
    * batch" của bước probe). */
   protected onCancelCurrentUpload(): void {
-    void cancelUpload();
+    const taskId = this.currentUploadTaskId();
+    if (taskId) {
+      void cancelUpload(taskId);
+    }
   }
 
   protected async startUpload(): Promise<void> {
@@ -569,6 +582,20 @@ export class Workspace implements OnInit {
       return;
     }
 
+    // Hạng D — re-encode video THẬT, đắt hơn hẳn remux. MỘT dialog tổng hợp
+    // cho CẢ BATCH, toggle riêng từng file (mặc định checked) — thay bản
+    // trước hỏi TỪNG FILE một dialog riêng (ADR-0018 § "Quyết định kèm
+    // theo": giữ quyền kiểm soát hạt nhân, không ép all-or-nothing). File bị
+    // bỏ tick vẫn ở lại Draft, không vào hàng đợi, batch vẫn chạy tiếp cho
+    // các file còn lại.
+    const gradeDCandidates = candidates.filter((c) => c.rank === 'D');
+    const confirmedGradeD =
+      gradeDCandidates.length > 0
+        ? await this.dialogService.confirmGradeD(
+            gradeDCandidates.map((c) => ({ path: c.path, name: c.name, estimateMin: Math.max(1, Math.ceil((c.durationSec ?? 0) / 60)) }))
+          )
+        : undefined;
+
     this.uploading.set(true);
     this.publishError.set(null);
     this.publishResult.set(null);
@@ -577,44 +604,38 @@ export class Workspace implements OnInit {
 
     const newItems: CatalogItemV1[] = [];
     for (const staged of candidates) {
-      // Hạng D — re-encode video THẬT, đắt hơn hẳn remux (mockup A.2 mục 1:
-      // "re-encode video luôn phải hỏi", kèm số phút ước tính cụ thể, không
-      // phải chữ "đắt" mơ hồ). Hỏi TỪNG FILE (khớp CLI), không phải một lần
-      // cho cả batch — từ chối thì BỎ QUA đúng file đó (giữ nguyên trong
-      // bảng metadata, không vào hàng đợi), batch vẫn chạy tiếp.
-      if (staged.rank === 'D') {
-        const estimateMin = Math.max(1, Math.ceil((staged.durationSec ?? 0) / 60));
-        const proceed = await this.dialogService.confirm({
-          title: 'Re-encode video Hạng D?',
-          message: `"${staged.name}" cần re-encode video (đắt — không phải remux). Nội dung ~${estimateMin} phút. Tiếp tục?`,
-          confirmText: 'Tiếp tục',
-          cancelText: 'Bỏ qua',
-          tone: 'warn'
-        });
-        if (!proceed) {
-          this.batchDone.update((n) => n + 1);
-          continue;
-        }
+      if (staged.rank === 'D' && !confirmedGradeD?.has(staged.path)) {
+        this.batchDone.update((n) => n + 1);
+        continue;
       }
 
       // Đẩy từ bảng metadata SANG hàng đợi — bảng chính trống chỗ ngay cho
       // dòng này, đúng yêu cầu "bảng chính được làm trống để đón file mới".
+      // `taskId` sinh Ở ĐÂY (UUID, ADR-0018) — item vừa vào hàng đợi mới cần
+      // correlation id, bảng Draft (`queue`) không bao giờ nhận event Rust
+      // nên không cần id trước thời điểm này.
       this.queue.update((items) => items.filter((i) => i.path !== staged.path));
-      const queued: UploadQueueItem = { path: staged.path, name: staged.name, rank: staged.rank as CompatRank, metadata: staged.metadata, durationSec: staged.durationSec, stage: 'queued' };
+      const taskId = crypto.randomUUID();
+      const queued: UploadQueueItem = { taskId, path: staged.path, name: staged.name, rank: staged.rank as CompatRank, metadata: staged.metadata, durationSec: staged.durationSec, stage: 'queued' };
       this.uploadQueue.update((items) => [...items, queued]);
 
-      this.currentUploadPath.set(staged.path);
+      this.currentUploadTaskId.set(taskId);
       try {
         const finalMetadata = await this.processItem(queued);
         newItems.push(finalMetadata);
-        this.updateQueueItem(staged.path, { stage: 'done' });
+        this.updateQueueItem(taskId, { stage: 'done' });
       } catch (err) {
         const message = describeIngestError(toIngestRpcError(err));
-        this.updateQueueItem(staged.path, { stage: 'error', error: message, floodWaitSeconds: undefined });
+        this.updateQueueItem(taskId, { stage: 'error', error: message, floodWaitSeconds: undefined });
       }
+      // Xoá snapshot Rust CỦA ĐÚNG task này (ADR-0018 mục 5) — item đã thật
+      // sự xong (thành công/lỗi), không còn gì để hydrate nếu remount sau
+      // đây. Gọi SAU KHI cập nhật `uploadQueue` ở trên, không phải bên trong
+      // `upload_video()` (Rust) vì item còn qua bước upload phụ đề sau đó.
+      void clearCurrentTask(taskId);
       this.batchDone.update((n) => n + 1);
     }
-    this.currentUploadPath.set(null);
+    this.currentUploadTaskId.set(null);
 
     if (newItems.length > 0) {
       this.publishing.set(true);
@@ -645,20 +666,21 @@ export class Workspace implements OnInit {
       .filter((s) => !IMAGE_SUBTITLE_CODECS.has(s.codec.toLowerCase()))
       .map((s) => ({ index: s.index, lang: s.lang }));
 
-    this.updateQueueItem(item.path, { stage: mode === 'reencode_all' ? 'reencoding' : 'remuxing' });
-    const prepared: PreparedUploadDto = await prepareUpload(item.path, mode, subtitleTracks);
+    this.updateQueueItem(item.taskId, { stage: mode === 'reencode_all' ? 'reencoding' : 'remuxing' });
+    const prepared: PreparedUploadDto = await prepareUpload(item.taskId, item.path, mode, subtitleTracks);
 
     try {
-      this.updateQueueItem(item.path, { stage: 'uploading_video', progress: undefined });
+      this.updateQueueItem(item.taskId, { stage: 'uploading_video', progress: undefined });
       const compat = deriveCompat(
         prepared.final_probe.video ?? undefined,
         prepared.final_probe.audio.map((a) => ({ codec: a.codec, lang: a.lang ?? undefined, index: a.index }))
       );
 
       const uploaded = await this.withFloodWaitRetry(
-        (s) => this.updateQueueItem(item.path, { floodWaitSeconds: s ?? undefined }),
+        (s) => this.updateQueueItem(item.taskId, { floodWaitSeconds: s ?? undefined }),
         () =>
           uploadVideo({
+            taskId: item.taskId,
             filePath: prepared.remuxed_path,
             fileName: `${stripExt(item.path)}.mp4`,
             width: prepared.final_probe.video?.width ?? 0,
@@ -669,7 +691,7 @@ export class Workspace implements OnInit {
           })
       );
 
-      this.updateQueueItem(item.path, { stage: 'uploading_subtitles' });
+      this.updateQueueItem(item.taskId, { stage: 'uploading_subtitles' });
       const subs: NonNullable<CatalogItemV1['subs']> = [];
       for (const sub of prepared.subtitles) {
         // Tên file hiện cho document Telegram — khớp quy ước
@@ -677,7 +699,7 @@ export class Workspace implements OnInit {
         // không phải tên file tạm `sub-<index>.srt` bên trong `temp_dir`.
         const subFileName = `${stripExt(item.path)}${sub.lang ? `.${sub.lang}` : ''}.srt`;
         const subUploaded = await this.withFloodWaitRetry(
-          (s) => this.updateQueueItem(item.path, { floodWaitSeconds: s ?? undefined }),
+          (s) => this.updateQueueItem(item.taskId, { floodWaitSeconds: s ?? undefined }),
           () => uploadSubtitle(sub.path, subFileName)
         );
         subs.push({ lang: sub.lang ?? 'und', msgId: subUploaded.msg_id });
@@ -692,7 +714,7 @@ export class Workspace implements OnInit {
       const sidecarMatches = matchSidecarSubtitles(basename(item.path), siblingNames);
       for (const match of sidecarMatches) {
         const subUploaded = await this.withFloodWaitRetry(
-          (s) => this.updateQueueItem(item.path, { floodWaitSeconds: s ?? undefined }),
+          (s) => this.updateQueueItem(item.taskId, { floodWaitSeconds: s ?? undefined }),
           () => uploadSubtitle(`${dir}/${match.fileName}`, match.fileName)
         );
         subs.push({ lang: match.lang ?? 'und', msgId: subUploaded.msg_id });

@@ -1,0 +1,38 @@
+<h2 mat-dialog-title>Tra TMDB</h2>
+<mat-dialog-content>
+  <div class="search-row">
+    <mat-form-field appearance="outline" class="query-field">
+      <mat-label>Tên phim/show</mat-label>
+      <input matInput type="text" [value]="query()" (input)="query.set($any($event.target).value)" (keydown.enter)="search()" />
+    </mat-form-field>
+    <button mat-flat-button type="button" color="primary" [disabled]="loading() || query().trim().length === 0" (click)="search()">Tìm</button>
+  </div>
+
+  @if (loading()) {
+    <div class="loading-row">
+      <mat-progress-spinner mode="indeterminate" diameter="24" />
+      <span>Đang tìm…</span>
+    </div>
+  } @else if (error(); as err) {
+    <p class="error-text">{{ err }}</p>
+  } @else if (searched() && results().length === 0) {
+    <p class="empty-hint">Không tìm thấy kết quả nào khớp "{{ query() }}".</p>
+  } @else {
+    <ul class="result-list">
+      @for (result of results(); track result.id) {
+        <li class="result-row" (click)="onSelect(result)">
+          @if (result.poster_url; as poster) {
+            <img [src]="poster" [alt]="result.title" class="poster" />
+          } @else {
+            <div class="poster poster-placeholder"></div>
+          }
+          <span class="result-title">{{ result.title }}</span>
+          <span class="result-year">{{ result.year ?? '—' }}</span>
+        </li>
+      }
+    </ul>
+  }
+</mat-dialog-content>
+<mat-dialog-actions align="end">
+  <button mat-button type="button" (click)="onCancel()">Đóng</button>
+</mat-dialog-actions>

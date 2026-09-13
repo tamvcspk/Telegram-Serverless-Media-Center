@@ -48,6 +48,19 @@ use ingest_rpc_trait::{
     UploadProgress, UploadedRef, VideoUploadInput,
 };
 
+/// Ngưỡng an toàn đo được thật ở SPIKE-10 M7 (tài khoản Premium,
+/// `tools/spike-10/README.md` § M7): 2.307 GiB (4 726 part @512 KiB) upload
+/// thành công, 4.327 GiB (8 862 part) bị Telegram từ chối
+/// `FILE_PARTS_INVALID` NGAY LẬP TỨC (server đọc `file_total_parts` từ
+/// request part đầu tiên, không đợi upload xong mới báo). Chưa bisect chính
+/// xác từng byte trong khoảng đó — dùng con số công khai vẫn được biết tới
+/// ("~4000 MB cho tài khoản Premium", **4 000 000 000 byte thập phân — KHÁC
+/// 4 GiB nhị phân = 4 294 967 296 byte**) làm trần, nằm gọn giữa hai mốc đã
+/// đo (≈7630 part, giữa 4726 và 8862). **CHƯA kiểm chứng ngưỡng cho tài
+/// khoản không Premium** (tài liệu công khai của Telegram ghi thấp hơn, ví
+/// dụ 2 GB) — hằng số này chỉ bảo vệ đúng trường hợp đã đo thật.
+const MAX_UPLOAD_BYTES: u64 = 4_000_000_000;
+
 /// Dịch một số mã lỗi RPC Telegram hay gặp thành thông báo tiếng Việt đọc
 /// được — mặc định (`err.to_string()`) chỉ ra dạng kỹ thuật thô kiểu
 /// `"request error: rpc error 403: USER_RESTRICTED caused by
@@ -260,6 +273,17 @@ impl IngestRpc for GrammersIngestRpc {
         let total = tokio::fs::metadata(&input.file_path).await.map_err(|e| IngestRpcError::Other(e.to_string()))?.len();
         if total == 0 {
             return Err(IngestRpcError::Other("file rỗng".into()));
+        }
+        // Chặn TRƯỚC khi mở kết nối — đúng khuyến nghị chưa từng port từ
+        // SPIKE-10 M7 (tools/spike-10/README.md § M7: "một implementation
+        // client thật phải tự tính total_parts... so với một trần an toàn
+        // và chặn ở UI ngay — không phụ thuộc server phản hồi nhanh hay
+        // chậm"). Thiếu bước này khiến `sample-4gb.mp4` (4 645 817 639 byte)
+        // rơi thẳng vào lỗi giao thức thô `FILE_PARTS_INVALID` khi verify
+        // thật 2026-09-13 — đúng file/đúng lỗi SPIKE-10 đã từng gặp, không
+        // phải bug mới, chỉ là gap chưa vá.
+        if total > MAX_UPLOAD_BYTES {
+            return Err(IngestRpcError::FileTooLarge { max_bytes: MAX_UPLOAD_BYTES, actual_bytes: total });
         }
         let input_file = self.multi_connection_upload(&input.file_path, total, &input.file_name, progress, cancel).await?;
         let uploaded: Uploaded = Uploaded::from_raw(input_file);
