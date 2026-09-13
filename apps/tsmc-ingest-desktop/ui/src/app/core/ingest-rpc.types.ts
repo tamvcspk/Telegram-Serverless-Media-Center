@@ -159,5 +159,10 @@ export interface TmdbSearchResultDto {
 }
 
 /** Khớp `#[serde(tag = "kind", content = "detail")] TmdbErrorDto`. `NoApiKey`
- * để Angular tự mở dialog nhập key thay vì hiện lỗi mạng mơ hồ. */
-export type TmdbErrorDto = { kind: 'NoApiKey' } | { kind: 'Network'; detail: string } | { kind: 'Other'; detail: string };
+ * để Angular tự mở dialog nhập key thay vì hiện lỗi mạng mơ hồ. `InvalidKey`
+ * (HTTP 401 — key SAI) tách riêng khỏi `Network` từ 2026-09-14. */
+export type TmdbErrorDto =
+  | { kind: 'NoApiKey' }
+  | { kind: 'InvalidKey' }
+  | { kind: 'Network'; detail: string }
+  | { kind: 'Other'; detail: string };

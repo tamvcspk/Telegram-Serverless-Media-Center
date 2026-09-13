@@ -281,6 +281,8 @@ export function describeTmdbError(err: TmdbErrorDto): string {
   switch (err.kind) {
     case 'NoApiKey':
       return 'Chưa có TMDB API Key.';
+    case 'InvalidKey':
+      return 'TMDB API Key không hợp lệ — kiểm tra lại key đã nhập (xoá file tmdb_api_key.json ở app-data để nhập lại từ đầu).';
     case 'Network':
       return `Lỗi mạng khi gọi TMDB: ${err.detail}`;
     case 'Other':

@@ -250,13 +250,37 @@ Liên quan: [ADR-0019](./adr/0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md). Cần 
   - [ ] Sửa lại ô tìm kiếm trong dialog (vd gõ tên chính xác hơn) → bấm "Tìm" (hoặc Enter) → danh sách kết quả cập nhật đúng theo query mới.
   - [x] **Verify 2026-09-13, ĐẠT.** Với item `kind: 'episode'` (tên file có `SxxExx`) → tra TMDB phải tìm TV show (`search/tv`) chứ không phải phim lẻ — xác nhận bằng kết quả trả về đúng là series, không phải phim.
   - [x] **Verify 2026-09-13, ĐẠT.** Đóng dialog tìm kiếm bằng Esc/bấm ra ngoài (không chọn gì) → Title/Năm dòng đó GIỮ NGUYÊN, không bị xoá/đổi thành rỗng.
+  - [x] **Verify 2026-09-14, ĐẠT (user xác nhận "đã check, hoạt động đúng").** Key sai → dialog tìm kiếm hiện đúng thông báo `InvalidKey`, không còn lẫn với lỗi mạng chung chung.
 
 ### Nếu có gì vỡ
 
 - Dialog nhập key không tự mở dialog tìm kiếm sau khi lưu → kiểm `onTmdbLookup()` (`workspace.ts`) có gọi `tmdbSaveKey()` rồi tiếp tục xuống `dialogService.searchTmdb()` trong CÙNG một lần gọi hàm, không return sớm.
-- Lỗi mạng/key sai → dialog tìm kiếm phải hiện thông báo lỗi rõ ràng (`describeTmdbError()`), không phải màn hình trắng/treo — nếu TMDB trả lỗi xác thực (key sai), thông báo hiện ra có thể là lỗi HTTP chung chung (`error_for_status()` phía Rust chưa phân biệt riêng lỗi 401) — đây là giới hạn đã biết, chưa tách riêng thông báo "key sai" khỏi "lỗi mạng khác".
+- Lỗi mạng/key sai → dialog tìm kiếm phải hiện thông báo lỗi rõ ràng (`describeTmdbError()`), không phải màn hình trắng/treo. **Vá 2026-09-14:** `fetch_tmdb()` giờ kiểm `response.status() == 401` TRƯỚC `error_for_status()`, trả `TmdbErrorDto::InvalidKey` riêng — nếu vẫn thấy thông báo lỗi mạng chung chung khi key sai (thay vì câu "API Key không hợp lệ"), đây là bug MỚI (có thể TMDB đổi mã lỗi khác 401 cho key sai, hoặc field response 401 không như tài liệu) — ghi lại chính xác status code + body TMDB trả về.
 - Field TMDB trả về khác tài liệu đã giả định (`title`/`name`/`release_date`/`first_air_date`/`poster_path` đổi tên hoặc cấu trúc) → `tmdb.rs` deserialize thất bại, lỗi hiện ra qua nhánh `TmdbErrorDto::Other` — ghi lại chính xác response JSON thật (DevTools Network nếu debug được, hoặc log Rust) để sửa struct cho khớp, đừng đoán lại từ tài liệu.
 - Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0019 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
+
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — tier-aware upload threshold (2026-09-14)
+
+Liên quan: [ADR-0017 § addendum 2026-09-14](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-14-vá-tier-aware-upload-threshold), [docs/changelog.md § 2026-09-14](./changelog.md#2026-09-14--gui-ingest-desktop-vá-tier-aware-upload-threshold-premium-4gb--thường-2gb-adr-0017), [docs/roadmap.md § Ingest](./roadmap.md#ingest). Cùng ghi chú môi trường như các mục Workspace/upload phía trên — "thiết bị thật" nghĩa là `cargo tauri dev` + tài khoản Telegram thật, gồm **cả một tài khoản Premium lẫn một tài khoản KHÔNG Premium** (khác mọi mục trước đó chỉ cần một tài khoản bất kỳ).
+
+**KHÔNG chạy hộ bằng agent/Claude.** Admin tự chạy.
+
+### Chuẩn bị
+
+- [x] `cargo build --workspace`/`cargo clippy --workspace` (0 warning) sau khi đổi `GrammersIngestRpc::new()` thành async + đọc `get_me().premium` — verify 2026-09-14.
+
+### Các bước
+
+- [x] **Verify 2026-09-14, ĐẠT (tài khoản Premium).** Đăng nhập bằng tài khoản Premium → upload vẫn thành công như hành vi cũ (trần 4GB, không bị hạ nhầm xuống 2GB) — user xác nhận qua `cargo tauri dev` + tài khoản thật.
+- [ ] **Hoãn — không có tài khoản KHÔNG Premium để test (2026-09-14, user xác nhận).** Đăng nhập bằng tài khoản KHÔNG Premium → thả file trong khoảng 2-4GB (dưới trần cũ 4GB, trên trần mới 2GB) → tick chọn → bấm "Upload" → dòng đó phải chuyển "Lỗi" NGAY với thông báo `FileTooLarge` hiện đúng "trần 2.00 GB" (không phải 4.00 GB như trước bản vá), KHÔNG dính `FILE_PARTS_INVALID` thô. Nhánh code đọc đúng `is_premium() == false` → dùng `MAX_UPLOAD_BYTES_FREE` (xem `rpc.rs`) — logic đối xứng với nhánh Premium đã verify, nhưng CHƯA có bằng chứng thật cho tài khoản thường vì hiện không có tài khoản loại này để test. Để mở tới khi có tài khoản không Premium.
+- [ ] **Hoãn — cùng lý do trên.** Cùng tài khoản KHÔNG Premium → thả file dưới 2GB → upload thành công bình thường (không bị chặn nhầm).
+- [ ] Nếu `get_me()` lỗi ngay sau đăng nhập (khó chủ động tái hiện — network flake) → quan sát app vẫn dùng được, trần áp dụng là 2GB (nhánh mặc định an toàn) thay vì app treo/crash.
+
+### Nếu có gì vỡ
+
+- Trần vẫn hiện 4GB dù tài khoản KHÔNG Premium → kiểm `client.get_me().await` có thật sự được gọi TRƯỚC khi `GrammersIngestRpc` được dùng để upload hay không (3 call site ở `commands.rs`) — hoặc kiểm trực tiếp field `premium` trả về từ Telegram cho tài khoản đó (đối chiếu Settings → Premium trong app Telegram gốc).
+- Trần hiện SAI cho tài khoản Premium (bị hạ xuống 2GB) → nghi ngờ đầu tiên: `is_premium()` match nhầm biến thể `tl::enums::User` (kiểm log/`dbg!` giá trị `me.raw` thật trả về).
+- Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0017 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
 
 ## Player: hiển thị phụ đề (`subs[]`) (2026-08-31)
 

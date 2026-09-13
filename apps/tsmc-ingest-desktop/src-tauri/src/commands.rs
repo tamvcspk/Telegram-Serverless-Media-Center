@@ -73,7 +73,7 @@ pub async fn check_session(app: AppHandle, state: State<'_, AppState>, api_id: i
 
     let mut conn = state.conn.lock().await;
     *conn = if authorized {
-        let rpc = ingest_grammers::GrammersIngestRpc::new(connected.client, connected.session, api_id);
+        let rpc = ingest_grammers::GrammersIngestRpc::new(connected.client, connected.session, api_id).await;
         ConnState::Ready { rpc, pool_task: connected.pool_task }
     } else {
         ConnState::Connected { client: connected.client, pool_task: connected.pool_task, session: connected.session, api_id }
@@ -114,7 +114,7 @@ pub async fn submit_otp(state: State<'_, AppState>, code: String) -> Result<Logi
 
     match client.sign_in(&login_token, &code).await {
         Ok(_user) => {
-            let rpc = ingest_grammers::GrammersIngestRpc::new(client, session, api_id);
+            let rpc = ingest_grammers::GrammersIngestRpc::new(client, session, api_id).await;
             *conn = ConnState::Ready { rpc, pool_task };
             Ok(LoginOutcomeDto::LoggedIn)
         }
@@ -144,7 +144,7 @@ pub async fn submit_password(state: State<'_, AppState>, password: String) -> Re
 
     match client.check_password(*password_token, password).await {
         Ok(_user) => {
-            let rpc = ingest_grammers::GrammersIngestRpc::new(client, session, api_id);
+            let rpc = ingest_grammers::GrammersIngestRpc::new(client, session, api_id).await;
             *conn = ConnState::Ready { rpc, pool_task };
             Ok(())
         }

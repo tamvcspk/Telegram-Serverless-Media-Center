@@ -307,10 +307,15 @@ pub enum TmdbKindDto {
 /// Lỗi tra cứu TMDB — TÁCH RIÊNG khỏi `IngestRpcErrorDto` vì đây không phải
 /// lỗi RPC MTProto (không có `FloodWait`/`NotAuthorized` kiểu Telegram).
 /// `NoApiKey` để Angular tự mở dialog nhập key thay vì hiện lỗi mạng mơ hồ.
+/// `InvalidKey` (HTTP 401 từ TMDB — key SAI, khác `NoApiKey` là CHƯA CÓ key
+/// nào) tách riêng khỏi `Network` từ 2026-09-14: trước đó cả hai gộp chung
+/// qua `error_for_status()`, user không phân biệt được "gõ sai key" với
+/// "mất mạng"/TMDB sập.
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", content = "detail")]
 pub enum TmdbErrorDto {
     NoApiKey,
+    InvalidKey,
     Network(String),
     Other(String),
 }

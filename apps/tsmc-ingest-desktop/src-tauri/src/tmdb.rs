@@ -9,10 +9,11 @@
 //! webview, khác nhau giữa `cargo tauri dev`/bản release — đã là bug thật
 //! ở màn Đăng nhập).
 //!
-//! **CHƯA verify bằng gọi API TMDB thật** (ADR-0019 § "Giới hạn thật") —
-//! field name (`title`/`name`/`release_date`/`first_air_date`/
-//! `poster_path`/`id`) dựa trên tài liệu TMDB v3 công khai đã ổn định nhiều
-//! năm, KHÔNG PHẢI đã đo bằng key thật trong phiên viết code này.
+//! Verify bằng API key TMDB thật — ĐẠT 2026-09-13 (xem
+//! [docs/changelog.md](../../../docs/changelog.md#2026-09-13--gui-ingest-desktop-verify-tmdb-pr3-bằng-api-key-thật--đạt)),
+//! field name response khớp giả định ban đầu. Phân biệt lỗi "key sai" (HTTP
+//! 401, `TmdbErrorDto::InvalidKey`) khỏi lỗi mạng khác thêm 2026-09-14 (xem
+//! `fetch_tmdb()`).
 
 use serde::Deserialize;
 use tauri::{AppHandle, Manager};
@@ -88,15 +89,24 @@ fn poster_url(path: &Option<String>) -> Option<String> {
     path.as_ref().map(|p| format!("{TMDB_IMAGE_BASE}{p}"))
 }
 
+/// TMDB trả `401 Unauthorized` đúng lúc key sai/hết hạn (tài liệu TMDB v3
+/// công khai, `status_code: 7 "Invalid API key"`) — kiểm status TRƯỚC khi
+/// gọi `error_for_status()` để tách riêng nhánh này thành `InvalidKey`, thay
+/// vì rơi chung vào `Network` như mọi lỗi HTTP khác (429 rate limit, 5xx
+/// TMDB sập...) hay lỗi mạng thật (DNS/timeout/connection refused, không có
+/// response nào để đọc status).
 async fn fetch_tmdb<T: serde::de::DeserializeOwned>(url: &str, api_key: &str, query: &str) -> Result<TmdbSearchResponse<T>, TmdbErrorDto> {
     let response = reqwest::Client::new()
         .get(url)
         .query(&[("api_key", api_key), ("query", query)])
         .send()
         .await
-        .map_err(|e| TmdbErrorDto::Network(e.to_string()))?
-        .error_for_status()
         .map_err(|e| TmdbErrorDto::Network(e.to_string()))?;
+
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return Err(TmdbErrorDto::InvalidKey);
+    }
+    let response = response.error_for_status().map_err(|e| TmdbErrorDto::Network(e.to_string()))?;
     response.json::<TmdbSearchResponse<T>>().await.map_err(|e| TmdbErrorDto::Other(e.to_string()))
 }
 

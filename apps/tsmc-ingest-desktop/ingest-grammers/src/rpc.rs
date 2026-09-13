@@ -56,10 +56,26 @@ use ingest_rpc_trait::{
 /// xác từng byte trong khoảng đó — dùng con số công khai vẫn được biết tới
 /// ("~4000 MB cho tài khoản Premium", **4 000 000 000 byte thập phân — KHÁC
 /// 4 GiB nhị phân = 4 294 967 296 byte**) làm trần, nằm gọn giữa hai mốc đã
-/// đo (≈7630 part, giữa 4726 và 8862). **CHƯA kiểm chứng ngưỡng cho tài
-/// khoản không Premium** (tài liệu công khai của Telegram ghi thấp hơn, ví
-/// dụ 2 GB) — hằng số này chỉ bảo vệ đúng trường hợp đã đo thật.
-const MAX_UPLOAD_BYTES: u64 = 4_000_000_000;
+/// đo (≈7630 part, giữa 4726 và 8862).
+const MAX_UPLOAD_BYTES_PREMIUM: u64 = 4_000_000_000;
+
+/// Trần cho tài khoản KHÔNG Premium — số liệu THẬT (không phải suy đoán từ
+/// tài liệu công khai), user xác nhận trực tiếp 2026-09-13 sau khi verify
+/// bản vá `MAX_UPLOAD_BYTES` cũ (hardcode chung 4GB) vẫn để lọt file 2-4GB
+/// cho tài khoản thường, dính `FILE_PARTS_INVALID` thô — xem
+/// [ADR-0017 § addendum 2026-09-13](../../../docs/adr/0017-grammers-cho-cong-cu-ingest-desktop.md).
+const MAX_UPLOAD_BYTES_FREE: u64 = 2_000_000_000;
+
+/// Đọc cờ Premium từ `tl::enums::User` trả về bởi `Client::get_me()` —
+/// `user#31774388` có field `premium:flags.28?true` (xem
+/// `grammers-tl-types-0.10.0/tl/api.tl`), `User::Empty` (hiếm, tài khoản đã
+/// xoá) coi như không Premium (an toàn hơn — trần thấp hơn).
+fn is_premium(raw: &tl::enums::User) -> bool {
+    match raw {
+        tl::enums::User::User(u) => u.premium,
+        tl::enums::User::Empty(_) => false,
+    }
+}
 
 /// Dịch một số mã lỗi RPC Telegram hay gặp thành thông báo tiếng Việt đọc
 /// được — mặc định (`err.to_string()`) chỉ ra dạng kỹ thuật thô kiểu
@@ -116,11 +132,20 @@ pub struct GrammersIngestRpc {
     /// `upload_video()`, xem module doc comment.
     session: Arc<SqliteSession>,
     api_id: i32,
+    /// Trần upload THẬT theo tài khoản (4GB Premium / 2GB thường) — đọc một
+    /// lần lúc đăng nhập xong qua `get_me()`, xem `is_premium()`. Lỗi đọc
+    /// (hiếm — network flake ngay sau đăng nhập) mặc định về trần THẤP hơn
+    /// (an toàn hơn là để lọt `FILE_PARTS_INVALID` thô cho tài khoản thường).
+    max_upload_bytes: u64,
 }
 
 impl GrammersIngestRpc {
-    pub fn new(client: Client, session: Arc<SqliteSession>, api_id: i32) -> Self {
-        Self { client, cache: Mutex::new(HashMap::new()), session, api_id }
+    pub async fn new(client: Client, session: Arc<SqliteSession>, api_id: i32) -> Self {
+        let max_upload_bytes = match client.get_me().await {
+            Ok(me) if is_premium(&me.raw) => MAX_UPLOAD_BYTES_PREMIUM,
+            _ => MAX_UPLOAD_BYTES_FREE,
+        };
+        Self { client, cache: Mutex::new(HashMap::new()), session, api_id, max_upload_bytes }
     }
 
     fn peer_for(&self, channel: &ResolvedChannel) -> Result<Peer, IngestRpcError> {
@@ -282,8 +307,8 @@ impl IngestRpc for GrammersIngestRpc {
         // rơi thẳng vào lỗi giao thức thô `FILE_PARTS_INVALID` khi verify
         // thật 2026-09-13 — đúng file/đúng lỗi SPIKE-10 đã từng gặp, không
         // phải bug mới, chỉ là gap chưa vá.
-        if total > MAX_UPLOAD_BYTES {
-            return Err(IngestRpcError::FileTooLarge { max_bytes: MAX_UPLOAD_BYTES, actual_bytes: total });
+        if total > self.max_upload_bytes {
+            return Err(IngestRpcError::FileTooLarge { max_bytes: self.max_upload_bytes, actual_bytes: total });
         }
         let input_file = self.multi_connection_upload(&input.file_path, total, &input.file_name, progress, cancel).await?;
         let uploaded: Uploaded = Uploaded::from_raw(input_file);

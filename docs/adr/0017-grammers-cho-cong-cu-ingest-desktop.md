@@ -267,3 +267,23 @@ M7 (§ "Kết quả thật M3/M5/M7/M8" ở trên) đo được ngưỡng thật
 **Số liệu thật mới, gỡ đúng câu "chưa kiểm chứng" ở trên:** ngưỡng tài khoản KHÔNG Premium là **2GB** (user xác nhận). Đây là **gap thật còn lại, chưa vá**: `MAX_UPLOAD_BYTES = 4_000_000_000` hiện hardcode CHUNG cho mọi tài khoản — một tài khoản KHÔNG Premium thả file 2.5GB (dưới trần 4GB hiện tại) sẽ qua được check `FileTooLarge`, rồi vẫn dính `FILE_PARTS_INVALID` thô ở tầng `multi_connection_upload()` — đúng loại lỗi mà bản vá này được viết ra để ngăn, chỉ là cho SAI đối tượng tài khoản. **Chưa vá** — hướng vá đã xác định rõ (đọc code, không phải đoán): `grammers-client::Client::get_me()` trả về `User` với field `pub raw: tl::enums::User` công khai; `tl::enums::User::User(u) => u.premium` (field `bool` có thật trong schema TL `user#31774388`, xem `grammers-tl-types-0.10.0/tl/api.tl`) cho biết tài khoản có Premium hay không — gọi một lần lúc đăng nhập xong, cache vào `AppState`, dùng để chọn `MAX_UPLOAD_BYTES` đúng theo tài khoản (2GB hoặc 4GB) thay vì hardcode một số cho tất cả. Để dành làm việc riêng, không tự vá kèm ADR này.
 
 **Việc tiếp theo:** vá tier-aware threshold theo hướng đã ghi ở trên — xem `docs/roadmap.md § Ingest`.
+
+## Cập nhật sau khi Accepted (2026-09-14, vá tier-aware upload threshold)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết
+> định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó —
+> quyết định gốc **vẫn đứng vững**.
+
+Đóng đúng gap để ngỏ ở addendum 2026-09-13 phía trên ("Để dành làm việc riêng, không tự vá kèm ADR này") — theo ĐÚNG hướng đã xác định lúc đó, không phải cách khác:
+
+- `MAX_UPLOAD_BYTES` (hardcode chung một số) tách thành `MAX_UPLOAD_BYTES_PREMIUM = 4_000_000_000` và `MAX_UPLOAD_BYTES_FREE = 2_000_000_000` (`ingest-grammers/src/rpc.rs`).
+- `GrammersIngestRpc::new()` đổi từ hàm đồng bộ thành `async fn`, gọi `client.get_me().await` MỘT LẦN lúc đăng nhập xong, đọc cờ Premium qua hàm mới `is_premium(raw: &tl::enums::User)` (`tl::enums::User::User(u) => u.premium`, field `premium:flags.28?true` xác nhận có thật trong `user#31774388` — đối chiếu trực tiếp `grammers-tl-types-0.10.0/tl/api.tl`, không suy đoán). Kết quả lưu vào field `max_upload_bytes: u64` trên struct, tính đúng một lần thay vì đọc lại mỗi `upload_video()`.
+- Ba call site ở `src-tauri/src/commands.rs` (`check_session`, `submit_otp`, `submit_password` — cả ba nhánh dựng `GrammersIngestRpc` sau khi xác nhận đăng nhập xong) đổi thành `.await`.
+- **Lỗi đọc `get_me()`** (hiếm — network flake ngay sau đăng nhập) mặc định về trần THẤP hơn (`MAX_UPLOAD_BYTES_FREE`, 2GB) thay vì trần cao — an toàn hơn là lỡ cho qua một file sẽ dính `FILE_PARTS_INVALID` thô ở tầng dưới. `User::Empty` (hiếm, tài khoản đã xoá) cũng coi như không Premium, cùng lý do.
+- `upload_video()` đổi từ so sánh hằng số toàn cục sang `self.max_upload_bytes`.
+
+`cargo build --workspace`/`cargo clippy --workspace` sạch, 0 warning — verify 2026-09-14.
+
+**Verify 2026-09-14, ĐẠT cho nhánh Premium:** user xác nhận qua `cargo tauri dev` + tài khoản Premium thật — upload vẫn thành công đúng trần 4GB như hành vi cũ. **Nhánh KHÔNG Premium chưa verify được — hiện không có tài khoản loại này để test** (hoãn, không phải lỗi phát hiện). Logic đối xứng (`is_premium() == false` → `MAX_UPLOAD_BYTES_FREE`) đã có trong code, chỉ thiếu bằng chứng thật.
+
+**Việc tiếp theo:** verify nhánh KHÔNG Premium khi có tài khoản phù hợp — checklist ở [docs/pending-device-tests.md](../pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--tier-aware-upload-threshold-2026-09-14).

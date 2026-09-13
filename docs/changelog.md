@@ -4,6 +4,26 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-09-14 — GUI ingest desktop: verify phân biệt lỗi TMDB "key sai" — ĐẠT
+
+User xác nhận: lưu key sai → dialog tìm kiếm hiện đúng thông báo `InvalidKey` ("TMDB API Key không hợp lệ…"), không còn lẫn với lỗi mạng chung chung. Checklist: [docs/pending-device-tests.md § tích hợp tra cứu TMDB (PR3)](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--tích-hợp-tra-cứu-tmdb-pr3-2026-09-13).
+
+## 2026-09-14 — GUI ingest desktop: phân biệt lỗi TMDB "key sai" (401) khỏi lỗi mạng khác
+
+Đóng gap nhỏ ghi ở [ADR-0019](./adr/0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md): trước đó `fetch_tmdb()` (`tmdb.rs`) gộp chung MỌI lỗi HTTP qua `error_for_status()`, user không phân biệt được "gõ sai API key" với "mất mạng"/TMDB sập. Thêm `TmdbErrorDto::InvalidKey`, kiểm `response.status() == 401` TRƯỚC `error_for_status()` để tách riêng nhánh này — `Network` giờ chỉ còn lỗi request thật (không có response để đọc status) hoặc mã lỗi HTTP khác 401. `describeTmdbError()` (Angular) hiện thông báo tiếng Việt riêng cho `InvalidKey`, gợi ý xoá `tmdb_api_key.json` để nhập lại (chưa có màn Settings quản lý key, xem roadmap).
+
+`cargo build`/`cargo clippy --workspace` + `ng build`/`npm run lint` sạch — CHƯA verify bằng key TMDB sai thật.
+
+## 2026-09-14 — GUI ingest desktop: verify tier-aware upload threshold — ĐẠT cho Premium, hoãn nhánh thường
+
+User xác nhận qua `cargo tauri dev` + tài khoản Premium thật: upload vẫn thành công đúng trần 4GB như hành vi cũ, không bị hạ nhầm xuống 2GB. **Nhánh tài khoản KHÔNG Premium chưa verify được — hiện không có tài khoản loại này để test** (hoãn, không phải lỗi) — logic đối xứng (`is_premium() == false` → `MAX_UPLOAD_BYTES_FREE`) đã có trong code nhưng chưa có bằng chứng thật. Checklist cập nhật: [docs/pending-device-tests.md § tier-aware upload threshold](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--tier-aware-upload-threshold-2026-09-14).
+
+## 2026-09-14 — GUI ingest desktop: vá tier-aware upload threshold (Premium 4GB / thường 2GB, ADR-0017)
+
+Đóng gap thật để ngỏ từ addendum ADR-0017 2026-09-13 (`MAX_UPLOAD_BYTES` hardcode 4GB chung cho mọi tài khoản, tài khoản không Premium vẫn có thể dính `FILE_PARTS_INVALID` thô với file 2-4GB). `ingest-grammers/src/rpc.rs` tách `MAX_UPLOAD_BYTES_PREMIUM`/`MAX_UPLOAD_BYTES_FREE`; `GrammersIngestRpc::new()` đổi thành `async fn`, gọi `client.get_me().await` một lần lúc đăng nhập xong để đọc cờ `premium` thật (`tl::enums::User::User(u).premium`), cache vào field `max_upload_bytes` trên struct. Lỗi đọc `get_me()` mặc định về trần thấp hơn (an toàn hơn). Ba call site dựng `GrammersIngestRpc` ở `src-tauri/src/commands.rs` (`check_session`/`submit_otp`/`submit_password`) đổi thành `.await`.
+
+`cargo build`/`cargo clippy --workspace` (0 warning) sạch — CHƯA verify bằng tài khoản thật (cả hai nhánh Premium/không Premium). Chi tiết: [ADR-0017 § addendum 2026-09-14](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-14-vá-tier-aware-upload-threshold), checklist: [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--tier-aware-upload-threshold-2026-09-14).
+
 ## 2026-09-13 — GUI ingest desktop: đóng gói DLL FFmpeg vào bản phân phối — trả lời Đ2 (SPIKE-10), giữ được LGPL
 
 Lần đầu `cargo tauri build` chạy trọn cho `apps/tsmc-ingest-desktop` (trước đó chỉ chạy `cargo tauri dev` nhờ vcpkg sẵn trên máy dev). Thêm `src-tauri/build.rs`: copy 7 DLL FFmpeg (danh sách khớp `tools/spike-09/README.md`) từ `$FFMPEG_DIR/bin` vào `ffmpeg-runtime/` (gitignored) **TRƯỚC KHI** gọi `tauri_build::build()` — phát hiện thật lúc code: gọi sau sẽ panic ngay trên build sạch vì `tauri_build::build()` tự validate glob `bundle.resources` NGAY LÚC BUILD. `tauri.conf.json::bundle.resources` map `ffmpeg-runtime/*.dll` → `""` để NSIS/MSI đặt DLL NGAY CẠNH `.exe` (đúng thứ tự Windows tìm DLL — thư mục exe trước `PATH`). Verify thật: `cargo tauri build` ra cả MSI (16.8MB) lẫn NSIS setup (12MB), 7 DLL xuất hiện đúng cạnh exe trong `target/release/`.
