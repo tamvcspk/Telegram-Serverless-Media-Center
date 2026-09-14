@@ -325,6 +325,7 @@ Liên quan: [ADR-0020](./adr/0020-ma-hoa-bi-mat-app-data-qua-os-keyring.md), [do
 
 ### Các bước
 
+- [x] **Verify 2026-09-14, ĐẠT (tổng quát).** User xác nhận đã chạy `cargo tauri dev` + tài khoản thật — app hoạt động đúng thiết kế với keyring. Chưa có xác nhận riêng từng bước con bên dưới (nhánh di trú, xoá key, fallback...) — các dòng đó VẪN mở, coi như chưa verify riêng lẻ.
 - [ ] Xoá sạch `credentials.json` VÀ mọi entry Credential Manager tên `com.tsmc.ingestdesktop` (nếu có, qua `cmdkey /list` + `cmdkey /delete`) — đăng nhập lại từ đầu (API_ID/API_HASH/OTP) → sau khi xong, `credentials.json` ở app-data **KHÔNG xuất hiện** (hoặc xuất hiện rồi biến mất ngay) — kiểm bằng `cmdkey /list` thấy MỘT entry service `com.tsmc.ingestdesktop`, account `credentials` chứa đúng thông tin (Credential Manager UI không hiện password ở dạng đọc được, chỉ xác nhận entry tồn tại).
 - [ ] Đóng app, mở lại (không gõ gì) → `check_session()` tự nhận đúng session cũ như trước ADR-0020 (đọc `credentials.json` từ keyring, không phải file) — hành vi bên ngoài giống hệt trước khi có mã hoá.
 - [ ] **Nhánh di trú:** trên một máy ĐANG có sẵn `credentials.json` plaintext từ bản cũ (trước 2026-09-14) — mở app (đọc đúng, rơi về fallback file) → làm một thao tác kích hoạt `save_credentials()` lại (vd đăng nhập lại) → `credentials.json` biến mất khỏi app-data, entry Credential Manager xuất hiện thay thế.

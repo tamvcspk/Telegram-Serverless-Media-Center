@@ -4,6 +4,10 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-09-14 — GUI ingest desktop: verify mã hoá app-data qua OS keyring — ĐẠT
+
+User xác nhận đã chạy `cargo tauri dev` + tài khoản thật: đăng nhập/TMDB key hoạt động đúng qua OS keyring (ADR-0020). Chưa có xác nhận riêng từng bước con (nhánh di trú từ file cũ, xoá key, fallback plaintext...). Checklist: [docs/pending-device-tests.md § mã hoá app-data](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--mã-hoá-app-data-qua-os-keyring-2026-09-14).
+
 ## 2026-09-14 — GUI ingest desktop: mã hoá `credentials.json`/`tmdb_api_key.json` qua OS keyring (ADR-0020)
 
 Đóng gap đã ghi từ SPIKE-10 (2026-09-05): hai file này lưu qua OS Credential Manager (crate `keyring`, module mới `secret_store.rs` — cổng DUY NHẤT gọi crate này), fallback về file plaintext y như trước nếu keyring không dùng được (yêu cầu user — không được "không lưu được gì" nếu thiếu backend OS). Tự di trú ngầm: máy có sẵn file cũ từ bản trước vẫn đọc được (rơi về fallback), lần ghi kế tiếp tự chuyển sang keyring và xoá file cũ. `commands.rs`/`tmdb.rs` đổi sang gọi qua `secret_store`, hành vi IPC bên ngoài không đổi.
