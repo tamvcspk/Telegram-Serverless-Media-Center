@@ -4,6 +4,19 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-09-14 — GUI ingest desktop: verify màn Cài đặt — ĐẠT
+
+User xác nhận đã chạy `cargo tauri dev` + tài khoản thật: màn Cài đặt hoạt động đúng thiết kế (xem thông tin tài khoản, quản lý TMDB key). Chưa có xác nhận riêng từng bước con (nhánh Esc dialog, tương tác với cảnh báo rời Workspace...). Checklist: [docs/pending-device-tests.md § màn Cài đặt](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--màn-cài-đặt-2026-09-14).
+
+## 2026-09-14 — GUI ingest desktop: màn Cài đặt (mới, ngoài mockup A.4 gốc) — quản lý TMDB key + xem thông tin tài khoản
+
+Đóng gap ghi ở [docs/roadmap.md](./roadmap.md#ingest) ("Màn Settings — chưa có"). Route `/settings` mới (`ui/src/app/settings/`), vào qua icon ⚙ vừa wire ở topbar Workspace (đúng vị trí đã vẽ sẵn trong mockup A.3, `docs/ux-design.md`, trước đây chưa có gì đằng sau icon). Hai khối:
+
+- **Tài khoản:** chỉ HIỂN THỊ (số điện thoại/API_ID/API_HASH che một phần bằng `maskSecret()`) đọc từ `credentials.json` qua `loadSavedCredentials()` đã có sẵn — không có nút đăng xuất/đổi số (`IngestRpc` hiện chưa có thao tác sign-out phía `grammers-client`, thêm nút mà không có RPC hỗ trợ sẽ để lại state nửa vời).
+- **TMDB:** xem trạng thái (đã cấu hình/chưa), đổi key, xoá key — trước slice này cách DUY NHẤT "xoá key sai" là tự tay xoá file `tmdb_api_key.json` ở app-data (ghi rõ trong `describeTmdbError()`, ADR-0019). Dialog nhập/đổi key TÁI DÙNG NGUYÊN VẸN `TmdbKeyDialog`/`DialogService.promptTmdbApiKey()` — cùng dialog màn Workspace dùng lúc "Tra TMDB" lần đầu, không viết dialog thứ hai. Thêm command Rust mới `tmdb_delete_key` (`tmdb.rs`, xoá file best-effort).
+
+**Cố ý KHÔNG làm ở slice này:** mã hoá `credentials.json`/`tmdb_api_key.json` (vẫn plaintext app-data) — màn này chỉ thêm nơi QUẢN LÝ, không đổi cách LƯU (mục riêng ở roadmap). `cargo build`/`cargo clippy --workspace` (0 warning) + `ng build`/`npm run lint` sạch — CHƯA verify bằng `cargo tauri dev` + tài khoản thật.
+
 ## 2026-09-14 — GUI ingest desktop: verify phân biệt lỗi TMDB "key sai" — ĐẠT
 
 User xác nhận: lưu key sai → dialog tìm kiếm hiện đúng thông báo `InvalidKey` ("TMDB API Key không hợp lệ…"), không còn lẫn với lỗi mạng chung chung. Checklist: [docs/pending-device-tests.md § tích hợp tra cứu TMDB (PR3)](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--tích-hợp-tra-cứu-tmdb-pr3-2026-09-13).

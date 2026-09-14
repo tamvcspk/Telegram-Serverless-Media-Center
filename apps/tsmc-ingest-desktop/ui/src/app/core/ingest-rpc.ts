@@ -243,7 +243,7 @@ export function describeIngestError(err: IngestRpcErrorDto): string {
   }
 }
 
-/** Tra cứu TMDB (ADR-0019) — ba command KHÔNG thuộc `IngestRpc` (không phải
+/** Tra cứu TMDB (ADR-0019) — bốn command KHÔNG thuộc `IngestRpc` (không phải
  * RPC MTProto, cùng nhóm với `cancelUpload`/`getCurrentTask`). */
 
 /** Đọc nhanh có API key TMDB lưu sẵn chưa — dùng để quyết định hiện dialog
@@ -258,6 +258,12 @@ export function tmdbHasKey(): Promise<boolean> {
  * không throw. */
 export function tmdbSaveKey(apiKey: string): Promise<void> {
   return invoke<void>('tmdb_save_key', { apiKey });
+}
+
+/** Xoá key đã lưu (màn Cài đặt) — best-effort, không throw kể cả file không
+ * tồn tại (coi như đã "xoá" theo đúng ý người bấm nút). */
+export function tmdbDeleteKey(): Promise<void> {
+  return invoke<void>('tmdb_delete_key');
 }
 
 /** `kind: 'episode'` → `search/tv`, `'movie'` → `search/movie` (ADR-0019

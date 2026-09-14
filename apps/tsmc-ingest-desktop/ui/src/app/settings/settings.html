@@ -1,0 +1,56 @@
+<section class="settings">
+  <mat-toolbar class="topbar">
+    <button mat-icon-button type="button" (click)="onBack()" aria-label="Quay lại" title="Quay lại" matTooltip="Quay lại">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M19 12H5M11 18l-6-6 6-6" />
+      </svg>
+    </button>
+    <span class="title">Cài đặt</span>
+  </mat-toolbar>
+
+  <div class="content">
+    <section class="block">
+      <h2>Tài khoản</h2>
+      @if (loadingAccount()) {
+        <p class="hint">Đang đọc…</p>
+      } @else if (phoneDisplay()) {
+        <dl class="info-list">
+          <dt>Số điện thoại</dt>
+          <dd>{{ phoneDisplay() }}</dd>
+          <dt>API_ID</dt>
+          <dd>{{ apiIdDisplay() }}</dd>
+          <dt>API_HASH</dt>
+          <dd>{{ apiHashDisplay() }}</dd>
+        </dl>
+        <p class="hint">Chỉ hiển thị — đổi tài khoản cần đăng xuất thủ công (xoá thư mục dữ liệu ứng dụng), chưa có nút riêng.</p>
+      } @else {
+        <p class="hint">Không đọc được thông tin đăng nhập.</p>
+      }
+    </section>
+
+    <section class="block">
+      <h2>TMDB</h2>
+      @if (loadingTmdb()) {
+        <p class="hint">Đang đọc…</p>
+      } @else {
+        <p class="status-line">
+          Trạng thái:
+          @if (tmdbConfigured()) {
+            <span class="ok">✓ đã cấu hình</span>
+          } @else {
+            <span class="warn">chưa cấu hình</span>
+          }
+        </p>
+        <p class="hint">Dùng cho nút "Tra TMDB" ở bảng metadata — điền sẵn Title/Năm khi chọn đúng kết quả.</p>
+        <div class="actions">
+          <button mat-stroked-button type="button" [disabled]="tmdbBusy()" (click)="onChangeTmdbKey()">
+            {{ tmdbConfigured() ? 'Đổi key' : 'Nhập key' }}
+          </button>
+          <button mat-stroked-button type="button" color="warn" [disabled]="tmdbBusy() || !tmdbConfigured()" (click)="onDeleteTmdbKey()">
+            Xoá key
+          </button>
+        </div>
+      }
+    </section>
+  </div>
+</section>

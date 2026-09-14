@@ -53,6 +53,17 @@ pub fn tmdb_save_key(app: AppHandle, api_key: String) {
     }
 }
 
+/// Xoá key đã lưu (màn Cài đặt, nút "Xoá key") — best-effort, không phải lỗi
+/// nếu file không tồn tại (đã xoá từ trước, hoặc chưa từng lưu). Trước khi có
+/// màn này, cách duy nhất để "xoá key sai" là admin tự tay xoá file ở
+/// app-data (xem `describeTmdbError()` phía Angular) — giờ có nút thật.
+#[tauri::command]
+pub fn tmdb_delete_key(app: AppHandle) {
+    if let Ok(path) = tmdb_key_path(&app) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 fn load_key(app: &AppHandle) -> Option<String> {
     let path = tmdb_key_path(app).ok()?;
     let bytes = std::fs::read(path).ok()?;

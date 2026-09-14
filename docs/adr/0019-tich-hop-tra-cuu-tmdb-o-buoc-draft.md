@@ -76,6 +76,22 @@ Thêm nút **"Tra TMDB"** vào từng dòng bảng metadata (Draft, `workspace.t
 
 Gỡ đúng mục "Giới hạn thật của quyết định này — chưa kiểm chứng" ở trên: user đã tự có API key TMDB thật và verify — luồng nhập key → tìm kiếm → chọn kết quả → điền Title/Năm chạy đúng. Field response TMDB thật khớp giả định (`title`/`release_date`/`poster_path` cho movie, tương ứng `name`/`first_air_date` cho tv) — **không cần sửa `tmdb.rs`**. Chưa có chi tiết verify riêng từng nhánh (đặc biệt `kind: 'episode'` → `search/tv`) — xem checklist còn mở ở [docs/pending-device-tests.md](../pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--tích-hợp-tra-cứu-tmdb-pr3-2026-09-13).
 
+## Cập nhật sau khi Accepted (2026-09-14, màn Cài đặt mới — thêm lối vào thứ hai quản lý key)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết
+> định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó —
+> quyết định gốc **vẫn đứng vững**, xem lý do bên dưới.
+
+`apps/tsmc-ingest-desktop` vừa thêm màn "Cài đặt" (route `/settings`, `ui/src/app/settings/`) — đóng gap ghi ở [docs/roadmap.md § Ingest](../roadmap.md#ingest) ("Màn Settings — chưa có"), KHÔNG có trong mockup A.3/A.4 gốc ([docs/ux-design.md](../ux-design.md)). Màn này thêm một khối "TMDB": xem trạng thái key (đã cấu hình/chưa), đổi key, xoá key.
+
+**Quyết định gốc mục 2 ("Opt-in, mặc định tắt hiện thực KHÔNG cần màn Settings") vẫn đứng vững** — luồng first-use dialog (bấm "Tra TMDB" lần đầu → hỏi nhập key nếu chưa có, `TmdbKeyDialog`/`DialogService.promptTmdbApiKey()`) không đổi gì, vẫn là cách CHÍNH để bật tính năng lần đầu. Màn Cài đặt chỉ thêm một **lối vào thứ hai** cho việc quản lý chủ động (xem/đổi/xoá) ngoài lúc đang cần tra cứu — dùng lại NGUYÊN VẸN dialog nhập key đã có, không viết dialog thứ hai.
+
+**Việc mới, ngoài phạm vi ADR gốc:** một command Rust `tmdb_delete_key` (`tmdb.rs`, xoá `tmdb_api_key.json` best-effort) — trước đây cách DUY NHẤT "xoá key sai" là admin tự tay xoá file ở app-data (ghi trong `describeTmdbError()`).
+
+**Không đổi:** cách lưu key (`tmdb_api_key.json`, plaintext app-data, cùng mô hình `credentials.json`) — mã hoá vẫn để ngỏ, một mục riêng ở roadmap, không thuộc phạm vi thay đổi này.
+
+`cargo build`/`cargo clippy --workspace` (0 warning) + `ng build`/`npm run lint` sạch. **Verify 2026-09-14, ĐẠT (tổng quát)** — user xác nhận chạy `cargo tauri dev` + tài khoản thật, màn Cài đặt hoạt động đúng thiết kế; chưa có xác nhận riêng từng bước con, checklist ở [docs/pending-device-tests.md § màn Cài đặt](../pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--màn-cài-đặt-2026-09-14).
+
 ## Việc để ngỏ
 
 - Verify bằng API key TMDB thật (admin tự làm, có key riêng).

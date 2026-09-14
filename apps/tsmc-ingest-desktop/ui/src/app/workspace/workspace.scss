@@ -20,6 +20,13 @@
     .catalog-summary {
       opacity: 0.75;
     }
+
+    // Đẩy icon ⚙ Cài đặt sang góc phải header — cùng kỹ thuật
+    // `.toolbar-spacer` của `.metadata-pane` bên dưới (flex: 1 1 auto chiếm
+    // hết khoảng trống còn lại).
+    .toolbar-spacer {
+      flex: 1 1 auto;
+    }
   }
 
   .panes {

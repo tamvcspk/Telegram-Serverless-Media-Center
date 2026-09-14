@@ -350,6 +350,14 @@ export class Workspace implements OnInit {
     void this.router.navigateByUrl('/channel');
   }
 
+  /** Icon ⚙ ở topbar (đúng vị trí mockup A.3: "⚙ 👤" góc phải header) — màn
+   * Cài đặt mới thêm (docs/roadmap.md § Ingest), route riêng ngoài canDeactivate
+   * guard của route này (áp dụng cho MỌI điều hướng rời Workspace, xem
+   * app.routes.ts). */
+  protected onOpenSettings(): void {
+    void this.router.navigateByUrl('/settings');
+  }
+
   protected trackByPath(_index: number, item: { path: string }): string {
     return item.path;
   }

@@ -282,6 +282,36 @@ Liên quan: [ADR-0017 § addendum 2026-09-14](./adr/0017-grammers-cho-cong-cu-in
 - Trần hiện SAI cho tài khoản Premium (bị hạ xuống 2GB) → nghi ngờ đầu tiên: `is_premium()` match nhầm biến thể `tl::enums::User` (kiểm log/`dbg!` giá trị `me.raw` thật trả về).
 - Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0017 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
 
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — màn Cài đặt (2026-09-14)
+
+Liên quan: [docs/changelog.md § 2026-09-14, màn Cài đặt](./changelog.md#2026-09-14--gui-ingest-desktop-màn-cài-đặt-mới-ngoài-mockup-a4-gốc--quản-lý-tmdb-key--xem-thông-tin-tài-khoản), [docs/ux-design.md § Phụ lục A.4](./ux-design.md#a4-các-màn-còn-lại), [docs/roadmap.md § Ingest](./roadmap.md#ingest). Cùng ghi chú môi trường như các mục Workspace phía trên — "thiết bị thật" nghĩa là `cargo tauri dev` + tài khoản đã đăng nhập (đọc `credentials.json` thật) và một API key TMDB thật (nhánh đổi/xoá key).
+
+**KHÔNG chạy hộ bằng agent/Claude.** Admin tự chạy.
+
+### Chuẩn bị
+
+- [x] `cargo build --workspace`/`cargo clippy --workspace` (0 warning) sau khi thêm `tmdb_delete_key` — verify 2026-09-14.
+- [x] `ng build`/`npm run lint` sạch sau khi thêm route `/settings` + icon ⚙ ở topbar Workspace — verify 2026-09-14, môi trường dev (không phải `cargo tauri dev`).
+
+### Các bước
+
+- [x] **Verify 2026-09-14, ĐẠT (tổng quát).** User xác nhận đã chạy `cargo tauri dev` + tài khoản thật, màn Cài đặt hoạt động đúng thiết kế. Chưa có xác nhận riêng từng bước con bên dưới (nhánh Esc dialog, tương tác với `canDeactivateWorkspace`...) — các dòng đó VẪN mở, coi như chưa verify riêng lẻ.
+- [ ] Đã đăng nhập + đã chọn kênh, vào `/workspace` → bấm icon ⚙ góc phải topbar → sang màn Cài đặt, thấy đúng số điện thoại (`+<dial_code> <national_number>`) và API_ID/API_HASH CHE MỘT PHẦN (không hiện trọn vẹn) khớp giá trị thật đã đăng nhập.
+- [ ] Bấm nút back (mũi tên trái đầu topbar) → quay đúng về `/workspace`, KHÔNG mất Draft/hàng đợi đang có (đi thẳng `/settings` → back không đi qua `canDeactivateWorkspace`, guard đó chỉ chặn lúc RỜI `/workspace`, không chặn lúc VÀO lại).
+- [ ] Chưa có TMDB key nào lưu sẵn → khối TMDB hiện "chưa cấu hình", nút "Xoá key" bị khoá (disabled), nút hiện chữ "Nhập key" (không phải "Đổi key").
+- [ ] Bấm "Nhập key" → dialog `TmdbKeyDialog` quen thuộc (cùng dialog màn Workspace) → nhập key thật → Lưu → khối TMDB tự cập nhật ngay thành "✓ đã cấu hình", nút đổi chữ "Đổi key", nút "Xoá key" bật lên.
+- [ ] Quay lại `/workspace`, bấm "Tra TMDB" ở một dòng bảng metadata → gọi thẳng `tmdb_search` (KHÔNG hiện lại dialog nhập key) — xác nhận key vừa nhập ở Cài đặt được tầng `tmdb.rs` đọc đúng, không cần nhập lại.
+- [ ] Bấm "Đổi key" (đã có key từ trước) → dialog mở lên TRỐNG (không prefill key cũ — `tmdb_has_key()` không trả key ra ngoài, xem doc comment `tmdb.rs`) → nhập key khác → Lưu → `tmdb_search` sau đó dùng key MỚI (kiểm bằng cách đổi sang key sai rồi tra thử, phải ra lỗi `InvalidKey`).
+- [ ] Bấm "Xoá key" → dialog `ConfirmDialog` (nút xác nhận tô warn) → bấm "Xoá key" → khối TMDB về lại "chưa cấu hình", nút "Xoá key" khoá lại. Quay lại Workspace, bấm "Tra TMDB" → dialog nhập key lại hiện ra (đúng hành vi `tmdbHasKey()` trả `false`).
+- [ ] Bấm "Xoá key" rồi đóng `ConfirmDialog` bằng Esc/bấm ra ngoài (không bấm nút nào) → KHÔNG có gì đổi — trạng thái TMDB giữ nguyên, file `tmdb_api_key.json` vẫn còn.
+- [ ] Vào `/workspace` khi có ≥1 dòng ở bảng metadata (Draft chưa upload), bấm icon ⚙ → dialog "Rời khỏi Workspace?" hiện ra ĐÚNG NHƯ bấm "Chọn kênh khác" (canDeactivate guard áp dụng đều cho mọi điều hướng rời `/workspace`, không có ngoại lệ riêng cho Cài đặt) — bấm "Ở lại" thì vẫn ở `/workspace`, Draft giữ nguyên; bấm "Rời khỏi" thì sang `/settings` VÀ Draft bị xoá (đúng thiết kế ADR-0018, không phải bug mới).
+
+### Nếu có gì vỡ
+
+- Số điện thoại/API_ID/API_HASH hiện "Không đọc được thông tin đăng nhập" dù đã đăng nhập bằng `credentials.json` có thật → kiểm `load_saved_credentials()` có đang đọc đúng `app_data_dir()` của phiên `cargo tauri dev` hiện tại không (cùng lớp bug đã gặp ở màn Đăng nhập — origin webview không liên quan ở đây vì đọc app-data, nhưng vẫn kiểm nếu build debug/release trỏ khác thư mục app-data).
+- "Đổi key" hiện lại key CŨ trong dialog → sai thiết kế, `tmdb_has_key()` chỉ được trả `bool`, không được trả key thật — kiểm `TmdbKeyDialog`/`promptTmdbApiKey()` không bị truyền `data` chứa key có sẵn.
+- Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0019 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
+
 ## Player: hiển thị phụ đề (`subs[]`) (2026-08-31)
 
 Liên quan: [docs/changelog.md § 2026-08-31, verify — ĐẠT](./changelog.md#2026-08-31--player-verify-thật-phụ-đề-đơn-ngôn-ngữ--đạt), [docs/roadmap.md § UI theo từng màn hình](./roadmap.md#ui-theo-từng-màn-hình). Khác mục CLI ngay dưới đây — đây là tính năng web, verify trên **staging** (https://tsmc-staging.web.app) bằng trình duyệt thật, không phải máy admin.

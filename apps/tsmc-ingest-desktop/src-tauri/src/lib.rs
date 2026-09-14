@@ -53,6 +53,7 @@ pub fn run() {
             upload::clear_current_task,
             tmdb::tmdb_has_key,
             tmdb::tmdb_save_key,
+            tmdb::tmdb_delete_key,
             tmdb::tmdb_search,
         ])
         .run(tauri::generate_context!())

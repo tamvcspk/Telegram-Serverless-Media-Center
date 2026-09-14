@@ -430,6 +430,7 @@ Khi đang chạy, vùng bảng đổi sang chế độ theo dõi: mỗi dòng hi
 |---|---|---|
 | Đăng nhập **[Đã chạy thật, 2026-09-10]** | `API_ID`/`API_HASH` → số điện thoại → OTP → 2FA | Giữ **nguyên** cảnh báo bắt buộc của [ADR-0011 §5](./adr/0011-bao-mat-session-va-noi-dung-khong-tin-cay.md) trước ô nhập đầu tiên — desktop app không được nhẹ tay hơn web |
 | Chọn kênh **[Đã chạy thật, 2026-09-11]** | Danh sách kênh **ghi được** (chọn từ danh sách kênh của admin, nhập ref trực tiếp, hoặc tạo kênh mới), kèm tình trạng catalog đã ghim | Chặn id thô ngay tại form (bất biến #10 — `access_hash` khác nhau theo tài khoản); không bao giờ ghi vào kênh của người khác (bất biến #5) |
+| Cài đặt **[Đã chạy thật, 2026-09-14 — thêm mới, KHÔNG có trong mockup A.3/A.4 gốc]** | Tài khoản (chỉ hiển thị: số điện thoại/API_ID/API_HASH che một phần) + TMDB (xem trạng thái, đổi key, xoá key — trước đây chỉ tự xoá tay file `tmdb_api_key.json`) | KHÔNG có nút đăng xuất/đổi số (`IngestRpc` chưa có sign-out); KHÔNG đổi cách lưu bí mật (vẫn plaintext app-data, xem roadmap § "Mã hoá thông tin lưu ở app-data") |
 | Trình quản lý catalog | Bảng toàn bộ item đang có, đối soát với message thật trong kênh, sửa/xoá/re-publish | Mọi dữ liệu đọc từ Telegram là **không tin cậy** — validate schema + kẹp độ dài như Màn hình 6 ([ADR-0011 §3](./adr/0011-bao-mat-session-va-noi-dung-khong-tin-cay.md)) |
 | Nhật ký | Log kỹ thuật, copy được | Chỗ để dán khi báo lỗi; không log session/token |
 
