@@ -4,6 +4,10 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-09-14 — GUI ingest desktop: verify mã hoá `session.sqlite3` — ĐẠT
+
+User xác nhận đã chạy `cargo tauri dev` + tài khoản thật: đăng nhập/mở lại app hoạt động đúng với `session.sqlite3` mã hoá (ADR-0021). Chưa có xác nhận riêng từng bước con (mở file bằng công cụ SQLite thường phải lỗi, nhánh di trú từ file plaintext cũ, key ổn định qua nhiều phiên `cargo tauri dev`). Checklist: [docs/pending-device-tests.md § mã hoá session.sqlite3](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--mã-hoá-sessionsqlite3-2026-09-14).
+
 ## 2026-09-14 — GUI ingest desktop: mã hoá `session.sqlite3` qua `Session` tự implement (ADR-0021)
 
 Đóng gap `session.sqlite3` mà [ADR-0020](./adr/0020-ma-hoa-bi-mat-app-data-qua-os-keyring.md) cố ý để ngỏ — user chọn thẳng phương án "tự implement `Session`" sau brainstorm 3 phương án (EFS/không làm gì đều bị loại), yêu cầu ghim cứng version + quy trình kiểm tra lại khi upgrade. `ingest-grammers/src/encrypted_session.rs` (module mới) — `EncryptedSqliteSession` fork tay nguyên schema SQL + 8 method `Session` từ `grammers-session-0.10.0/src/storages/sqlite.rs`, chỉ khác một chỗ: mở kèm `EncryptionConfig` (libSQL encryption-at-rest, AES-256). Key sinh một lần bằng CSPRNG, lưu qua `secret_store::load_or_generate_key()` (tái dùng hạ tầng ADR-0020, không phát minh lại). `libsql = "=0.9.30"` ghim cứng đúng version `grammers-session` dùng nội bộ — nâng cấp bắt buộc đối chiếu lại `sqlite.rs` gốc trước khi merge (quy trình 4 bước, ADR-0021 mục 5).

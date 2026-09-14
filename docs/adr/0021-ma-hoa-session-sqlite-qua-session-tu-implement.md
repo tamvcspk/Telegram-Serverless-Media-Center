@@ -100,4 +100,4 @@ Bật feature `encryption` của `libsql` lần đầu đòi `cmake` build `libs
 - `cargo build --workspace`/`cargo clippy --workspace` (0 warning, cần `CMAKE_GENERATOR` như mục 7) sạch.
 - `cargo test --workspace -- --include-ignored` chạy lặp lại 3 lần liên tiếp, sạch cả 3 — xác nhận TOCTOU race ở mục 6 đã vá (trước khi vá, tái hiện được lỗi ngay ở lần chạy đầu).
 
-**Chưa verify:** luồng đăng nhập đầy đủ qua `cargo tauri dev` + tài khoản Telegram thật — đăng nhập lần đầu tạo `session.sqlite3` mã hoá, đóng/mở lại app đọc đúng session cũ (không hỏi lại OTP). Checklist ở [docs/pending-device-tests.md](../pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--mã-hoá-sessionsqlite3-2026-09-14).
+**Verify 2026-09-14, ĐẠT (tổng quát)** — user xác nhận chạy `cargo tauri dev` + tài khoản thật, đăng nhập/mở lại app hoạt động đúng với `session.sqlite3` mã hoá; chưa có xác nhận riêng từng bước con (mở file bằng công cụ SQLite thường phải lỗi, nhánh di trú từ file plaintext cũ, key ổn định qua nhiều phiên). Checklist ở [docs/pending-device-tests.md](../pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--mã-hoá-sessionsqlite3-2026-09-14).
