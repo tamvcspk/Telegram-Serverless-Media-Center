@@ -312,6 +312,32 @@ Liên quan: [docs/changelog.md § 2026-09-14, màn Cài đặt](./changelog.md#2
 - "Đổi key" hiện lại key CŨ trong dialog → sai thiết kế, `tmdb_has_key()` chỉ được trả `bool`, không được trả key thật — kiểm `TmdbKeyDialog`/`promptTmdbApiKey()` không bị truyền `data` chứa key có sẵn.
 - Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0019 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
 
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — mã hoá app-data qua OS keyring (2026-09-14)
+
+Liên quan: [ADR-0020](./adr/0020-ma-hoa-bi-mat-app-data-qua-os-keyring.md), [docs/changelog.md § 2026-09-14, mã hoá app-data](./changelog.md#2026-09-14--gui-ingest-desktop-mã-hoá-credentialsjsontmdb_api_keyjson-qua-os-keyring-adr-0020), [docs/roadmap.md § Ingest](./roadmap.md#ingest). "Thiết bị thật" ở đây nghĩa là `cargo tauri dev` + tài khoản Telegram thật cho nhánh `credentials.json` — nhánh `tmdb_api_key.json` chỉ cần một API key TMDB bất kỳ (thật hoặc giả để test cơ chế lưu, không cần gọi `tmdb_search` thành công).
+
+**KHÔNG chạy hộ bằng agent/Claude phần đăng nhập MTProto.** Riêng roundtrip keyring THUẦN (không đụng MTProto) đã tự verify được — xem "Chuẩn bị" bên dưới.
+
+### Chuẩn bị
+
+- [x] `cargo build --workspace`/`cargo clippy --workspace` (0 warning) sau khi thêm crate `keyring` + `secret_store.rs` — verify 2026-09-14.
+- [x] **Roundtrip keyring THẬT (không mock, không MTProto) — verify 2026-09-14, ĐẠT.** Unit test `#[ignore]` `secret_store::tests::keyring_roundtrip_writes_and_reads_back_without_touching_fallback_file` chạy `cargo test -- --ignored` PASS; `cmdkey /list` xác nhận không còn entry tồn dư sau test.
+
+### Các bước
+
+- [ ] Xoá sạch `credentials.json` VÀ mọi entry Credential Manager tên `com.tsmc.ingestdesktop` (nếu có, qua `cmdkey /list` + `cmdkey /delete`) — đăng nhập lại từ đầu (API_ID/API_HASH/OTP) → sau khi xong, `credentials.json` ở app-data **KHÔNG xuất hiện** (hoặc xuất hiện rồi biến mất ngay) — kiểm bằng `cmdkey /list` thấy MỘT entry service `com.tsmc.ingestdesktop`, account `credentials` chứa đúng thông tin (Credential Manager UI không hiện password ở dạng đọc được, chỉ xác nhận entry tồn tại).
+- [ ] Đóng app, mở lại (không gõ gì) → `check_session()` tự nhận đúng session cũ như trước ADR-0020 (đọc `credentials.json` từ keyring, không phải file) — hành vi bên ngoài giống hệt trước khi có mã hoá.
+- [ ] **Nhánh di trú:** trên một máy ĐANG có sẵn `credentials.json` plaintext từ bản cũ (trước 2026-09-14) — mở app (đọc đúng, rơi về fallback file) → làm một thao tác kích hoạt `save_credentials()` lại (vd đăng nhập lại) → `credentials.json` biến mất khỏi app-data, entry Credential Manager xuất hiện thay thế.
+- [ ] Màn Cài đặt → "Nhập key"/"Đổi key" TMDB → Lưu → `tmdb_api_key.json` **KHÔNG xuất hiện** ở app-data (hoặc biến mất ngay) — `cmdkey /list` thấy entry account `tmdb_api_key`. Bấm "Tra TMDB" ở Workspace vẫn đọc đúng key (không hỏi lại).
+- [ ] Màn Cài đặt → "Xoá key" → entry Credential Manager `tmdb_api_key` biến mất (`cmdkey /list` không còn thấy) — khớp hành vi UI đã verify ở mục "màn Cài đặt" phía trên (trạng thái về "chưa cấu hình").
+- [ ] **Nhánh fallback (khó ép chủ động, ghi lại nếu gặp tự nhiên):** nếu Credential Manager không khả dụng vì lý do nào đó (policy nhóm, lỗi hệ thống...) → app vẫn lưu/đọc được bình thường qua file plaintext, KHÔNG bị treo/lỗi — không có cách chủ động tái hiện an toàn, chỉ verify nếu tự nhiên gặp.
+
+### Nếu có gì vỡ
+
+- Đăng nhập xong nhưng mở lại app vẫn hỏi lại từ đầu → kiểm `cmdkey /list` có entry `com.tsmc.ingestdesktop`/`credentials` không; nếu KHÔNG có và `credentials.json` cũng không có → `secret_store::save_json()` thất bại ở CẢ HAI nhánh (hiếm, kiểm quyền ghi thư mục app-data).
+- Entry Credential Manager có nhưng app vẫn đọc sai/rỗng → kiểm `serde_json::from_slice()` trong `load_json()` — có thể entry chứa dữ liệu KHÔNG phải JSON hợp lệ (ghi tay/công cụ khác đụng vào entry cùng tên).
+- Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0020 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
+
 ## Player: hiển thị phụ đề (`subs[]`) (2026-08-31)
 
 Liên quan: [docs/changelog.md § 2026-08-31, verify — ĐẠT](./changelog.md#2026-08-31--player-verify-thật-phụ-đề-đơn-ngôn-ngữ--đạt), [docs/roadmap.md § UI theo từng màn hình](./roadmap.md#ui-theo-từng-màn-hình). Khác mục CLI ngay dưới đây — đây là tính năng web, verify trên **staging** (https://tsmc-staging.web.app) bằng trình duyệt thật, không phải máy admin.

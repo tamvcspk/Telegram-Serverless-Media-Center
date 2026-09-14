@@ -2,6 +2,7 @@ mod commands;
 mod dto;
 mod pipeline;
 mod probe;
+mod secret_store;
 mod state;
 mod tmdb;
 mod upload;

@@ -23,6 +23,7 @@ use ingest_rpc_trait::{IngestRpc, ResolvedChannel};
 use tauri::{AppHandle, Manager, State};
 
 use crate::dto::{IngestRpcErrorDto, LoginOutcomeDto, PinnedCatalogDto, ResolvedChannelDto, SavedCredentialsDto};
+use crate::secret_store;
 use crate::state::{AppState, ConnState};
 
 /// Session SQLite lưu ở thư mục app-data do HĐH quản lý (KHÔNG phải cwd như
@@ -34,6 +35,10 @@ fn session_path(app: &AppHandle) -> Result<String, IngestRpcErrorDto> {
     Ok(dir.join("session.sqlite3").to_string_lossy().into_owned())
 }
 
+/// Đường dẫn file FALLBACK — `secret_store` (2026-09-14) ưu tiên lưu qua OS
+/// keyring, chỉ ghi file plaintext ở đây nếu keyring không dùng được. Tên
+/// file/vị trí giữ NGUYÊN so với trước slice đó (không đổi để tương thích
+/// ngược với bản cài cũ đã có file này).
 fn credentials_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -43,24 +48,25 @@ fn credentials_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 /// Đọc credential đã nhớ (nếu có) — dùng để UI tự điền form Bước 1 + tự
 /// `check_session()` ngay lúc mở app mà KHÔNG cần user gõ gì, bất kể origin
 /// webview đang phục vụ UI (`localStorage` tách theo origin, xem
-/// `SavedCredentialsDto`). `None` nếu chưa từng lưu hoặc file hỏng/thiếu —
-/// coi như chưa có gì nhớ, không phải lỗi cần báo (best-effort).
+/// `SavedCredentialsDto`). `None` nếu chưa từng lưu hoặc hỏng/thiếu ở CẢ hai
+/// nơi (keyring lẫn file) — coi như chưa có gì nhớ, không phải lỗi cần báo
+/// (best-effort). Ưu tiên đọc OS keyring trước, rơi về file plaintext cũ nếu
+/// không thấy — xem doc comment `secret_store.rs` (2026-09-14, mã hoá app-data).
 #[tauri::command]
 pub fn load_saved_credentials(app: AppHandle) -> Option<SavedCredentialsDto> {
     let path = credentials_path(&app).ok()?;
-    let bytes = std::fs::read(path).ok()?;
-    serde_json::from_slice(&bytes).ok()
+    secret_store::load_json("credentials", &path)
 }
 
 /// Ghi credential — best-effort (không trả lỗi ra UI): lỗi ghi chỉ làm mất
 /// tiện nghi tự điền lần sau, không được phép chặn luồng đăng nhập đang chạy.
+/// Ưu tiên OS keyring, fallback file plaintext nếu keyring không dùng được —
+/// xem doc comment `secret_store.rs`.
 #[tauri::command]
 pub fn save_credentials(app: AppHandle, api_id: i32, api_hash: String, dial_code: String, national_number: String) {
     let Ok(path) = credentials_path(&app) else { return };
     let data = SavedCredentialsDto { api_id, api_hash, dial_code, national_number };
-    if let Ok(bytes) = serde_json::to_vec_pretty(&data) {
-        let _ = std::fs::write(path, bytes);
-    }
+    secret_store::save_json("credentials", &path, &data);
 }
 
 /// Mở/khôi phục session, kiểm tra đã đăng nhập chưa. LUÔN gọi trước các

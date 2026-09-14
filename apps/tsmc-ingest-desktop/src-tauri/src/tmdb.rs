@@ -3,11 +3,11 @@
 //! `cancel_upload`/`get_current_task` (`upload.rs`): command điều khiển
 //! phía client, đăng ký thẳng ở `lib.rs`, không qua trait dùng chung.
 //!
-//! API key TMDB v3 auth (`api_key` query param), lưu ở app-data
-//! (`tmdb_api_key.json`) — CÙNG mô hình `credentials.json` (`commands.rs`),
-//! KHÔNG phải `localStorage` (ADR-0011: localStorage tách theo origin
-//! webview, khác nhau giữa `cargo tauri dev`/bản release — đã là bug thật
-//! ở màn Đăng nhập).
+//! API key TMDB v3 auth (`api_key` query param) — lưu qua `secret_store`
+//! (2026-09-14: ưu tiên OS keyring, fallback file `tmdb_api_key.json` ở
+//! app-data), CÙNG mô hình `credentials.json` (`commands.rs`), KHÔNG phải
+//! `localStorage` (ADR-0011: localStorage tách theo origin webview, khác
+//! nhau giữa `cargo tauri dev`/bản release — đã là bug thật ở màn Đăng nhập).
 //!
 //! Verify bằng API key TMDB thật — ĐẠT 2026-09-13 (xem
 //! [docs/changelog.md](../../../docs/changelog.md#2026-09-13--gui-ingest-desktop-verify-tmdb-pr3-bằng-api-key-thật--đạt)),
@@ -19,10 +19,18 @@ use serde::Deserialize;
 use tauri::{AppHandle, Manager};
 
 use crate::dto::{TmdbErrorDto, TmdbKindDto, TmdbSearchResultDto};
+use crate::secret_store;
 
 const TMDB_API_BASE: &str = "https://api.themoviedb.org/3";
 const TMDB_IMAGE_BASE: &str = "https://image.tmdb.org/t/p/w92";
 
+/// "account" trong `secret_store` (namespace riêng với `"credentials"` ở
+/// `commands.rs`, cùng `SERVICE` OS keyring) — cũng là tên file FALLBACK nếu
+/// keyring không dùng được.
+const TMDB_KEY_ACCOUNT: &str = "tmdb_api_key";
+
+/// Đường dẫn file FALLBACK — xem doc comment `credentials_path()`
+/// (`commands.rs`) và `secret_store.rs`.
 fn tmdb_key_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -36,38 +44,38 @@ struct TmdbKeyFile {
 
 /// Đọc nhanh có key hay chưa — KHÔNG trả key ra ngoài, chỉ để Angular quyết
 /// định hiện dialog "Nhập TMDB API Key" hay gọi thẳng `tmdb_search` (ADR-0019
-/// mục 2: đây là cách "opt-in, mặc định tắt" mà không cần màn Settings).
+/// mục 2: đây là cách "opt-in, mặc định tắt" mà không cần màn Settings —
+/// riêng, màn Cài đặt 2026-09-14 thêm LỐI VÀO THỨ HAI, không đổi luồng này).
 #[tauri::command]
 pub fn tmdb_has_key(app: AppHandle) -> bool {
-    tmdb_key_path(&app).map(|p| p.exists()).unwrap_or(false)
+    load_key(&app).is_some()
 }
 
 /// Ghi API key — best-effort, giống `save_credentials`: lỗi ghi không chặn
 /// luồng, chỉ mất tiện nghi lần sau (Angular tự retry gọi `tmdb_search`
-/// ngay sau khi lưu, không dựa vào giá trị trả về của hàm này).
+/// ngay sau khi lưu, không dựa vào giá trị trả về của hàm này). Ưu tiên OS
+/// keyring, fallback file — xem `secret_store.rs`.
 #[tauri::command]
 pub fn tmdb_save_key(app: AppHandle, api_key: String) {
     let Ok(path) = tmdb_key_path(&app) else { return };
-    if let Ok(bytes) = serde_json::to_vec_pretty(&TmdbKeyFile { api_key }) {
-        let _ = std::fs::write(path, bytes);
-    }
+    secret_store::save_json(TMDB_KEY_ACCOUNT, &path, &TmdbKeyFile { api_key });
 }
 
 /// Xoá key đã lưu (màn Cài đặt, nút "Xoá key") — best-effort, không phải lỗi
-/// nếu file không tồn tại (đã xoá từ trước, hoặc chưa từng lưu). Trước khi có
+/// nếu không có gì để xoá (đã xoá từ trước, hoặc chưa từng lưu). Trước khi có
 /// màn này, cách duy nhất để "xoá key sai" là admin tự tay xoá file ở
-/// app-data (xem `describeTmdbError()` phía Angular) — giờ có nút thật.
+/// app-data (xem `describeTmdbError()` phía Angular) — giờ có nút thật. Xoá
+/// CẢ hai nơi có thể chứa key (keyring lẫn file cũ) — xem `secret_store::delete()`.
 #[tauri::command]
 pub fn tmdb_delete_key(app: AppHandle) {
     if let Ok(path) = tmdb_key_path(&app) {
-        let _ = std::fs::remove_file(path);
+        secret_store::delete(TMDB_KEY_ACCOUNT, &path);
     }
 }
 
 fn load_key(app: &AppHandle) -> Option<String> {
     let path = tmdb_key_path(app).ok()?;
-    let bytes = std::fs::read(path).ok()?;
-    let file: TmdbKeyFile = serde_json::from_slice(&bytes).ok()?;
+    let file: TmdbKeyFile = secret_store::load_json(TMDB_KEY_ACCOUNT, &path)?;
     Some(file.api_key)
 }
 

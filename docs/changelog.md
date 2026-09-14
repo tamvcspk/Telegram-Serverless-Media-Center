@@ -4,6 +4,12 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-09-14 — GUI ingest desktop: mã hoá `credentials.json`/`tmdb_api_key.json` qua OS keyring (ADR-0020)
+
+Đóng gap đã ghi từ SPIKE-10 (2026-09-05): hai file này lưu qua OS Credential Manager (crate `keyring`, module mới `secret_store.rs` — cổng DUY NHẤT gọi crate này), fallback về file plaintext y như trước nếu keyring không dùng được (yêu cầu user — không được "không lưu được gì" nếu thiếu backend OS). Tự di trú ngầm: máy có sẵn file cũ từ bản trước vẫn đọc được (rơi về fallback), lần ghi kế tiếp tự chuyển sang keyring và xoá file cũ. `commands.rs`/`tmdb.rs` đổi sang gọi qua `secret_store`, hành vi IPC bên ngoài không đổi.
+
+Verify THẬT (an toàn để tự chạy — không đụng MTProto/tài khoản Telegram): unit test `#[ignore]` roundtrip qua Windows Credential Manager thật, `cargo test -- --ignored` PASS, đối chiếu `cmdkey /list` xác nhận dọn sạch sau test. `cargo build`/`cargo clippy --workspace` (0 warning) sạch. **Chưa verify** luồng đầy đủ qua `cargo tauri dev` + tài khoản thật. `session.sqlite3` (auth_key) NGOÀI phạm vi, vẫn chưa mã hoá. Chi tiết: [ADR-0020](./adr/0020-ma-hoa-bi-mat-app-data-qua-os-keyring.md).
+
 ## 2026-09-14 — GUI ingest desktop: verify màn Cài đặt — ĐẠT
 
 User xác nhận đã chạy `cargo tauri dev` + tài khoản thật: màn Cài đặt hoạt động đúng thiết kế (xem thông tin tài khoản, quản lý TMDB key). Chưa có xác nhận riêng từng bước con (nhánh Esc dialog, tương tác với cảnh báo rời Workspace...). Checklist: [docs/pending-device-tests.md § màn Cài đặt](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--màn-cài-đặt-2026-09-14).

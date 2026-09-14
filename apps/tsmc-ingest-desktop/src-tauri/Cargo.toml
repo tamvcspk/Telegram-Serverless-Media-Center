@@ -33,3 +33,4 @@ log = "0.4"
 reqwest = { version = "0.12", features = ["json"] }
 tauri = { version = "2.11.3", features = [] }
 tauri-plugin-log = "2"
+keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }

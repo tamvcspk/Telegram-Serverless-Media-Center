@@ -2,7 +2,7 @@
 
 - **Trạng thái:** Accepted
 - **Ngày:** 2026-09-13
-- **Liên quan:** [ADR-0010](./0010-catalog-spec-v1-va-chien-luoc-indexing.md) (Catalog Spec v1 — ràng buộc `metaSource`), [ADR-0011](./0011-bao-mat-session-va-noi-dung-khong-tin-cay.md) (mô hình lưu bí mật ở app-data), [ADR-0017](./0017-grammers-cho-cong-cu-ingest-desktop.md) (để ngỏ TMDB), [ADR-0018](./0018-task-id-lam-khoa-tuong-quan-ipc-ingest-desktop.md) (tiền lệ command điều khiển không thuộc `IngestRpc`)
+- **Liên quan:** [ADR-0010](./0010-catalog-spec-v1-va-chien-luoc-indexing.md) (Catalog Spec v1 — ràng buộc `metaSource`), [ADR-0011](./0011-bao-mat-session-va-noi-dung-khong-tin-cay.md) (mô hình lưu bí mật ở app-data), [ADR-0017](./0017-grammers-cho-cong-cu-ingest-desktop.md) (để ngỏ TMDB), [ADR-0018](./0018-task-id-lam-khoa-tuong-quan-ipc-ingest-desktop.md) (tiền lệ command điều khiển không thuộc `IngestRpc`), [ADR-0020](./0020-ma-hoa-bi-mat-app-data-qua-os-keyring.md) (mã hoá `tmdb_api_key.json` qua OS keyring)
 
 ## Bối cảnh
 
