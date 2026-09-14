@@ -4,6 +4,10 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-09-15 — GUI ingest desktop: verify Đăng xuất — ĐẠT
+
+User xác nhận đã chạy `cargo tauri dev` + tài khoản thật: Đăng xuất (`sign_out`, ADR-0017 § addendum 2026-09-14) hoạt động đúng thiết kế. Chưa có xác nhận riêng từng bước con (đối chiếu "Thiết bị đang hoạt động" trên app Telegram gốc, nhánh có upload chạy dở, nhánh huỷ dialog, nhánh lỗi server). Checklist: [docs/pending-device-tests.md § Đăng xuất](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--đăng-xuất-2026-09-14).
+
 ## 2026-09-14 — GUI ingest desktop: thêm Đăng xuất (`sign_out`, ADR-0017 § addendum)
 
 Đóng gap đã ghi ở roadmap: `IngestRpc` thêm method thứ 8 `sign_out()` (ngoại lệ thứ ba không tương ứng 1-1 phía TS — apps/web có đăng xuất nhưng là luồng client-heavy phức tạp hơn hẳn do còn outbox/IndexedDB để dọn, ingest desktop không có state đó). Implementation gọi thẳng `Client::sign_out()` có sẵn của `grammers-client` (wrap `auth.LogOut`). Command Tauri `sign_out` giữ đúng thứ tự bắt buộc (ADR-0011): gọi server-side TRƯỚC, chỉ xoá `session.sqlite3` cục bộ (+ sidecar `-wal`/`-shm`) SAU khi thành công — lỗi ở bước server thì không xoá gì, `ConnState` giữ nguyên `Ready`.
