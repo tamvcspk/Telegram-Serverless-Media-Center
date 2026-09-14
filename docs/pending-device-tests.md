@@ -339,6 +339,31 @@ Liên quan: [ADR-0020](./adr/0020-ma-hoa-bi-mat-app-data-qua-os-keyring.md), [do
 - Entry Credential Manager có nhưng app vẫn đọc sai/rỗng → kiểm `serde_json::from_slice()` trong `load_json()` — có thể entry chứa dữ liệu KHÔNG phải JSON hợp lệ (ghi tay/công cụ khác đụng vào entry cùng tên).
 - Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0020 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
 
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — mã hoá `session.sqlite3` (2026-09-14)
+
+Liên quan: [ADR-0021](./adr/0021-ma-hoa-session-sqlite-qua-session-tu-implement.md), [docs/changelog.md § 2026-09-14, mã hoá session.sqlite3](./changelog.md#2026-09-14--gui-ingest-desktop-mã-hoá-sessionsqlite3-qua-session-tự-implement-adr-0021), [docs/roadmap.md § Ingest](./roadmap.md#ingest). "Thiết bị thật" ở đây nghĩa là `cargo tauri dev` + tài khoản Telegram thật — khác mục "mã hoá app-data qua OS keyring" ở trên (đã verify riêng, không lặp lại).
+
+**KHÔNG chạy hộ bằng agent/Claude phần đăng nhập MTProto.** Roundtrip mã hoá THUẦN (không đụng MTProto) đã tự verify được — xem "Chuẩn bị" bên dưới.
+
+### Chuẩn bị
+
+- [x] `cargo build --workspace`/`cargo clippy --workspace` (0 warning, cần `CMAKE_GENERATOR` trên máy có nhiều bản Visual Studio — xem [docs/lessons.md](./lessons.md)) sau khi thêm `encrypted_session.rs` — verify 2026-09-14.
+- [x] **Roundtrip mã hoá THẬT (không mock, không MTProto) — verify 2026-09-14, ĐẠT.** `cargo test exercise_encrypted_sqlite_session` PASS: file thật không lộ header `"SQLite format 3\0"`, mở sai key → lỗi, mở đúng key → đọc lại đúng dữ liệu.
+- [x] **`load_or_generate_key()` — verify 2026-09-14, ĐẠT.** `cargo test load_or_generate_key_is_stable_across_calls` PASS: sinh một lần, gọi lại đọc đúng key cũ.
+
+### Các bước
+
+- [ ] Xoá sạch `session.sqlite3` VÀ entry Credential Manager account `session_encryption_key` (nếu có) — đăng nhập lại từ đầu (API_ID/API_HASH/OTP) → thành công như trước ADR-0021 (hành vi bên ngoài không đổi), `session.sqlite3` xuất hiện ở app-data nhưng KHÔNG mở được bằng công cụ SQLite thường (vd DB Browser for SQLite báo "file is not a database" — đúng thiết kế, xác nhận mã hoá thật trên tài khoản thật, không chỉ fixture test).
+- [ ] Đóng app, mở lại (không gõ gì) → `check_session()` nhận đúng session cũ, KHÔNG hỏi lại OTP — hành vi giống hệt trước khi có ADR-0021 (chỉ khác ở chỗ file giờ mã hoá).
+- [ ] **Nhánh di trú:** trên máy ĐANG có `session.sqlite3` PLAINTEXT từ bản cũ (trước 2026-09-14) — mở app bằng code MỚI → `EncryptedSqliteSession::open()` gọi kèm `encryption_config` trên một file KHÔNG mã hoá → dự kiến LỖI mở (SQLite thường không đọc được khi ép cipher lên file plaintext) — nếu gặp, KHÔNG phải mất dữ liệu (file `session.sqlite3` cũ vẫn còn nguyên trên đĩa) nhưng app sẽ coi như chưa đăng nhập, phải đăng nhập lại (session mới, mã hoá) — ghi lại đúng hành vi gặp phải, đối chiếu với dự kiến này.
+- [ ] Sau khi đăng nhập lại nhiều lần trong các phiên `cargo tauri dev` khác nhau → key mã hoá KHÔNG đổi giữa các lần (nếu đổi, mỗi lần mở app sẽ y hệt "nhánh di trú" ở trên — luôn phải đăng nhập lại) — xác nhận qua log/hành vi thực tế: chỉ hỏi OTP lại nếu Telegram tự hết hạn session, không phải mỗi lần mở app.
+
+### Nếu có gì vỡ
+
+- Đăng nhập xong nhưng mở lại app luôn hỏi lại OTP (dù chưa xoá gì) → nghi ngờ đầu tiên: `load_or_generate_key()` SINH KEY MỚI mỗi lần gọi thay vì đọc lại key cũ — kiểm entry Credential Manager `session_encryption_key` có ổn định qua `cmdkey /list` giữa các lần mở app không.
+- `check_session()` lỗi ngay cả với session MỚI (vừa đăng nhập xong trong đúng phiên đó) → nghi ngờ: key truyền vào `EncryptedSqliteSession::open()` lúc TẠO khác key truyền vào lúc ĐỌC LẠI trong cùng process (bug logic, không phải vấn đề persist key) — kiểm `check_session()` luôn gọi `load_or_generate_key()` với ĐÚNG `key`/`path` mỗi lần, không có code path nào bỏ qua.
+- Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0021 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
+
 ## Player: hiển thị phụ đề (`subs[]`) (2026-08-31)
 
 Liên quan: [docs/changelog.md § 2026-08-31, verify — ĐẠT](./changelog.md#2026-08-31--player-verify-thật-phụ-đề-đơn-ngôn-ngữ--đạt), [docs/roadmap.md § UI theo từng màn hình](./roadmap.md#ui-theo-từng-màn-hình). Khác mục CLI ngay dưới đây — đây là tính năng web, verify trên **staging** (https://tsmc-staging.web.app) bằng trình duyệt thật, không phải máy admin.

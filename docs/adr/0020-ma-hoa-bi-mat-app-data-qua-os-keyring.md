@@ -2,7 +2,7 @@
 
 - **Trạng thái:** Accepted
 - **Ngày:** 2026-09-14
-- **Liên quan:** [ADR-0017](./0017-grammers-cho-cong-cu-ingest-desktop.md) (kiến trúc `apps/tsmc-ingest-desktop`, chọn `grammers-client`), [ADR-0011](./0011-bao-mat-session-va-noi-dung-khong-tin-cay.md) (mô hình bảo mật session của `apps/web` — khác app, khác kỹ thuật, nhưng cùng mối quan tâm), [ADR-0019](./0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md) (nơi `tmdb_api_key.json` được tạo ra lần đầu, cùng lưu plaintext lúc đó)
+- **Liên quan:** [ADR-0017](./0017-grammers-cho-cong-cu-ingest-desktop.md) (kiến trúc `apps/tsmc-ingest-desktop`, chọn `grammers-client`), [ADR-0011](./0011-bao-mat-session-va-noi-dung-khong-tin-cay.md) (mô hình bảo mật session của `apps/web` — khác app, khác kỹ thuật, nhưng cùng mối quan tâm), [ADR-0019](./0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md) (nơi `tmdb_api_key.json` được tạo ra lần đầu, cùng lưu plaintext lúc đó), [ADR-0021](./0021-ma-hoa-session-sqlite-qua-session-tu-implement.md) (đóng gap `session.sqlite3` mà ADR này cố ý để ngỏ, tái dùng `secret_store.rs`)
 
 ## Bối cảnh
 

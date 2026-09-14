@@ -2,7 +2,7 @@
 
 - **Trạng thái:** Accepted
 - **Ngày:** 2026-09-07
-- **Liên quan:** [ADR-0003](./0003-chon-thu-vien-mtproto-gramjs.md), [ADR-0012](./0012-trien-khai-static-pwa-va-cau-truc-workspace.md), [ADR-0013](./0013-bot-dong-hanh-va-pipeline-ingest.md), [ADR-0018](./0018-task-id-lam-khoa-tuong-quan-ipc-ingest-desktop.md), [ADR-0019](./0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md) (chốt hướng tra cứu TMDB, gỡ "để ngỏ"), [ADR-0020](./0020-ma-hoa-bi-mat-app-data-qua-os-keyring.md) (mã hoá `credentials.json` qua OS keyring)
+- **Liên quan:** [ADR-0003](./0003-chon-thu-vien-mtproto-gramjs.md), [ADR-0012](./0012-trien-khai-static-pwa-va-cau-truc-workspace.md), [ADR-0013](./0013-bot-dong-hanh-va-pipeline-ingest.md), [ADR-0018](./0018-task-id-lam-khoa-tuong-quan-ipc-ingest-desktop.md), [ADR-0019](./0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md) (chốt hướng tra cứu TMDB, gỡ "để ngỏ"), [ADR-0020](./0020-ma-hoa-bi-mat-app-data-qua-os-keyring.md) (mã hoá `credentials.json` qua OS keyring), [ADR-0021](./0021-ma-hoa-session-sqlite-qua-session-tu-implement.md) (mã hoá `session.sqlite3` — điều kiện bắt buộc #1 "ghim cứng `grammers-*`" mở rộng sang `libsql`)
 
 ## Bối cảnh
 

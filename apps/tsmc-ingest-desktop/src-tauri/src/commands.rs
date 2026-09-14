@@ -26,14 +26,25 @@ use crate::dto::{IngestRpcErrorDto, LoginOutcomeDto, PinnedCatalogDto, ResolvedC
 use crate::secret_store;
 use crate::state::{AppState, ConnState};
 
-/// Session SQLite lưu ở thư mục app-data do HĐH quản lý (KHÔNG phải cwd như
-/// mặc định của CLI `tools/spike-10/r3-grammers` — một app desktop thật
-/// không nên phụ thuộc thư mục làm việc lúc khởi động).
+/// Session SQLite (MÃ HOÁ — ADR-0021) lưu ở thư mục app-data do HĐH quản lý
+/// (KHÔNG phải cwd như mặc định của CLI `tools/spike-10/r3-grammers` — một
+/// app desktop thật không nên phụ thuộc thư mục làm việc lúc khởi động).
 fn session_path(app: &AppHandle) -> Result<String, IngestRpcErrorDto> {
     let dir = app.path().app_data_dir().map_err(|e| IngestRpcErrorDto::other(e.to_string()))?;
     std::fs::create_dir_all(&dir).map_err(|e| IngestRpcErrorDto::other(e.to_string()))?;
     Ok(dir.join("session.sqlite3").to_string_lossy().into_owned())
 }
+
+/// Đường dẫn file FALLBACK cho key mã hoá `session.sqlite3` — xem doc comment
+/// `secret_store::load_or_generate_key()`/`credentials_path()`.
+fn session_key_path(app: &AppHandle) -> Result<std::path::PathBuf, IngestRpcErrorDto> {
+    let dir = app.path().app_data_dir().map_err(|e| IngestRpcErrorDto::other(e.to_string()))?;
+    std::fs::create_dir_all(&dir).map_err(|e| IngestRpcErrorDto::other(e.to_string()))?;
+    Ok(dir.join("session_key.json"))
+}
+
+/// AES-256 → key 32 byte (`Cipher::Aes256Cbc`, xem `encrypted_session.rs`).
+const SESSION_ENCRYPTION_KEY_LEN: usize = 32;
 
 /// Đường dẫn file FALLBACK — `secret_store` (2026-09-14) ưu tiên lưu qua OS
 /// keyring, chỉ ghi file plaintext ở đây nếu keyring không dùng được. Tên
@@ -69,12 +80,17 @@ pub fn save_credentials(app: AppHandle, api_id: i32, api_hash: String, dial_code
     secret_store::save_json("credentials", &path, &data);
 }
 
-/// Mở/khôi phục session, kiểm tra đã đăng nhập chưa. LUÔN gọi trước các
-/// command đăng nhập khác trong một lần chạy app.
+/// Mở/khôi phục session (MÃ HOÁ — ADR-0021), kiểm tra đã đăng nhập chưa.
+/// LUÔN gọi trước các command đăng nhập khác trong một lần chạy app.
 #[tauri::command]
 pub async fn check_session(app: AppHandle, state: State<'_, AppState>, api_id: i32) -> Result<bool, IngestRpcErrorDto> {
     let path = session_path(&app)?;
-    let connected = connect(&path, api_id).await.map_err(|e| IngestRpcErrorDto::other(e.to_string()))?;
+    // `get_or_init()` — chỉ đọc/sinh key ĐÚNG MỘT LẦN cho cả vòng đời tiến
+    // trình app, tránh TOCTOU race nếu `check_session()` bị gọi nhiều lần
+    // (xem doc comment `AppState::session_encryption_key`).
+    let key_path = session_key_path(&app)?;
+    let encryption_key = state.session_encryption_key.get_or_init(|| secret_store::load_or_generate_key("session_encryption_key", &key_path, SESSION_ENCRYPTION_KEY_LEN)).clone();
+    let connected = connect(&path, api_id, encryption_key.into()).await.map_err(|e| IngestRpcErrorDto::other(e.to_string()))?;
     let authorized = connected.client.is_authorized().await.map_err(|e| IngestRpcErrorDto::other(e.to_string()))?;
 
     let mut conn = state.conn.lock().await;

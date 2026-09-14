@@ -4,6 +4,12 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-09-14 — GUI ingest desktop: mã hoá `session.sqlite3` qua `Session` tự implement (ADR-0021)
+
+Đóng gap `session.sqlite3` mà [ADR-0020](./adr/0020-ma-hoa-bi-mat-app-data-qua-os-keyring.md) cố ý để ngỏ — user chọn thẳng phương án "tự implement `Session`" sau brainstorm 3 phương án (EFS/không làm gì đều bị loại), yêu cầu ghim cứng version + quy trình kiểm tra lại khi upgrade. `ingest-grammers/src/encrypted_session.rs` (module mới) — `EncryptedSqliteSession` fork tay nguyên schema SQL + 8 method `Session` từ `grammers-session-0.10.0/src/storages/sqlite.rs`, chỉ khác một chỗ: mở kèm `EncryptionConfig` (libSQL encryption-at-rest, AES-256). Key sinh một lần bằng CSPRNG, lưu qua `secret_store::load_or_generate_key()` (tái dùng hạ tầng ADR-0020, không phát minh lại). `libsql = "=0.9.30"` ghim cứng đúng version `grammers-session` dùng nội bộ — nâng cấp bắt buộc đối chiếu lại `sqlite.rs` gốc trước khi merge (quy trình 4 bước, ADR-0021 mục 5).
+
+Verify thật (không đụng MTProto): unit test roundtrip xác nhận file KHÔNG lộ header SQLite plaintext, mở sai key thì lỗi, mở đúng key đọc lại đúng dữ liệu — PASS. `cargo build`/`cargo clippy --workspace` (0 warning) sạch. Phát hiện phụ: bật feature `encryption` của `libsql` lần đầu cần `cmake` — máy dev có cả VS preview lẫn VS 2022 khiến `cmake` crate tự chọn generator sai tên, vá bằng `CMAKE_GENERATOR` (xem [docs/lessons.md](./lessons.md)). **Chưa verify** luồng đăng nhập đầy đủ qua `cargo tauri dev` + tài khoản thật. Chi tiết: [ADR-0021](./adr/0021-ma-hoa-session-sqlite-qua-session-tu-implement.md).
+
 ## 2026-09-14 — GUI ingest desktop: verify mã hoá app-data qua OS keyring — ĐẠT
 
 User xác nhận đã chạy `cargo tauri dev` + tài khoản thật: đăng nhập/TMDB key hoạt động đúng qua OS keyring (ADR-0020). Chưa có xác nhận riêng từng bước con (nhánh di trú từ file cũ, xoá key, fallback plaintext...). Checklist: [docs/pending-device-tests.md § mã hoá app-data](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--mã-hoá-app-data-qua-os-keyring-2026-09-14).

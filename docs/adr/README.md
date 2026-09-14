@@ -28,3 +28,4 @@ Mỗi ADR ghi lại **một** quyết định kiến trúc: bối cảnh, các p
 | [0018](./0018-task-id-lam-khoa-tuong-quan-ipc-ingest-desktop.md) | Task ID (UUID) làm khoá tương quan IPC cho pipeline upload ingest desktop | Accepted |
 | [0019](./0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md) | Tích hợp tra cứu metadata TMDB tại bước Draft — ingest desktop | Accepted |
 | [0020](./0020-ma-hoa-bi-mat-app-data-qua-os-keyring.md) | Mã hoá bí mật lưu ở app-data qua OS keyring, fallback plaintext — ingest desktop | Accepted |
+| [0021](./0021-ma-hoa-session-sqlite-qua-session-tu-implement.md) | Mã hoá `session.sqlite3` qua `Session` tự implement (libSQL encryption-at-rest) — ingest desktop | Accepted |

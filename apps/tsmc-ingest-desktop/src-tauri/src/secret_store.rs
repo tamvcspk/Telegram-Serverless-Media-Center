@@ -27,7 +27,8 @@
 //! chỉ mất tiện nghi lần sau, không được phép chặn đăng nhập/tra cứu).
 
 use keyring::Entry;
-use serde::{Serialize, de::DeserializeOwned};
+use rand::RngCore;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::path::Path;
 
 /// Cùng namespace với `identifier` ở `tauri.conf.json` — Windows Credential
@@ -78,6 +79,40 @@ pub fn delete(key: &str, path: &Path) {
     let _ = std::fs::remove_file(path);
 }
 
+#[derive(Serialize, Deserialize)]
+struct RawKey {
+    /// `Vec<u8>` serialize thành mảng số JSON (`[1,2,3,...]`) qua serde mặc
+    /// định — KHÔNG cần thêm dependency base64 chỉ để mã hoá một field.
+    bytes: Vec<u8>,
+}
+
+/// Đọc key mã hoá `session.sqlite3` đã lưu (ADR-0021), hoặc SINH MỚI
+/// `len` byte ngẫu nhiên bằng CSPRNG (`rand::rngs::OsRng`) nếu chưa có — lưu
+/// lại NGAY qua `save_json()` (keyring ưu tiên, fallback file, cùng cơ chế
+/// `credentials.json`/`tmdb_api_key.json`) để lần gọi sau đọc lại ĐÚNG key
+/// này. Khác `save_json()`/`load_json()` ở trên (những hàm đó cần giá trị
+/// SẴN CÓ để ghi) — hàm này tự sinh nếu chưa từng có, vì key mã hoá session
+/// không tồn tại trước lần chạy đầu tiên (không giống credential người dùng
+/// tự nhập).
+///
+/// **Độ dài SAI (file hỏng, hoặc đổi `len` giữa các bản sau này) coi như
+/// CHƯA CÓ** — sinh key MỚI thay vì dùng key cũ méo mó. Hệ quả: nếu từng có
+/// `session.sqlite3` mã hoá bằng key CŨ, đổi `len` sẽ khiến session đó không
+/// mở lại được (không phải mất dữ liệu — DB vẫn còn nguyên, chỉ không đọc
+/// được nếu không có key cũ) — KHÔNG đổi `len` sau khi đã phát hành trừ khi
+/// chấp nhận đánh đổi này.
+pub fn load_or_generate_key(key: &str, path: &Path, len: usize) -> Vec<u8> {
+    if let Some(existing) = load_json::<RawKey>(key, path) {
+        if existing.bytes.len() == len {
+            return existing.bytes;
+        }
+    }
+    let mut raw = vec![0u8; len];
+    rand::rngs::OsRng.fill_bytes(&mut raw);
+    save_json(key, path, &RawKey { bytes: raw.clone() });
+    raw
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,5 +145,28 @@ mod tests {
 
         delete(key, &path);
         assert_eq!(load_json::<Sample>(key, &path), None);
+    }
+
+    /// Cùng an toàn để tự chạy — key mã hoá `session.sqlite3` (ADR-0021),
+    /// KHÔNG đụng MTProto/tài khoản Telegram, chỉ là entry Credential
+    /// Manager cục bộ. Xác nhận: sinh MỘT LẦN, gọi lại đọc ĐÚNG key cũ
+    /// (không sinh mới mỗi lần), đúng độ dài yêu cầu, và không lộ ra file
+    /// plaintext khi keyring dùng được.
+    #[test]
+    #[ignore]
+    fn load_or_generate_key_is_stable_across_calls() {
+        let key = "test_session_encryption_key";
+        let dir = std::env::temp_dir();
+        let path = dir.join("tsmc-secret-store-key-test.json");
+        delete(key, &path);
+
+        let first = load_or_generate_key(key, &path, 32);
+        assert_eq!(first.len(), 32);
+        assert!(!path.exists(), "keyring dùng được thì KHÔNG được để lại file fallback");
+
+        let second = load_or_generate_key(key, &path, 32);
+        assert_eq!(first, second, "gọi lại phải trả ĐÚNG key cũ, không sinh key mới");
+
+        delete(key, &path);
     }
 }

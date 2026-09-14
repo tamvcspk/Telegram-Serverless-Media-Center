@@ -22,7 +22,6 @@ ingest-rpc-trait = { path = "../ingest-rpc-trait" }
 ingest-grammers = { path = "../ingest-grammers" }
 ingest-ffmpeg = { path = "../ingest-ffmpeg" }
 grammers-client = { workspace = true }
-grammers-session = { workspace = true }
 tokio = { workspace = true }
 serde_json = "1.0"
 serde = { workspace = true }
@@ -34,3 +33,9 @@ reqwest = { version = "0.12", features = ["json"] }
 tauri = { version = "2.11.3", features = [] }
 tauri-plugin-log = "2"
 keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
+# ADR-0021 — sinh key mã hoá `session.sqlite3` bằng CSPRNG (`OsRng`,
+# `secret_store::load_or_generate_key()`). Ghim CỨNG (đã có sẵn trong
+# Cargo.lock qua `keyring`/`libsql` transitively, xem doc comment
+# `../Cargo.toml` cạnh `libsql`) — dùng cho mục đích bảo mật, không để
+# `cargo update` âm thầm đổi phiên bản RNG.
+rand = "=0.8.8"

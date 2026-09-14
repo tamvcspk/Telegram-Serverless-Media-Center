@@ -12,6 +12,11 @@ grammers-session = { workspace = true }
 grammers-mtsender = { workspace = true }
 grammers-mtproto = { workspace = true }
 grammers-tl-types = { workspace = true }
+# ADR-0021 — `encrypted_session.rs` (thay `grammers_session::storages::
+# SqliteSession`, xem doc comment ở đó). Ghim ở workspace root, xem lý do ở
+# `../Cargo.toml`.
+libsql = { workspace = true }
+bytes = "1"
 tokio = { workspace = true }
 async-trait = { workspace = true }
 futures-util = "0.3"

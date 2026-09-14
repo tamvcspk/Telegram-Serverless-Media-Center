@@ -28,7 +28,8 @@ apps/tsmc-ingest-desktop/
 - Tauri CLI: `cargo install tauri-cli --version "^2" --locked` (một lần, có thể mất vài phút build).
 - Windows: WebView2 Runtime (thường có sẵn trên Windows 11; nếu thiếu, Tauri sẽ báo lỗi rõ lúc `cargo tauri dev`).
 - `pnpm install` đã chạy ở **root** repo ít nhất một lần (`ui/` là một package trong pnpm workspace chung, xem `pnpm-workspace.yaml`) — `cargo tauri dev`/`cargo tauri build` tự gọi `pnpm --dir ../ui run start`/`build` qua `beforeDevCommand`/`beforeBuildCommand` ở `tauri.conf.json`, nhưng KHÔNG tự chạy `pnpm install` hộ.
-- `TSMC_API_ID`/`TSMC_API_HASH` — tự tạo tại https://my.telegram.org, nhập trực tiếp vào form trong app. Chỉ cần nhập tay ở lần đăng nhập ĐẦU TIÊN — từ lần sau app tự nhớ (`credentials.json` ở app-data, xem mục "Chạy") và tự nhận ra đã đăng nhập, không hỏi lại.
+- `TSMC_API_ID`/`TSMC_API_HASH` — tự tạo tại https://my.telegram.org, nhập trực tiếp vào form trong app. Chỉ cần nhập tay ở lần đăng nhập ĐẦU TIÊN — từ lần sau app tự nhớ (`credentials.json`/OS keyring ở app-data, xem mục "Chạy") và tự nhận ra đã đăng nhập, không hỏi lại.
+- **`cmake` trên `PATH`** (mới từ [ADR-0021](../../docs/adr/0021-ma-hoa-session-sqlite-qua-session-tu-implement.md), mã hoá `session.sqlite3`) — `libsql-ffi` build kèm feature `multiple-ciphers` qua `cmake::Config`, cần binary `cmake` thật (không chỉ Rust `cmake` crate). Nếu máy có NHIỀU bản Visual Studio (vd bản preview mới cạnh bản ổn định), `cmake` crate có thể tự chọn generator mà `cmake` binary đang cài KHÔNG nhận ra (`CMake Error: Could not create named generator Visual Studio NN 20XX`) — set biến môi trường `CMAKE_GENERATOR` trỏ đúng generator có thật, vd `CMAKE_GENERATOR="Visual Studio 17 2022" cargo build`.
 
 ## Chạy
 
@@ -93,8 +94,8 @@ Toàn bộ 5 crate `grammers-*` ghim cứng `=0.10.0` (không `^`) trong `[works
 
 ## Bảo mật & nơi lưu dữ liệu
 
-- Session MTProto: SQLite ở thư mục app-data do HĐH quản lý (Windows: `%APPDATA%/com.tsmc.ingestdesktop/`, xem `identifier` trong `src-tauri/tauri.conf.json`) — ngoài repo hoàn toàn.
-- Credential (API_ID/API_HASH/mã vùng/số điện thoại): `credentials.json` ở CÙNG thư mục app-data, plaintext — chấp nhận được vì đây KHÔNG phải secret bí mật server (CLAUDE.md bất biến #1), là credential người dùng tự cấp cho chính họ tại my.telegram.org. Session MTProto thật (toàn quyền tài khoản) vẫn chỉ nằm ở `session.sqlite3`, không phải file này.
+- Session MTProto: `session.sqlite3` ở thư mục app-data do HĐH quản lý (Windows: `%APPDATA%/com.tsmc.ingestdesktop/`, xem `identifier` trong `src-tauri/tauri.conf.json`) — ngoài repo hoàn toàn. **Mã hoá TOÀN BỘ file** (auth_key, DC options, peer cache, update state) qua `EncryptedSqliteSession` (`ingest-grammers/src/encrypted_session.rs`, [ADR-0021](../../docs/adr/0021-ma-hoa-session-sqlite-qua-session-tu-implement.md)) — key AES-256 sinh một lần bằng CSPRNG, lưu qua OS keyring (fallback file `session_key.json` nếu keyring không dùng được).
+- Credential (API_ID/API_HASH/mã vùng/số điện thoại) và TMDB API key: ưu tiên lưu qua OS keyring (Windows Credential Manager), fallback file plaintext (`credentials.json`/`tmdb_api_key.json`) ở CÙNG thư mục app-data nếu keyring không dùng được — [ADR-0020](../../docs/adr/0020-ma-hoa-bi-mat-app-data-qua-os-keyring.md). Credential API_ID/API_HASH/số điện thoại vốn KHÔNG phải secret bí mật server (CLAUDE.md bất biến #1) — là thông tin người dùng tự cấp cho chính họ tại my.telegram.org — nhưng vẫn được ưu tiên mã hoá cùng cơ chế cho nhất quán.
 
 ## Xử lý sự cố thường gặp
 
@@ -103,6 +104,7 @@ Toàn bộ 5 crate `grammers-*` ghim cứng `=0.10.0` (không `^`) trong `[works
 | `error: no such command: 'tauri'` | Chưa cài Tauri CLI — `cargo install tauri-cli --version "^2" --locked` |
 | `cargo build` lỗi `mismatched types ... BigUint` trong `grammers-crypto` (`two_factor_auth.rs`) | Bug thật đã ghi ở [SPIKE-10](../../docs/spikes/README.md#spike-10): `grammers-crypto` pin `num-bigint ^0.4.6` nhưng bắc cầu qua `glass_pumpkin` (pin lỏng, tự trôi lên `2.0.0-rc1`) kéo theo `num-bigint 0.5.1` xung đột kiểu. Vá: `cargo update -p glass_pumpkin --precise 2.0.0-rc0` (đúng version đã ghim trong `tools/spike-10/Cargo.lock`) |
 | `cargo tauri dev` báo thiếu WebView2 (Windows) | Cài WebView2 Runtime — thường có sẵn Windows 11, thiếu trên một số bản Windows 10/Server |
+| `cargo build` lỗi `CMake Error: Could not create named generator Visual Studio NN 20XX` (build `libsql-ffi`) | Máy có nhiều bản Visual Studio, `cmake` crate tự chọn generator mà `cmake` binary đang cài chưa nhận ra — set `CMAKE_GENERATOR` trỏ đúng bản đã cài, vd `Visual Studio 17 2022` (xem mục "Yêu cầu trước khi dùng") |
 | `cargo tauri dev` treo/lỗi ở bước load `devUrl` | `beforeDevCommand` (`pnpm --dir ../ui run start`) chưa chạy xong dev server Angular ở cổng 4300 trước khi Tauri thử nạp — kiểm `pnpm install` đã chạy ở root repo chưa, và cổng 4300 có bị process khác chiếm không |
 | `invoke()` trong UI không trả gì / lỗi "command not found" | Kiểm `capabilities/default.json` còn permission `core:default`, và tên command trong `generate_handler!` (`src-tauri/src/lib.rs`) khớp đúng tên hàm `#[tauri::command]` |
 | `gọi check_session() trước request_login_code()` (hoặc tương tự) | Đúng như thông báo — các command đăng nhập phải gọi ĐÚNG THỨ TỰ, xem bảng "12 command đã wire" ở trên |

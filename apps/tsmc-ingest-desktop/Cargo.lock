@@ -2056,6 +2056,7 @@ name = "ingest-grammers"
 version = "0.0.0"
 dependencies = [
  "async-trait",
+ "bytes",
  "futures-util",
  "grammers-client",
  "grammers-mtproto",
@@ -2063,6 +2064,7 @@ dependencies = [
  "grammers-session",
  "grammers-tl-types",
  "ingest-rpc-trait",
+ "libsql",
  "rand",
  "tokio",
 ]
@@ -4884,12 +4886,12 @@ name = "tsmc-ingest-desktop"
 version = "0.1.0"
 dependencies = [
  "grammers-client",
- "grammers-session",
  "ingest-ffmpeg",
  "ingest-grammers",
  "ingest-rpc-trait",
  "keyring",
  "log",
+ "rand",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

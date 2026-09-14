@@ -18,6 +18,17 @@ grammers-session = { version = "=0.10.0", features = ["sqlite-storage"] }
 grammers-mtsender = "=0.10.0"
 grammers-mtproto = "=0.10.0"
 grammers-tl-types = "=0.10.0"
+# ADR-0021: `ingest-grammers::encrypted_session` fork tay schema/API của
+# `grammers-session` 0.10.0's `storages/sqlite.rs` (bản dùng `libsql` nội bộ
+# — kiểm `grammers-session-0.10.0/Cargo.toml` nếu nâng version) để mở
+# `session.sqlite3` kèm `EncryptionConfig`. Ghim CỨNG (không "^") ĐÚNG version
+# đó — cùng lý do CLAUDE.md bất biến #9/grammers-* ở trên: khác version là
+# khác schema/API tiềm ẩn mà module fork không tự dò được, chỉ vỡ lặng lẽ lúc
+# chạy (đọc sai cột, panic, hoặc tệ hơn — đọc "được" nhưng sai dữ liệu).
+# **Nâng cấp `grammers-session` HOẶC `libsql` bắt buộc đối chiếu lại
+# `sqlite.rs` gốc của bản mới trước khi merge** — checklist ở
+# docs/adr/0021-ma-hoa-session-sqlite-qua-session-tu-implement.md.
+libsql = { version = "=0.9.30", default-features = false, features = ["core", "encryption"] }
 async-trait = "0.1"
 thiserror = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "fs", "sync", "time"] }

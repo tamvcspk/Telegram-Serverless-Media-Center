@@ -41,12 +41,13 @@ use grammers_client::peer::Peer;
 use grammers_mtproto::transport;
 use grammers_mtsender::{Sender, connect_with_auth};
 use grammers_session::Session as _;
-use grammers_session::storages::SqliteSession;
 use grammers_tl_types as tl;
 use ingest_rpc_trait::{
     CancelFlag, IngestRpc, IngestRpcError, PinnedCatalog, ProgressSink, ResolvedChannel, SubtitleUploadInput,
     UploadProgress, UploadedRef, VideoUploadInput,
 };
+
+use crate::encrypted_session::EncryptedSqliteSession;
 
 /// Ngưỡng an toàn đo được thật ở SPIKE-10 M7 (tài khoản Premium,
 /// `tools/spike-10/README.md` § M7): 2.307 GiB (4 726 part @512 KiB) upload
@@ -130,7 +131,7 @@ pub struct GrammersIngestRpc {
     /// Session dùng chung với `SenderPool` — cần đọc lại `dc_option()` (địa
     /// chỉ DC + auth_key đã có) để tự mở thêm connection RAW song song cho
     /// `upload_video()`, xem module doc comment.
-    session: Arc<SqliteSession>,
+    session: Arc<EncryptedSqliteSession>,
     api_id: i32,
     /// Trần upload THẬT theo tài khoản (4GB Premium / 2GB thường) — đọc một
     /// lần lúc đăng nhập xong qua `get_me()`, xem `is_premium()`. Lỗi đọc
@@ -140,7 +141,7 @@ pub struct GrammersIngestRpc {
 }
 
 impl GrammersIngestRpc {
-    pub async fn new(client: Client, session: Arc<SqliteSession>, api_id: i32) -> Self {
+    pub async fn new(client: Client, session: Arc<EncryptedSqliteSession>, api_id: i32) -> Self {
         let max_upload_bytes = match client.get_me().await {
             Ok(me) if is_premium(&me.raw) => MAX_UPLOAD_BYTES_PREMIUM,
             _ => MAX_UPLOAD_BYTES_FREE,

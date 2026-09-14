@@ -43,9 +43,15 @@ function fail(file, line, kind, msg) {
 
 // ---------- thu thập file markdown ----------
 
+// `target/` (Rust build output) có thể chứa .md VENDORED từ dependency C
+// (vd `libsql-ffi` build bằng cmake copy nguyên cây nguồn SQLite3Multiple
+// Ciphers vào `target/**/out/`, kèm README/CHANGES.md của chính nó) — phát
+// hiện thật 2026-09-14 (ADR-0021) khiến số liệu "N file .md" phồng lên vô
+// nghĩa sau một lần build có cmake. `target`/`dist` đều gitignored, không
+// phải tài liệu của repo này.
 function walk(dir, acc = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+    if (e.name === 'node_modules' || e.name === 'target' || e.name === 'dist' || e.name.startsWith('.')) continue;
     const full = path.join(dir, e.name);
     if (e.isDirectory()) walk(full, acc);
     else if (e.name.endsWith('.md')) acc.push(full);

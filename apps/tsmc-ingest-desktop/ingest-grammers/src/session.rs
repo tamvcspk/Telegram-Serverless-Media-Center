@@ -16,8 +16,10 @@
 
 use std::sync::Arc;
 
+use bytes::Bytes;
 use grammers_client::{Client, InvocationError, SenderPool};
-use grammers_session::storages::SqliteSession;
+
+use crate::encrypted_session::EncryptedSqliteSession;
 
 pub struct Connected {
     pub client: Client,
@@ -30,14 +32,23 @@ pub struct Connected {
     /// Giữ nguyên `Arc` session dùng chung với `SenderPool` — cần đọc lại
     /// `dc_option()`/`home_dc_id()` (auth_key + địa chỉ DC) để tự mở thêm
     /// kết nối MTProto RAW song song, xem `rpc.rs::multi_connection_upload()`.
-    pub session: Arc<SqliteSession>,
+    /// `EncryptedSqliteSession` (ADR-0021, thay `SqliteSession` gốc của
+    /// `grammers_session` — xem doc comment `encrypted_session.rs`) mã hoá
+    /// TOÀN BỘ file `session.sqlite3`, không chỉ `credentials.json`/
+    /// `tmdb_api_key.json` (ADR-0020).
+    pub session: Arc<EncryptedSqliteSession>,
 }
 
-/// Mở/khôi phục session SQLite tại `session_path`, dựng `SenderPool` +
+/// Mở/khôi phục session SQLite MÃ HOÁ tại `session_path`, dựng `SenderPool` +
 /// `Client`. KHÔNG tự đăng nhập — bên gọi tự kiểm `client.is_authorized()`
-/// và chạy luồng đăng nhập nếu cần.
-pub async fn connect(session_path: &str, api_id: i32) -> Result<Connected, Box<dyn std::error::Error + Send + Sync>> {
-    let session = Arc::new(SqliteSession::open(session_path).await?);
+/// và chạy luồng đăng nhập nếu cần. `encryption_key` PHẢI giống hệt lần gọi
+/// trước (nguồn sự thật: `secret_store.rs` ở `src-tauri`) — bên gọi chịu
+/// trách nhiệm sinh/nhớ key đúng, hàm này không tự quản lý key (ADR-0021 —
+/// tách bạch "MTProto session" khỏi "quản lý bí mật app-data", đúng ranh
+/// giới đã có giữa `ingest-grammers` thuần MTProto và `src-tauri` nơi mọi
+/// bí mật khác của app đã được quản lý).
+pub async fn connect(session_path: &str, api_id: i32, encryption_key: Bytes) -> Result<Connected, Box<dyn std::error::Error + Send + Sync>> {
+    let session = Arc::new(EncryptedSqliteSession::open(session_path, encryption_key).await?);
     let SenderPool { runner, handle, .. } = SenderPool::new(Arc::clone(&session), api_id);
     let client = Client::new(handle.clone());
     let pool_task = tokio::spawn(async move {

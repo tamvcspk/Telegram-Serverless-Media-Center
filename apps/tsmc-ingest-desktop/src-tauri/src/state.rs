@@ -9,8 +9,7 @@ use std::sync::Arc;
 
 use grammers_client::Client;
 use grammers_client::client::{LoginToken, PasswordToken};
-use grammers_session::storages::SqliteSession;
-use ingest_grammers::GrammersIngestRpc;
+use ingest_grammers::{EncryptedSqliteSession, GrammersIngestRpc};
 use ingest_rpc_trait::{CancelFlag, ResolvedChannel};
 
 use crate::dto::CurrentTaskDto;
@@ -22,14 +21,14 @@ pub enum ConnState {
     Disconnected,
     /// Đã mở session SQLite + `SenderPool`, xác nhận CHƯA đăng nhập
     /// (`is_authorized() == false`). Sẵn sàng cho `request_login_code`.
-    Connected { client: Client, pool_task: tokio::task::JoinHandle<()>, session: Arc<SqliteSession>, api_id: i32 },
+    Connected { client: Client, pool_task: tokio::task::JoinHandle<()>, session: Arc<EncryptedSqliteSession>, api_id: i32 },
     /// Đã gọi `request_login_code`, đang chờ mã OTP người dùng nhập ở UI.
-    AwaitingOtp { client: Client, pool_task: tokio::task::JoinHandle<()>, session: Arc<SqliteSession>, api_id: i32, login_token: LoginToken },
+    AwaitingOtp { client: Client, pool_task: tokio::task::JoinHandle<()>, session: Arc<EncryptedSqliteSession>, api_id: i32, login_token: LoginToken },
     /// `sign_in` trả `SignInError::PasswordRequired` — tài khoản có 2FA
     /// (Cloud Password), đang chờ mật khẩu người dùng nhập ở UI.
     /// `password_token` boxed để không kéo kích thước biến thể lớn nhất của
     /// enum lên các biến thể nhỏ hơn (`clippy::large_enum_variant`).
-    AwaitingPassword { client: Client, pool_task: tokio::task::JoinHandle<()>, session: Arc<SqliteSession>, api_id: i32, password_token: Box<PasswordToken> },
+    AwaitingPassword { client: Client, pool_task: tokio::task::JoinHandle<()>, session: Arc<EncryptedSqliteSession>, api_id: i32, password_token: Box<PasswordToken> },
     /// Đã đăng nhập, `GrammersIngestRpc` sẵn sàng nhận lệnh. `pool_task`
     /// chưa được đọc lại ở khung sườn này (dropping `JoinHandle` không tự
     /// abort task trong Tokio — task vẫn sống detached) — giữ field lại có
@@ -60,6 +59,20 @@ pub struct AppState {
     /// kế tiếp, một race có thật khi `cancel_upload()` cũ không nhận tham số.
     /// `None` khi không có upload video nào đang chạy.
     pub active_cancel: tokio::sync::Mutex<Option<(String, CancelFlag)>>,
+    /// Key mã hoá `session.sqlite3` (ADR-0021) — cache trong tiến trình SAU
+    /// LẦN ĐẦU `secret_store::load_or_generate_key()` thành công, để
+    /// `check_session()` gọi nhiều lần trong CÙNG một tiến trình app không
+    /// bao giờ đọc/ghi lại keyring/file lần thứ hai. `OnceLock::get_or_init()`
+    /// tự đảm bảo chỉ MỘT lần khởi tạo dù gọi đồng thời từ nhiều task —
+    /// phát hiện thật (2026-09-14): gọi `load_or_generate_key()` trực tiếp
+    /// (không cache) từ nhiều tiến trình/luồng đồng thời có TOCTOU race
+    /// (đọc "chưa có key" song song → cả hai tự sinh key MỚI KHÁC NHAU → bản
+    /// ghi sau cùng thắng, bản trước "mất tích") — tái hiện được khi chạy
+    /// `cargo test --workspace -- --include-ignored` (nhiều test binary
+    /// động vào keyring đồng thời). Không giải quyết case hai TIẾN TRÌNH app
+    /// khác nhau cùng chạy — đó là hazard đã có sẵn của việc dùng chung MỘT
+    /// file SQLite cục bộ, không phải rủi ro mới do mã hoá gây ra.
+    pub session_encryption_key: std::sync::OnceLock<Vec<u8>>,
     /// Snapshot task đang chạy — đọc bằng `get_current_task()` để hydrate UI
     /// khi `WorkspaceComponent` remount (ADR-0018 mục 5). `std::sync::Mutex`
     /// (KHÔNG phải `tokio::sync::Mutex`) có chủ đích: ghi vào đây xảy ra từ
