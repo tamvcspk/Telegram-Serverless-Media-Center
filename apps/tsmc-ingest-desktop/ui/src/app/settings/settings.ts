@@ -3,7 +3,9 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { Router } from '@angular/router';
-import { loadSavedCredentials, tmdbDeleteKey, tmdbHasKey, tmdbSaveKey } from '../core/ingest-rpc';
+import { describeIngestError, loadSavedCredentials, signOut, tmdbDeleteKey, tmdbHasKey, tmdbSaveKey, toIngestRpcError } from '../core/ingest-rpc';
+import { QueueStore } from '../core/queue-store';
+import { SelectedChannelStore } from '../core/selected-channel';
 import { DialogService } from '../shared/dialog/dialog.service';
 
 /** Che một chuỗi bí mật ngắn — giữ vài ký tự đầu/cuối để admin tự đối chiếu
@@ -25,12 +27,18 @@ function maskSecret(value: string): string {
  * qua icon ⚙ ở topbar Workspace (đúng vị trí đã vẽ sẵn trong mockup A.3:
  * `⚙ 👤` góc phải header — trước đây chưa wire).
  *
- * Phạm vi CỐ Ý hẹp ở slice này — hai khối:
- * - **Tài khoản:** CHỈ hiển thị (số điện thoại/API_ID/API_HASH đã che một
- *   phần) đọc từ `credentials.json` qua `loadSavedCredentials()` — KHÔNG có
- *   nút "Đăng xuất"/đổi số, vì `IngestRpc` hiện chưa có thao tác sign-out
- *   (`grammers-client`) — thêm nút mà không có RPC hỗ trợ sẽ để lại state
- *   nửa vời (`session.sqlite3` vẫn còn hiệu lực), không làm ở đây.
+ * Hai khối:
+ * - **Tài khoản:** hiển thị (số điện thoại/API_ID/API_HASH đã che một phần)
+ *   đọc từ `credentials.json` qua `loadSavedCredentials()`, cộng nút "Đăng
+ *   xuất" (thêm 2026-09-14, ADR-0017 § addendum "thêm sign_out vào IngestRpc")
+ *   — gọi `signOut()` (server-side `auth.LogOut` TRƯỚC, xoá `session.sqlite3`
+ *   cục bộ SAU), luôn hỏi xác nhận qua `DialogService.confirm()` trước
+ *   (đăng xuất là hành động khó hoàn tác — mất session, phải đăng nhập lại
+ *   dù `credentials.json` vẫn còn để tự điền). Chặn/cảnh báo riêng nếu đang
+ *   có upload chạy dở (`QueueStore.uploading()`) — đăng xuất giữa chừng cắt
+ *   luôn kết nối MTProto, upload đang chạy chắc chắn lỗi. KHÔNG có nút đổi
+ *   số điện thoại — đó là luồng đăng nhập lại từ `/login`, không thuộc màn
+ *   này.
  * - **TMDB:** quản lý key đầy đủ (xem có key/chưa, đổi key, xoá key) — trước
  *   slice này, cách DUY NHẤT "xoá key sai" là tự tay xoá file
  *   `tmdb_api_key.json` ở app-data (xem `describeTmdbError()`), giờ có nút
@@ -51,11 +59,15 @@ function maskSecret(value: string): string {
 export class Settings implements OnInit {
   private readonly router = inject(Router);
   private readonly dialogService = inject(DialogService);
+  private readonly queueStore = inject(QueueStore);
+  private readonly selectedChannelStore = inject(SelectedChannelStore);
 
   protected readonly loadingAccount = signal(true);
   protected readonly phoneDisplay = signal<string | null>(null);
   protected readonly apiIdDisplay = signal<string | null>(null);
   protected readonly apiHashDisplay = signal<string | null>(null);
+  protected readonly signingOut = signal(false);
+  protected readonly signOutError = signal<string | null>(null);
 
   protected readonly loadingTmdb = signal(true);
   protected readonly tmdbConfigured = signal(false);
@@ -123,6 +135,42 @@ export class Settings implements OnInit {
       await this.refreshTmdbStatus();
     } finally {
       this.tmdbBusy.set(false);
+    }
+  }
+
+  /** Đăng xuất — hỏi xác nhận trước (hành động khó hoàn tác), nội dung dialog
+   * đổi tuỳ có upload đang chạy dở hay không (`QueueStore.uploading()`, cắt
+   * ngang kết nối MTProto chắc chắn làm hỏng upload đó). Thành công →
+   * `signOut()` đã tự đưa `ConnState` (Rust) về `Disconnected` — dọn nốt
+   * state phía Angular (`SelectedChannelStore`) rồi điều hướng về `/login`
+   * (KHÔNG phải `/workspace` như `onBack()` — đăng xuất xong không còn gì
+   * để quay lại đó). Lỗi (FLOOD_WAIT, mất mạng...) → hiện lỗi tại chỗ, KHÔNG
+   * điều hướng đi đâu — phía Rust đảm bảo chưa xoá gì nếu bước server thất
+   * bại (xem doc comment `commands.rs::sign_out()`). */
+  protected async onSignOut(): Promise<void> {
+    const uploading = this.queueStore.uploading();
+    const confirmed = await this.dialogService.confirm({
+      title: 'Đăng xuất',
+      message: uploading
+        ? 'Đang có upload chạy dở — đăng xuất sẽ NGẮT KẾT NỐI ngay, upload đang chạy chắc chắn lỗi. Số điện thoại/API_ID/API_HASH vẫn được nhớ để đăng nhập lại nhanh (chỉ cần mã OTP). Tiếp tục đăng xuất?'
+        : 'Sẽ cần nhập lại mã OTP ở lần đăng nhập kế tiếp. Số điện thoại/API_ID/API_HASH vẫn được nhớ để đăng nhập lại nhanh. Tiếp tục đăng xuất?',
+      confirmText: 'Đăng xuất',
+      tone: 'warn'
+    });
+    if (!confirmed) {
+      return;
+    }
+
+    this.signOutError.set(null);
+    this.signingOut.set(true);
+    try {
+      await signOut();
+      this.selectedChannelStore.clear();
+      void this.router.navigateByUrl('/login');
+    } catch (err) {
+      this.signOutError.set(describeIngestError(toIngestRpcError(err)));
+    } finally {
+      this.signingOut.set(false);
     }
   }
 

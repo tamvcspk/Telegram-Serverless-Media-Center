@@ -22,7 +22,14 @@
           <dt>API_HASH</dt>
           <dd>{{ apiHashDisplay() }}</dd>
         </dl>
-        <p class="hint">Chỉ hiển thị — đổi tài khoản cần đăng xuất thủ công (xoá thư mục dữ liệu ứng dụng), chưa có nút riêng.</p>
+        <div class="actions">
+          <button mat-stroked-button type="button" color="warn" [disabled]="signingOut()" (click)="onSignOut()">
+            {{ signingOut() ? 'Đang đăng xuất…' : 'Đăng xuất' }}
+          </button>
+        </div>
+        @if (signOutError(); as err) {
+          <p class="error">{{ err }}</p>
+        }
       } @else {
         <p class="hint">Không đọc được thông tin đăng nhập.</p>
       }

@@ -1,14 +1,15 @@
-//! Mười hai Tauri command — `check_session` + `request_login_code`/`submit_otp`/
+//! Mười ba Tauri command — `check_session` + `request_login_code`/`submit_otp`/
 //! `submit_password` (đăng nhập, chia nhiều bước vì webview không có stdin để
 //! chặn chờ OTP như CLI `tools/spike-10/r3-grammers`) + `load_saved_credentials`/
 //! `save_credentials` (nhớ API_ID/API_HASH/số điện thoại ở app-data, KHÔNG
 //! phải `localStorage` — xem doc comment `SavedCredentialsDto`) +
 //! `resolve_channel`/`list_own_channels`/`create_channel`/`select_channel`/
-//! `check_write_permission`/`read_pinned_catalog` (màn "Chọn kênh", A.4).
-//! Bốn thao tác còn lại của `IngestRpc` (download_document, upload_video,
-//! upload_subtitle, publish_catalog) ĐÃ có implementation đầy đủ ở
-//! `ingest-grammers` nhưng CHƯA wire thành command — để dành cho slice
-//! workspace ba vùng (mockup A.3, docs/ux-design.md § Phụ lục A).
+//! `check_write_permission`/`read_pinned_catalog` (màn "Chọn kênh", A.4) +
+//! `sign_out` (màn Cài đặt, ADR-0017 § addendum 2026-09-14). Ba thao tác còn
+//! lại của `IngestRpc` (download_document, upload_video/upload_subtitle/
+//! publish_catalog đã wire ở `upload.rs`, chỉ `download_document` còn
+//! trống) ĐÃ có implementation đầy đủ ở `ingest-grammers` — `download_document`
+//! để dành màn "Trình quản lý catalog" (mockup A.4) chưa tới lượt.
 //!
 //! **Đơn giản hoá có chủ đích của khung sườn này:** nếu `submit_otp`/
 //! `submit_password` thất bại (sai mã/sai mật khẩu), state bị reset về
@@ -262,4 +263,36 @@ pub async fn read_pinned_catalog(state: State<'_, AppState>) -> Result<Option<Pi
     let channel = selected.as_ref().ok_or_else(|| IngestRpcErrorDto::other("chưa resolve_channel() — gọi trước read_pinned_catalog()"))?;
     let pinned = rpc.read_pinned_catalog(channel).await.map_err(IngestRpcErrorDto::from)?;
     Ok(pinned.map(PinnedCatalogDto::from))
+}
+
+/// Đăng xuất (màn Cài đặt, ADR-0017 § addendum 2026-09-14) — gọi
+/// `IngestRpc::sign_out()` (server-side `auth.LogOut`) TRƯỚC, chỉ xoá
+/// `session.sqlite3` cục bộ SAU KHI thành công (đúng thứ tự bắt buộc, xem
+/// doc comment `IngestRpc::sign_out()`). Lỗi ở bước server (FLOOD_WAIT, mất
+/// mạng...) → trả lỗi ngay, KHÔNG xoá gì cả, `ConnState` giữ nguyên `Ready`
+/// (user có thể thử lại). `credentials.json`/`tmdb_api_key.json` CỐ Ý không
+/// đụng tới — giữ để đăng nhập lại nhanh (chỉ cần OTP), đúng hành vi
+/// `tryAutoLogin()` (`login.ts`) đã có sẵn cho case "session hết hạn".
+#[tauri::command]
+pub async fn sign_out(app: AppHandle, state: State<'_, AppState>) -> Result<(), IngestRpcErrorDto> {
+    let mut conn = state.conn.lock().await;
+    let ConnState::Ready { rpc, pool_task } = &*conn else {
+        return Err(IngestRpcErrorDto::other("chưa đăng nhập — không có gì để đăng xuất"));
+    };
+    rpc.sign_out().await.map_err(IngestRpcErrorDto::from)?;
+    pool_task.abort();
+
+    *conn = ConnState::Disconnected;
+    *state.selected_channel.lock().await = None;
+    drop(conn);
+
+    // Xoá session cục bộ — best-effort, không chặn nếu lỗi (server-side đã
+    // đăng xuất xong, đây chỉ là dọn dẹp). Xoá cả sidecar -wal/-shm nếu
+    // libSQL từng tạo (EncryptedSqliteSession, ADR-0021).
+    if let Ok(path) = session_path(&app) {
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path}-wal"));
+        let _ = std::fs::remove_file(format!("{path}-shm"));
+    }
+    Ok(())
 }

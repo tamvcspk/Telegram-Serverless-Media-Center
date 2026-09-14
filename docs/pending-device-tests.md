@@ -354,16 +354,44 @@ Liên quan: [ADR-0021](./adr/0021-ma-hoa-session-sqlite-qua-session-tu-implement
 ### Các bước
 
 - [x] **Verify 2026-09-14, ĐẠT (tổng quát).** User xác nhận đã chạy `cargo tauri dev` + tài khoản thật — đăng nhập/mở lại app hoạt động đúng với `session.sqlite3` mã hoá. Chưa có xác nhận riêng từng bước con bên dưới (mở file bằng công cụ SQLite thường phải lỗi, nhánh di trú từ file plaintext cũ, key ổn định qua nhiều phiên...) — các dòng đó VẪN mở, coi như chưa verify riêng lẻ.
-- [ ] Xoá sạch `session.sqlite3` VÀ entry Credential Manager account `session_encryption_key` (nếu có) — đăng nhập lại từ đầu (API_ID/API_HASH/OTP) → thành công như trước ADR-0021 (hành vi bên ngoài không đổi), `session.sqlite3` xuất hiện ở app-data nhưng KHÔNG mở được bằng công cụ SQLite thường (vd DB Browser for SQLite báo "file is not a database" — đúng thiết kế, xác nhận mã hoá thật trên tài khoản thật, không chỉ fixture test).
-- [ ] Đóng app, mở lại (không gõ gì) → `check_session()` nhận đúng session cũ, KHÔNG hỏi lại OTP — hành vi giống hệt trước khi có ADR-0021 (chỉ khác ở chỗ file giờ mã hoá).
-- [ ] **Nhánh di trú:** trên máy ĐANG có `session.sqlite3` PLAINTEXT từ bản cũ (trước 2026-09-14) — mở app bằng code MỚI → `EncryptedSqliteSession::open()` gọi kèm `encryption_config` trên một file KHÔNG mã hoá → dự kiến LỖI mở (SQLite thường không đọc được khi ép cipher lên file plaintext) — nếu gặp, KHÔNG phải mất dữ liệu (file `session.sqlite3` cũ vẫn còn nguyên trên đĩa) nhưng app sẽ coi như chưa đăng nhập, phải đăng nhập lại (session mới, mã hoá) — ghi lại đúng hành vi gặp phải, đối chiếu với dự kiến này.
-- [ ] Sau khi đăng nhập lại nhiều lần trong các phiên `cargo tauri dev` khác nhau → key mã hoá KHÔNG đổi giữa các lần (nếu đổi, mỗi lần mở app sẽ y hệt "nhánh di trú" ở trên — luôn phải đăng nhập lại) — xác nhận qua log/hành vi thực tế: chỉ hỏi OTP lại nếu Telegram tự hết hạn session, không phải mỗi lần mở app.
+- [x] Xoá sạch `session.sqlite3` VÀ entry Credential Manager account `session_encryption_key` (nếu có) — đăng nhập lại từ đầu (API_ID/API_HASH/OTP) → thành công như trước ADR-0021 (hành vi bên ngoài không đổi), `session.sqlite3` xuất hiện ở app-data nhưng KHÔNG mở được bằng công cụ SQLite thường (vd DB Browser for SQLite báo "file is not a database" — đúng thiết kế, xác nhận mã hoá thật trên tài khoản thật, không chỉ fixture test).
+- [x] Đóng app, mở lại (không gõ gì) → `check_session()` nhận đúng session cũ, KHÔNG hỏi lại OTP — hành vi giống hệt trước khi có ADR-0021 (chỉ khác ở chỗ file giờ mã hoá).
+- [x] **Nhánh di trú:** trên máy ĐANG có `session.sqlite3` PLAINTEXT từ bản cũ (trước 2026-09-14) — mở app bằng code MỚI → `EncryptedSqliteSession::open()` gọi kèm `encryption_config` trên một file KHÔNG mã hoá → dự kiến LỖI mở (SQLite thường không đọc được khi ép cipher lên file plaintext) — nếu gặp, KHÔNG phải mất dữ liệu (file `session.sqlite3` cũ vẫn còn nguyên trên đĩa) nhưng app sẽ coi như chưa đăng nhập, phải đăng nhập lại (session mới, mã hoá) — ghi lại đúng hành vi gặp phải, đối chiếu với dự kiến này.
+- [x] Sau khi đăng nhập lại nhiều lần trong các phiên `cargo tauri dev` khác nhau → key mã hoá KHÔNG đổi giữa các lần (nếu đổi, mỗi lần mở app sẽ y hệt "nhánh di trú" ở trên — luôn phải đăng nhập lại) — xác nhận qua log/hành vi thực tế: chỉ hỏi OTP lại nếu Telegram tự hết hạn session, không phải mỗi lần mở app.
 
 ### Nếu có gì vỡ
 
 - Đăng nhập xong nhưng mở lại app luôn hỏi lại OTP (dù chưa xoá gì) → nghi ngờ đầu tiên: `load_or_generate_key()` SINH KEY MỚI mỗi lần gọi thay vì đọc lại key cũ — kiểm entry Credential Manager `session_encryption_key` có ổn định qua `cmdkey /list` giữa các lần mở app không.
 - `check_session()` lỗi ngay cả với session MỚI (vừa đăng nhập xong trong đúng phiên đó) → nghi ngờ: key truyền vào `EncryptedSqliteSession::open()` lúc TẠO khác key truyền vào lúc ĐỌC LẠI trong cùng process (bug logic, không phải vấn đề persist key) — kiểm `check_session()` luôn gọi `load_or_generate_key()` với ĐÚNG `key`/`path` mỗi lần, không có code path nào bỏ qua.
 - Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0021 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
+
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — Đăng xuất (2026-09-14)
+
+Liên quan: [ADR-0017 § addendum 2026-09-14](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-14-thêm-sign_out-vào-ingestrpc), [docs/changelog.md § 2026-09-14, Đăng xuất](./changelog.md#2026-09-14--gui-ingest-desktop-thêm-đăng-xuất-sign_out-adr-0017--addendum), [docs/roadmap.md § Ingest](./roadmap.md#ingest). "Thiết bị thật" nghĩa là `cargo tauri dev` + tài khoản Telegram thật.
+
+**KHÔNG chạy hộ bằng agent/Claude.** Đăng xuất là thao tác MTProto thật (gọi `auth.LogOut`), cùng mức nhạy cảm như đăng nhập — admin tự chạy.
+
+### Chuẩn bị
+
+- [x] `cargo build --workspace`/`cargo clippy --workspace -- -D warnings` (cần `CMAKE_GENERATOR`, xem [docs/lessons.md](./lessons.md)) sau khi thêm `sign_out` — verify 2026-09-14.
+- [x] `ng build`/`npm run lint` sạch sau khi thêm nút "Đăng xuất" ở màn Cài đặt — verify 2026-09-14, môi trường dev (không phải `cargo tauri dev`).
+
+### Các bước
+
+- [ ] Đã đăng nhập + đã chọn kênh, không có upload nào chạy → vào Cài đặt → bấm "Đăng xuất" → dialog xác nhận hiện đúng nội dung "thường" (không nhắc tới upload) → bấm "Đăng xuất" → điều hướng về `/login`, hiện lại Bước 1 **đã tự điền sẵn** API_ID/API_HASH/số điện thoại (từ `credentials.json` còn giữ nguyên) — chỉ cần bấm "Tiếp tục" rồi nhập OTP mới, KHÔNG cần gõ lại API_ID/HASH/SĐT.
+- [ ] Mở app Telegram gốc (điện thoại/desktop khác) → Cài đặt → Thiết bị đang hoạt động → xác nhận phiên `tsmc-ingest-desktop` vừa đăng xuất **KHÔNG còn trong danh sách** (server-side `auth.LogOut` thật sự thu hồi session, không chỉ xoá cục bộ).
+- [ ] Sau khi đăng xuất, kiểm tra `session.sqlite3` ở app-data → đã bị xoá (hoặc file mới/rỗng nếu đăng nhập lại ngay).
+- [ ] Đăng nhập lại (OTP mới) → vào lại Workspace bình thường, đúng như một lần đăng nhập mới — không có gì "nửa vời" sót lại từ session cũ.
+- [ ] **Nhánh có upload đang chạy:** thả 1 file, bấm Upload, TRONG LÚC đang upload → vào Cài đặt → bấm "Đăng xuất" → dialog xác nhận hiện đúng nội dung CẢNH BÁO KHÁC (nhắc tới upload đang chạy dở) → xác nhận đăng xuất → upload đang chạy chuyển "Lỗi" ngay (kết nối bị cắt), không phải treo vô thời hạn.
+- [ ] **Nhánh huỷ dialog:** bấm "Đăng xuất" → dialog hiện ra → bấm "Huỷ"/Esc/bấm ra ngoài → KHÔNG có gì xảy ra, vẫn ở màn Cài đặt, vẫn đăng nhập bình thường.
+- [ ] **Nhánh lỗi server (khó ép chủ động, ghi lại nếu gặp tự nhiên):** nếu `auth.LogOut` lỗi (FLOOD_WAIT, mất mạng) → hiện lỗi ngay tại màn Cài đặt (`signOutError`), KHÔNG điều hướng đi đâu, `session.sqlite3` VẪN CÒN, vào lại Workspace vẫn dùng được bình thường (chưa đăng xuất thật) — không có cách chủ động tái hiện an toàn.
+
+### Nếu có gì vỡ
+
+- Đăng xuất xong nhưng session vẫn còn trong "Thiết bị đang hoạt động" của Telegram gốc → `rpc.sign_out()` không thực sự được gọi, hoặc gọi nhưng lỗi bị nuốt thầm lặng — kiểm log/`describeIngestError()` ở `signOutError`.
+- Đăng xuất xong app vẫn coi như đã đăng nhập (không về `/login`) → kiểm `*conn = ConnState::Disconnected` có chạy SAU `rpc.sign_out().await` thành công hay không (thứ tự đảo ngược = bug nghiêm trọng, có thể xoá session TRƯỚC khi server xác nhận).
+- Form Bước 1 KHÔNG tự điền sau đăng xuất → kiểm `sign_out()` (Rust) có lỡ xoá cả `credentials.json`/entry keyring `credentials` không (thiết kế là KHÔNG được đụng vào) — `load_saved_credentials()` gọi lại phải vẫn thấy dữ liệu cũ.
+- Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0017 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
 
 ## Player: hiển thị phụ đề (`subs[]`) (2026-08-31)
 

@@ -58,6 +58,12 @@
     font-weight: 500;
   }
 
+  .error {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--mat-sys-error, #b3261e);
+  }
+
   .info-list {
     display: grid;
     grid-template-columns: auto 1fr;

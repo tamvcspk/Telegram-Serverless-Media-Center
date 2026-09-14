@@ -41,6 +41,7 @@ pub fn run() {
             commands::select_channel,
             commands::check_write_permission,
             commands::read_pinned_catalog,
+            commands::sign_out,
             probe::list_media_files,
             probe::probe_media,
             probe::list_dir_entries,

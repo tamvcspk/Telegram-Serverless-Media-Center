@@ -354,6 +354,18 @@ impl IngestRpc for GrammersIngestRpc {
         }
         Ok(UploadedRef { msg_id: sent.id() as i64 })
     }
+
+    /// `Client::sign_out()` bọc thẳng `auth.LogOut` — trả `Ok` cả khi
+    /// Telegram báo "không ai đăng nhập" (theo doc comment gốc của
+    /// `grammers-client`, method trả `Err` chỉ ở lỗi RPC/mạng thật, KHÔNG
+    /// phải ở case "đã đăng xuất từ trước"). Không tự xoá `session.sqlite3`
+    /// ở đây — đó là việc của bên gọi (`src-tauri/src/commands.rs`, có
+    /// đường dẫn file), giữ đúng ranh giới "`ingest-grammers` thuần MTProto,
+    /// không biết gì về app-data" (ADR-0021).
+    async fn sign_out(&self) -> Result<(), IngestRpcError> {
+        self.client.sign_out().await.map_err(to_rpc_error)?;
+        Ok(())
+    }
 }
 
 impl GrammersIngestRpc {

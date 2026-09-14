@@ -287,3 +287,29 @@ M7 (§ "Kết quả thật M3/M5/M7/M8" ở trên) đo được ngưỡng thật
 **Verify 2026-09-14, ĐẠT cho nhánh Premium:** user xác nhận qua `cargo tauri dev` + tài khoản Premium thật — upload vẫn thành công đúng trần 4GB như hành vi cũ. **Nhánh KHÔNG Premium chưa verify được — hiện không có tài khoản loại này để test** (hoãn, không phải lỗi phát hiện). Logic đối xứng (`is_premium() == false` → `MAX_UPLOAD_BYTES_FREE`) đã có trong code, chỉ thiếu bằng chứng thật.
 
 **Việc tiếp theo:** verify nhánh KHÔNG Premium khi có tài khoản phù hợp — checklist ở [docs/pending-device-tests.md](../pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--tier-aware-upload-threshold-2026-09-14).
+
+## Cập nhật sau khi Accepted (2026-09-14, thêm `sign_out` vào `IngestRpc`)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết
+> định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó —
+> quyết định gốc **vẫn đứng vững**.
+
+[docs/roadmap.md](../roadmap.md) đã ghi gap: `IngestRpc`/`ingest-grammers` không có thao tác sign-out (khác `apps/web` đã có `client.logout()` đầy đủ) — muốn đổi tài khoản, admin phải tự tay xoá `session.sqlite3`/`credentials.json`. Đóng gap này.
+
+**Quyết định (bổ sung, không thay đổi 4 điều kiện bắt buộc gốc):** thêm method thứ tám vào `IngestRpc` — `async fn sign_out(&self) -> Result<(), IngestRpcError>` (`ingest-rpc-trait/src/lib.rs`). Đây là **ngoại lệ thứ ba** (sau `list_own_channels`/`create_channel`, addendum 2026-09-11) không có tương ứng 1-1 phía TS — nhưng khác bản chất hai cái kia: những cái đó về "kênh", cái này về "tài khoản". `apps/web` CÓ đăng xuất (`logout-confirm-sheet.ts`) nhưng đó là một luồng client-heavy phức tạp hơn hẳn (flush outbox, xoá IndexedDB session/sync state/media/index) vì còn state đồng bộ cục bộ cần dọn (ADR-0009) — ingest desktop không có state đó, nên không có gì để "port 1-1", chỉ cần gọi `auth.LogOut` rồi xoá `session.sqlite3`.
+
+**Implementation (`ingest-grammers/src/rpc.rs::GrammersIngestRpc::sign_out()`):** gọi thẳng `self.client.sign_out()` — `grammers-client` 0.10.0 đã có sẵn method này, wrap `auth.LogOut`. Lỗi map qua `to_rpc_error()` đã có (FLOOD_WAIT/USER_RESTRICTED). Theo doc comment gốc của `grammers-client`, method trả `Ok` ngay cả khi "không ai đăng nhập" — chỉ `Err` ở lỗi RPC/mạng thật.
+
+**Command Tauri mới `sign_out` (`src-tauri/src/commands.rs`) — thứ tự BẮT BUỘC, đúng bài học đã ghi ở [ADR-0011](./0011-bao-mat-session-va-noi-dung-khong-tin-cay.md) (xoá cục bộ trước sẽ để lại session sống trong danh sách thiết bị Telegram mà app không còn cách thu hồi):**
+
+1. Gọi `rpc.sign_out()` (server-side `auth.LogOut`) **TRƯỚC**.
+2. Chỉ khi `Ok`: `pool_task.abort()` (không cần ownership — `JoinHandle::abort(&self)`), đặt `ConnState` về `Disconnected`, xoá `selected_channel`.
+3. Xoá file `session.sqlite3` cục bộ (+ sidecar `-wal`/`-shm` nếu libSQL từng tạo, [ADR-0021](./0021-ma-hoa-session-sqlite-qua-session-tu-implement.md)) — best-effort, không throw.
+
+Lỗi ở bước 1 (FLOOD_WAIT, mất mạng) → trả lỗi ngay, **KHÔNG xoá gì**, `ConnState` giữ nguyên `Ready` — user thử lại được, không rơi vào trạng thái nửa vời.
+
+**Cố ý KHÔNG xoá `credentials.json`/`tmdb_api_key.json` lúc đăng xuất** — giữ để `tryAutoLogin()` (`login.ts`, đã có sẵn) tự điền lại form nhanh, chỉ cần OTP để đăng nhập lại — đúng hành vi đã có sẵn cho case "session hết hạn", không cần code riêng. Muốn đổi hẳn sang tài khoản khác thì tự sửa đè các ô trong form, không phải xoá file.
+
+**UI:** `signOut()` mới trong `ingest-rpc.ts`; nút "Đăng xuất" ở màn Cài đặt (`settings.ts`/`.html`) — LUÔN hỏi xác nhận qua `DialogService.confirm()` trước (tone warn, hành động khó hoàn tác), nội dung dialog đổi tuỳ `QueueStore.uploading()` có đang chạy dở hay không (cảnh báo riêng: đăng xuất giữa chừng cắt kết nối MTProto, upload đang chạy chắc chắn lỗi) — KHÔNG chặn cứng nút, chỉ cảnh báo rõ, quyết định cuối vẫn ở user. Thành công → `SelectedChannelStore.clear()` (method mới thêm vào store) + điều hướng `/login`. Lỗi → hiện tại chỗ, không điều hướng đi đâu.
+
+`cargo build`/`cargo clippy --workspace -- -D warnings` (cần `CMAKE_GENERATOR` trên máy có nhiều bản Visual Studio, xem ADR-0021) sạch. `ng build`/`npm run lint` sạch. **Chưa verify** bằng `cargo tauri dev` + tài khoản Telegram thật (CLAUDE.md: agent không được chạy đăng nhập/đăng xuất MTProto hộ user) — checklist ở [docs/pending-device-tests.md](../pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--đăng-xuất-2026-09-14).

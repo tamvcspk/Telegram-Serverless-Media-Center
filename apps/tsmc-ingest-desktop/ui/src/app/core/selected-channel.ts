@@ -20,4 +20,14 @@ export class SelectedChannelStore {
     this.channel.set(channel);
     this.catalogSummary.set(catalogSummary);
   }
+
+  /** Dùng lúc đăng xuất (màn Cài đặt) — kênh đang chọn phía Rust
+   * (`state.rs::selected_channel`) đã bị xoá cùng lúc `ConnState` về
+   * `Disconnected` (`commands.rs::sign_out()`), store phía UI phải theo kịp
+   * để không hiện lại tên kênh cũ nếu vào lại `/workspace` trước khi đăng
+   * nhập lại. */
+  clear(): void {
+    this.channel.set(null);
+    this.catalogSummary.set('chưa có catalog nào được ghim');
+  }
 }

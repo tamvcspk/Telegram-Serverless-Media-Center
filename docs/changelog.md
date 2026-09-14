@@ -4,6 +4,14 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-09-14 — GUI ingest desktop: thêm Đăng xuất (`sign_out`, ADR-0017 § addendum)
+
+Đóng gap đã ghi ở roadmap: `IngestRpc` thêm method thứ 8 `sign_out()` (ngoại lệ thứ ba không tương ứng 1-1 phía TS — apps/web có đăng xuất nhưng là luồng client-heavy phức tạp hơn hẳn do còn outbox/IndexedDB để dọn, ingest desktop không có state đó). Implementation gọi thẳng `Client::sign_out()` có sẵn của `grammers-client` (wrap `auth.LogOut`). Command Tauri `sign_out` giữ đúng thứ tự bắt buộc (ADR-0011): gọi server-side TRƯỚC, chỉ xoá `session.sqlite3` cục bộ (+ sidecar `-wal`/`-shm`) SAU khi thành công — lỗi ở bước server thì không xoá gì, `ConnState` giữ nguyên `Ready`.
+
+Nút "Đăng xuất" ở màn Cài đặt — luôn hỏi xác nhận (`DialogService.confirm()`, tone warn), nội dung cảnh báo riêng nếu `QueueStore.uploading()` đang chạy dở (đăng xuất cắt kết nối MTProto, upload đang chạy chắc chắn lỗi) nhưng không chặn cứng. Cố ý giữ nguyên `credentials.json`/`tmdb_api_key.json` — đăng nhập lại chỉ cần OTP, đúng hành vi `tryAutoLogin()` đã có sẵn cho case "session hết hạn".
+
+`cargo build`/`cargo clippy --workspace -- -D warnings` (cần `CMAKE_GENERATOR` trên máy có nhiều bản Visual Studio) sạch, `ng build`/`npm run lint` sạch. **Chưa verify** bằng `cargo tauri dev` + tài khoản thật. Chi tiết: [ADR-0017 § addendum 2026-09-14](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-14-thêm-sign_out-vào-ingestrpc).
+
 ## 2026-09-14 — GUI ingest desktop: verify mã hoá `session.sqlite3` — ĐẠT
 
 User xác nhận đã chạy `cargo tauri dev` + tài khoản thật: đăng nhập/mở lại app hoạt động đúng với `session.sqlite3` mã hoá (ADR-0021). Chưa có xác nhận riêng từng bước con (mở file bằng công cụ SQLite thường phải lỗi, nhánh di trú từ file plaintext cũ, key ổn định qua nhiều phiên `cargo tauri dev`). Checklist: [docs/pending-device-tests.md § mã hoá session.sqlite3](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--mã-hoá-sessionsqlite3-2026-09-14).

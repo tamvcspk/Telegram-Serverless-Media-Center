@@ -25,13 +25,15 @@ import type {
  * gọi qua các hàm dưới, không tự gọi `invoke()` rời rạc. Khớp tinh thần
  * "TelegramGateway" của apps/web (CLAUDE.md bất biến #3), dù ở đây không có
  * eslint-plugin-boundaries ép vì chỉ có một file gọi `@tauri-apps/api`.
- * Mười hai command đăng nhập/chọn kênh khớp `src-tauri/src/commands.rs` —
- * PHẢI gọi đúng thứ tự đã ghi ở đó: checkSession() → requestLoginCode() →
+ * Mười ba command đăng nhập/chọn kênh/đăng xuất khớp `src-tauri/src/commands.rs`
+ * — PHẢI gọi đúng thứ tự đã ghi ở đó: checkSession() → requestLoginCode() →
  * submitOtp() → (submitPassword() nếu `PasswordRequired`) → MỘT trong ba
  * cách chọn kênh (resolveChannel() / selectChannel() sau listOwnChannels() /
  * createChannel()) → checkWritePermission()/readPinnedCatalog() (hai cái sau
  * luôn đọc lại channel của lần chọn gần nhất phía Rust, không cần truyền lại
- * qua IPC). Thêm hai command `list_media_files`/`probe_media`
+ * qua IPC). `signOut()` (màn Cài đặt) CẦN đã đăng nhập (`Ready`), đưa state về
+ * `Disconnected` — sau đó phải quay lại đầu chuỗi (checkSession()) nếu muốn
+ * đăng nhập lại. Thêm hai command `list_media_files`/`probe_media`
  * (`src-tauri/src/probe.rs`) cho màn workspace ba vùng (A.3) — KHÔNG phụ
  * thuộc thứ tự trên, chạy được cả trước khi đăng nhập (probe không đụng
  * MTProto). Thêm `prepare_upload`/`cleanup_temp_dir` (`pipeline.rs`, cũng
@@ -86,6 +88,16 @@ export function checkWritePermission(): Promise<boolean> {
 
 export function readPinnedCatalog(): Promise<PinnedCatalogDto | null> {
   return invoke<PinnedCatalogDto | null>('read_pinned_catalog');
+}
+
+/** Đăng xuất (màn Cài đặt, ADR-0017 § addendum 2026-09-14) — gọi
+ * `auth.LogOut` thật phía server TRƯỚC khi xoá `session.sqlite3` cục bộ
+ * (thứ tự do phía Rust tự đảm bảo, xem `commands.rs::sign_out()`). Reject
+ * bằng `IngestRpcErrorDto` như mọi RPC khác nếu bước server thất bại — lúc
+ * đó KHÔNG có gì bị xoá, coi như chưa đăng xuất. `credentials.json`/
+ * `tmdb_api_key.json` CỐ Ý không bị đụng tới. */
+export function signOut(): Promise<void> {
+  return invoke<void>('sign_out');
 }
 
 /** Mở rộng danh sách đường dẫn vừa kéo thả (file HOẶC folder trộn lẫn) thành

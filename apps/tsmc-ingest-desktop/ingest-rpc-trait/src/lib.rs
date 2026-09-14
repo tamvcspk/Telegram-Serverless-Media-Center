@@ -1,10 +1,11 @@
 //! Trait `IngestRpc` — hợp đồng RPC MTProto dùng chung cho công cụ ingest
-//! desktop (ADR-0017). Bảy trong chín thao tác khớp 1-1 với
+//! desktop (ADR-0017). Bảy trong mười thao tác khớp 1-1 với
 //! `libs/core-mtproto/src/gateway-index.ts` + `gateway-ingest.ts` (bản
 //! TypeScript đã verify thật ở ADR-0013) — implementation Rust KHÔNG được
 //! phát minh lại tập hợp thao tác đó, chỉ đổi thư viện MTProto bên dưới.
-//! `list_own_channels`/`create_channel` (thêm 2026-09-11) là NGOẠI LỆ có chủ
-//! đích, xem doc comment ở `trait IngestRpc` ngay dưới.
+//! `list_own_channels`/`create_channel` (thêm 2026-09-11) và `sign_out`
+//! (thêm 2026-09-14) là NGOẠI LỆ có chủ đích, xem doc comment ở `trait
+//! IngestRpc` ngay dưới.
 //!
 //! Crate này KHÔNG chứa luật nghiệp vụ (bảng phân hạng A/B/C/D,
 //! inheritMetadata, catalog merge) — luật đó ở lại `libs/core-ingest`
@@ -131,15 +132,20 @@ pub struct UploadedRef {
     pub msg_id: i64,
 }
 
-/// Chín thao tác RPC mà implementation MTProto phải đáp ứng — bọc cổng theo
+/// Mười thao tác RPC mà implementation MTProto phải đáp ứng — bọc cổng theo
 /// đúng nguyên tắc `TelegramGateway` của ADR-0003: đổi thư viện MTProto sau
 /// này (nếu cần) là đổi implementation của trait này, không lan ra toàn bộ
 /// app (điều kiện bắt buộc #2, ADR-0017). Bảy thao tác đầu khớp 1-1 với bản
 /// TypeScript đã verify (`gateway-index.ts`/`gateway-ingest.ts`, xem doc
 /// comment gốc của module này) — `list_own_channels`/`create_channel`
-/// (2026-09-11) là NGOẠI LỆ có chủ đích: hai thao tác desktop-only, phục vụ
-/// picker ở màn "Chọn kênh" (A.4), không có tương ứng 1-1 phía TS (web app
-/// không có luồng "tạo kênh media mới" — chỉ ingest desktop mới cần).
+/// (2026-09-11) và `sign_out` (2026-09-14) là NGOẠI LỆ có chủ đích: ba thao
+/// tác desktop-only, không có tương ứng 1-1 phía TS. `sign_out` khác về bản
+/// chất so với hai cái kia (những cái đó là "kênh", cái này là "tài khoản")
+/// — `apps/web` có đăng xuất riêng (`logout-confirm-sheet.ts`) nhưng đó là
+/// một luồng client-heavy phức tạp hơn hẳn (flush outbox, xoá IndexedDB) vì
+/// còn state đồng bộ cục bộ để dọn; ingest desktop không có state đó, chỉ
+/// cần gọi `auth.LogOut` rồi xoá `session.sqlite3` — xem [ADR-0017 §
+/// addendum 2026-09-14](../../../docs/adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-14-thêm-sign_out-vào-ingestrpc).
 #[async_trait]
 pub trait IngestRpc: Send + Sync {
     /// 1. Resolve username/invite-link/id nội bộ thành channel + access_hash
@@ -194,4 +200,12 @@ pub trait IngestRpc: Send + Sync {
         json_bytes: &[u8],
         previous_msg_id: Option<i64>,
     ) -> Result<UploadedRef, IngestRpcError>;
+
+    /// 8. Đăng xuất — gọi `auth.LogOut` PHÍA SERVER TRƯỚC (thu hồi session
+    /// khỏi danh sách thiết bị Telegram thật). Bên gọi (`src-tauri/src/
+    /// commands.rs::sign_out()`) chỉ được xoá `session.sqlite3` cục bộ SAU
+    /// KHI method này trả `Ok` — xoá cục bộ trước mà lỡ lỗi ở bước server sẽ
+    /// để lại một session còn SỐNG mà app không còn cách nào thu hồi nữa
+    /// (cùng thứ tự đã verify đúng ở `apps/web`, xem ADR-0011).
+    async fn sign_out(&self) -> Result<(), IngestRpcError>;
 }
