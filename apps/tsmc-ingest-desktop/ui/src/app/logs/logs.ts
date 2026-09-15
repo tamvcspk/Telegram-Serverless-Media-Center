@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, OnInit, ViewChild, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, Injector, OnInit, afterNextRender, inject, signal, viewChild } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatTooltipModule } from '@angular/material/tooltip';
@@ -37,8 +37,14 @@ import { describeIngestError, readAppLog, toIngestRpcError } from '../core/inges
 })
 export class Logs implements OnInit {
   private readonly router = inject(Router);
+  private readonly injector = inject(Injector);
 
-  @ViewChild('logBox') private readonly logBox?: ElementRef<HTMLElement>;
+  // Signal-based query (không phải `@ViewChild`) — cùng lý do đã ghi ở
+  // `apps/web/src/app/browse/browse.ts::gridMeasure`: đọc trực tiếp trong
+  // callback `afterNextRender()` dưới đây thay vì field snapshot, tránh giữ
+  // tham chiếu cũ nếu view re-tạo lại (`<pre #logBox>` chỉ tồn tại trong DOM
+  // ở nhánh `@else` khi `logText().length > 0`, xem `logs.html`).
+  protected readonly logBox = viewChild<ElementRef<HTMLElement>>('logBox');
 
   protected readonly loading = signal(true);
   protected readonly loadError = signal<string | null>(null);
@@ -60,13 +66,25 @@ export class Logs implements OnInit {
       this.logText.set(await readAppLog());
       // Log mới nhất nằm CUỐI file (append-only) — cuộn xuống đáy ngay sau
       // khi DOM cập nhật để admin thấy sự kiện gần nhất không cần tự cuộn,
-      // đúng tinh thần "chỗ để dán khi VỪA gặp lỗi".
-      queueMicrotask(() => {
-        const el = this.logBox?.nativeElement;
-        if (el) {
-          el.scrollTop = el.scrollHeight;
-        }
-      });
+      // đúng tinh thần "chỗ để dán khi VỪA gặp lỗi". BẮT BUỘC gọi lại MỖI
+      // LẦN `load()` (không phải một lần ở constructor) — bug thật đã gặp
+      // (2026-09-15, verify thiết bị thật): `<pre #logBox>` chưa tồn tại
+      // trong DOM ở lượt render ĐẦU TIÊN (còn đang `loading()`), nên một
+      // `afterNextRender()` duy nhất đăng ký lúc khởi tạo sẽ chạy trước khi
+      // phần tử này có mặt và không bao giờ cuộn được (cùng lớp bug đã ghi ở
+      // `apps/web/src/app/browse/browse.ts::gridMeasure`) — `queueMicrotask`
+      // trần trước đó cũng sai vì chạy TRƯỚC khi Angular flush DOM, không
+      // phải sau. `afterNextRender()` gọi ở đây chờ đúng lượt render phản
+      // ánh kết quả CỦA LẦN GỌI NÀY (cả `logText`/`loading` mới).
+      afterNextRender(
+        () => {
+          const el = this.logBox()?.nativeElement;
+          if (el) {
+            el.scrollTop = el.scrollHeight;
+          }
+        },
+        { injector: this.injector }
+      );
     } catch (err) {
       this.loadError.set(describeIngestError(toIngestRpcError(err)));
     } finally {

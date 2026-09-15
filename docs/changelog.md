@@ -4,6 +4,16 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-09-15 — GUI ingest desktop: vá 2 bug thật ở Nhật ký (không cuộn xuống cuối, "Làm mới" không thấy gì mới)
+
+User báo hai vấn đề sau lượt verify luồng chính (mục dưới): "Logs không cuộn sẵn tới cuối cùng" và "Nội dung không cập nhật sau khi bấm làm mới".
+
+**Bug 1 (không cuộn xuống cuối) — lỗi UI thật:** `afterNextRender()` (ban đầu là `queueMicrotask` trần) đăng ký MỘT LẦN ở constructor chạy trước khi `<pre #logBox>` tồn tại trong DOM (phần tử chỉ render ở nhánh `@else` sau khi hết `loading()`) — cùng lớp bug đã ghi nhận ở `apps/web/src/app/browse/browse.ts::gridMeasure`. Vá bằng gọi `afterNextRender()` MỚI mỗi lần `load()` (kèm `Injector` tường minh vì gọi ngoài constructor, `viewChild()` signal-based thay `@ViewChild`) — đợi đúng lượt render phản ánh kết quả của LẦN GỌI ĐÓ.
+
+**Bug 2 ("Làm mới" không thấy gì mới) — KHÔNG phải lỗi code, mà do mức lọc log quá chặt:** điều tra ra `read_app_log()`/`onRefresh()` đọc lại file đúng — file thật sự không có nội dung mới. Ở mức `log::LevelFilter::Info` (đặt từ 2026-09-11), sau lần connect/sinh `auth_key` đầu phiên, một RPC bình thường (vd `get_messages_by_id` của "Đối soát" ở Trình quản lý catalog) chỉ sinh log ở mức `debug!`/`trace!` phía `grammers-mtsender`/`grammers-mtproto` — bị lọc mất hoàn toàn. Trước khi nâng mức lọc, đã ĐỐI CHIẾU TRỰC TIẾP mã nguồn `grammers-mtsender`/`grammers-mtproto`/`grammers-client` 0.10.0: mọi dòng `debug!`/`trace!` chỉ in `msg_id`/tên kiểu TL (`tl::name_for_id`)/số byte/mã lỗi RPC — không dòng nào in giá trị trường request (số điện thoại, mã OTP, mật khẩu 2FA) hay `auth_key`. Nâng `Info` → `Debug` (giữ nguyên KHÔNG bật `Trace`, vốn thêm cả buffer byte thô không cần thiết) — xem doc comment đầy đủ ở `lib.rs`.
+
+`cargo build`/`cargo clippy --workspace -- -D warnings`/`ng build`/`npm run lint` sạch. **Chưa verify lại bằng tài khoản thật** — checklist cập nhật ở [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--nhật-ký-2026-09-15), gồm cả một bước MỚI (đối chiếu log thật ở mức `Debug` không lộ trường nhạy cảm — audit mã nguồn không thay được quan sát log thật).
+
 ## 2026-09-15 — GUI ingest desktop: verify Nhật ký (luồng chính) — ĐẠT
 
 User xác nhận đã chạy `cargo tauri dev` + tài khoản thật cho luồng chính: `/logs` hiện đúng nội dung file log, nội dung KHÔNG lộ `auth_key`/session token/OTP, nút "Sao chép" dán ra đúng y hệt nội dung đang hiện. Ba nhánh hiếm còn lại (nút "Làm mới", file log chưa từng tồn tại, rotation vượt 40KB) và "Sao chép" ở bản đóng gói (`cargo tauri build`, khác webview `cargo tauri dev`) CHƯA xác nhận riêng — để mở trong checklist. Checklist: [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--nhật-ký-2026-09-15).
