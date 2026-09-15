@@ -84,6 +84,27 @@
   <section class="block">
     <h2>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 4v6h6M20 20v-6h-6" />
+        <path d="M4.5 15a8 8 0 0 0 14.6 2M19.5 9A8 8 0 0 0 4.9 7" />
+      </svg>
+      Đồng bộ
+    </h2>
+    <p>Trạng thái nén dữ liệu: {{ compactionAgeLabel() }}</p>
+    <label for="compaction-age-input">Tự nén sau: {{ compactionMaxAgeDays() }} ngày không đổi</label>
+    <mat-slider [min]="minCompactionMaxAgeDays" [max]="maxCompactionMaxAgeDays" [step]="1" discrete [disabled]="compactionMaxAgePending()">
+      <input id="compaction-age-input" matSliderThumb [value]="compactionMaxAgeDays()" (valueChange)="onCompactionMaxAgeChange($event)" />
+    </mat-slider>
+    <p class="hint">Kênh dữ liệu riêng tư tự dọn (nén) khi quá hạn này, hoặc khi có hơn 200 thay đổi chưa nén — ngưỡng 200 luôn cố định.</p>
+    @if (compactionMaxAgeError(); as err) {
+      <p class="error">{{ err }}</p>
+    }
+  </section>
+
+  <mat-divider />
+
+  <section class="block">
+    <h2>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <rect x="8" y="7" width="8" height="11" rx="4" />
         <path d="M9 7c0-1.7 1.3-3 3-3s3 1.3 3 3M4.5 10 8 11.5M19.5 10 16 11.5M4.5 17 8 15.5M19.5 17 16 15.5M12 7v11" />
       </svg>

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createEmptySyncState } from '@tsmc/shared-models';
 import { decideCompaction, maybeCompact } from './compaction';
 import { createFakeGateway, createFakeStorage, makeFetchedEvent } from './test-fakes';
 
@@ -18,6 +19,15 @@ describe('@tsmc/core-sync decideCompaction (thuần tuý)', () => {
 
   it('ít event, snapshot còn mới, chưa có snapshot nào (age=undefined) → không nén', () => {
     expect(decideCompaction(5, undefined)).toEqual({ shouldCompact: false });
+  });
+
+  it('tham số maxSnapshotAgeMs tuỳ chọn ghi đè mặc định 7 ngày (Settings, ADR-0009 addendum 2026-09-15)', () => {
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    const twoDaysMs = 2 * oneDayMs;
+    // Mặc định 7 ngày: 2 ngày tuổi CHƯA đủ nén.
+    expect(decideCompaction(1, twoDaysMs)).toEqual({ shouldCompact: false });
+    // Ngưỡng tuỳ chỉnh 1 ngày: cùng 2 ngày tuổi giờ ĐÃ đủ nén.
+    expect(decideCompaction(1, twoDaysMs, oneDayMs)).toEqual({ shouldCompact: true, reason: 'snapshot-age' });
   });
 });
 
@@ -70,5 +80,34 @@ describe('@tsmc/core-sync maybeCompact', () => {
     const compacted = await maybeCompact(gateway, storage, 'c1');
     expect(compacted).toBe(false);
     expect(called).toBe(false);
+  });
+
+  it('ngưỡng ngày tự cấu hình ở Settings (settings.compactionMaxSnapshotAgeDays) có hiệu lực — nén SỚM hơn mặc định 7 ngày', async () => {
+    const storage = createFakeStorage();
+    const twoDaysMs = 2 * 24 * 60 * 60 * 1000;
+    await storage.putSyncMeta({ lastSnapshotMsgId: 10, lastSnapshotAt: Date.now() - twoDaysMs });
+    await storage.putSyncState({ ...createEmptySyncState(), settings: { compactionMaxSnapshotAgeDays: { val: 1, ts: 1, dev: 'a' } } });
+    const gateway = createFakeGateway({
+      fetchEventsSince: async () => [makeFetchedEvent({ v: 1, op: 'settings.set', ts: 1, dev: 'a', k: 'x', val: 1 }, 11)],
+      publishSnapshot: async () => ({ msgId: 999 })
+    });
+
+    // Mặc định 7 ngày sẽ KHÔNG nén ở tuổi 2 ngày (xem test decideCompaction
+    // tương ứng) — ngưỡng cấu hình 1 ngày phải khiến maybeCompact() nén.
+    const compacted = await maybeCompact(gateway, storage, 'c1');
+    expect(compacted).toBe(true);
+  });
+
+  it('giá trị ngưỡng hỏng (âm/NaN/không phải số) ở Settings → rơi về mặc định 7 ngày, không crash, không nén sớm', async () => {
+    const storage = createFakeStorage();
+    const twoDaysMs = 2 * 24 * 60 * 60 * 1000;
+    await storage.putSyncMeta({ lastSnapshotMsgId: 10, lastSnapshotAt: Date.now() - twoDaysMs });
+    await storage.putSyncState({ ...createEmptySyncState(), settings: { compactionMaxSnapshotAgeDays: { val: -5, ts: 1, dev: 'a' } } });
+    const gateway = createFakeGateway({
+      fetchEventsSince: async () => [makeFetchedEvent({ v: 1, op: 'settings.set', ts: 1, dev: 'a', k: 'x', val: 1 }, 11)]
+    });
+
+    const compacted = await maybeCompact(gateway, storage, 'c1');
+    expect(compacted).toBe(false);
   });
 });

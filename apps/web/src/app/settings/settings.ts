@@ -8,7 +8,7 @@ import { MatDividerModule } from '@angular/material/divider';
 import { MatSliderModule } from '@angular/material/slider';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { CHUNK_CACHE_NAME, type TelegramUserSummary } from '@tsmc/shared-models';
-import { countOutbox, getSyncState, liveQuery } from '@tsmc/core-storage';
+import { countOutbox, getSyncMeta, getSyncState, liveQuery } from '@tsmc/core-storage';
 import { createCoreWorkerClient } from '@tsmc/worker-host';
 import { firstValueFrom, from } from 'rxjs';
 import { currentUser } from '../shell/current-user';
@@ -23,6 +23,16 @@ import { LogoutConfirmSheet, type LogoutConfirmSheetData } from './logout-confir
 const MIN_CONCURRENCY = 4;
 const MAX_CONCURRENCY = 8;
 
+// ADR-0009 "Compaction": mặc định 7 ngày, KHÔNG đổi ở đây (chỉ thêm khả
+// năng chỉnh — xem ADR-0009 addendum 2026-09-15). Trần UI 1-30 ngày hẹp hơn
+// trần phòng thủ thật sự ở `libs/core-sync/src/compaction.ts` (1-90, kẹp
+// giá trị hỏng/đồng bộ từ thiết bị khác) — trần UI chỉ giữ slider trong
+// khoảng còn có ý nghĩa thực tế cho một app cá nhân.
+const DEFAULT_COMPACTION_MAX_AGE_DAYS = 7;
+const MIN_COMPACTION_MAX_AGE_DAYS = 1;
+const MAX_COMPACTION_MAX_AGE_DAYS = 30;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) {
     return `${bytes} B`;
@@ -35,6 +45,22 @@ function formatBytes(bytes: number): string {
     unitIndex++;
   } while (value >= 1024 && unitIndex < units.length - 1);
   return `${value.toFixed(1)} ${units[unitIndex]}`;
+}
+
+/** ADR-0009 Hệ quả: "thêm chỉ báo tình trạng đồng bộ trong Cài đặt" —
+ * `undefined` nghĩa là CHƯA TỪNG nén (chưa tự phát sinh compaction nào,
+ * `SyncMetaRecord.lastSnapshotAt` chỉ được ghi lúc `maybeCompact()` nén
+ * thành công lần đầu, không phải lúc hydrate) — hiện rõ "chưa từng nén"
+ * thay vì bịa ra một số ngày sai. */
+function formatCompactionAge(lastSnapshotAt: number | undefined): string {
+  if (lastSnapshotAt === undefined) {
+    return 'chưa từng nén';
+  }
+  const days = Math.floor((Date.now() - lastSnapshotAt) / MS_PER_DAY);
+  if (days <= 0) {
+    return 'đã nén hôm nay';
+  }
+  return `chưa nén trong ${days} ngày`;
 }
 
 function displayName(user: TelegramUserSummary): string {
@@ -56,6 +82,17 @@ function initials(user: TelegramUserSummary): string {
  * 4-8, ADR-0006 §3 "known gap" đóng ở slice này qua
  * `client.setMaxConcurrency()`) → Debug (cờ log cục bộ, có hiệu lực sau khi
  * tải lại — xem debug-log.ts).
+ *
+ * **Khối "Đồng bộ" (thêm 2026-09-15) — thứ NĂM, KHÔNG thuộc bốn khối gốc của
+ * mockup Màn hình 7 (Tài khoản/Lưu trữ/Mạng/Chẩn đoán) — đóng gap ghi sẵn ở
+ * ADR-0009 §
+ * Hệ quả ("Kênh state có thể phình nếu compaction không chạy... → thêm chỉ
+ * báo tình trạng đồng bộ trong Cài đặt") + roadmap.md brainstorm 2026-08-29:
+ * chỉ báo `compactionAgeLabel` (đọc `SyncMetaRecord.lastSnapshotAt` qua
+ * liveQuery) + slider chỉnh ngưỡng nén-theo-tuổi (mặc định VẪN 7 ngày, ADR-
+ * 0009 — chỉ THÊM khả năng chỉnh, không đổi mặc định, xem ADR-0009 addendum
+ * 2026-09-15). Ngưỡng >200 event vẫn là lưới an toàn cứng, không có UI cho
+ * nó (đúng roadmap.md § Sync & dữ liệu).**
  *
  * `currentUser` đọc từ signal do `authGuard` set (xem shell/current-user.ts)
  * — route này nằm trong `canActivate: [authGuard]` nên signal luôn có giá
@@ -103,6 +140,30 @@ export class Settings {
   protected readonly concurrency = computed(() => this.savedConcurrency() ?? MIN_CONCURRENCY);
   protected readonly concurrencyPending = signal(false);
   protected readonly concurrencyError = signal<string | null>(null);
+
+  protected readonly minCompactionMaxAgeDays = MIN_COMPACTION_MAX_AGE_DAYS;
+  protected readonly maxCompactionMaxAgeDays = MAX_COMPACTION_MAX_AGE_DAYS;
+
+  // Cùng cách đọc `savedConcurrency` ở trên — setting đồng bộ qua kênh state
+  // (ADR-0009), key `compactionMaxSnapshotAgeDays` PHẢI khớp literal string
+  // `libs/core-sync/src/compaction.ts::readConfiguredMaxSnapshotAgeMs()`
+  // dùng (quy ước lặp lại string, không export hằng dùng chung — xem doc
+  // comment ở đó).
+  private readonly savedCompactionMaxAgeDays = toSignal(
+    from(liveQuery(async () => (await getSyncState()).settings['compactionMaxSnapshotAgeDays']?.val as number | undefined)),
+    { initialValue: undefined }
+  );
+  protected readonly compactionMaxAgeDays = computed(() => this.savedCompactionMaxAgeDays() ?? DEFAULT_COMPACTION_MAX_AGE_DAYS);
+  protected readonly compactionMaxAgePending = signal(false);
+  protected readonly compactionMaxAgeError = signal<string | null>(null);
+
+  // `SyncMetaRecord.lastSnapshotAt` — CHỈ được ghi lúc `maybeCompact()` nén
+  // thành công lần đầu (không phải lúc hydrate), nên `undefined` là trạng
+  // thái bình thường cho một tài khoản mới/dùng nhẹ (log chưa bao giờ đủ 200
+  // event hoặc 7 ngày để tự nén) — `formatCompactionAge()` hiện đúng nghĩa
+  // "chưa từng nén" cho case này, không bịa số ngày.
+  private readonly lastSnapshotAt = toSignal(from(liveQuery(async () => (await getSyncMeta()).lastSnapshotAt)), { initialValue: undefined });
+  protected readonly compactionAgeLabel = computed(() => formatCompactionAge(this.lastSnapshotAt()));
 
   protected readonly debugEnabled = signal(isDebugEnabled());
 
@@ -166,5 +227,24 @@ export class Settings {
   onDebugToggle(checked: boolean): void {
     setDebugEnabled(checked);
     this.debugEnabled.set(checked);
+  }
+
+  /** Ghi qua `setSetting()` chung (không phải RPC riêng như
+   * `setMaxConcurrency()` — ngưỡng này không cần áp dụng NGAY cho một tiến
+   * trình nền nào đang chạy trong Core Worker, `maybeCompact()` tự đọc lại
+   * `SyncState.settings` mỗi lượt kiểm tra định kỳ, xem
+   * `libs/core-sync/src/compaction.ts`). Không tự clamp ở đây — kẹp thật sự
+   * (đủ chống giá trị hỏng) nằm ở `readConfiguredMaxSnapshotAgeMs()`, slider
+   * `[min,max]` đã đủ chặn input hợp lệ từ UI này. */
+  async onCompactionMaxAgeChange(days: number): Promise<void> {
+    this.compactionMaxAgePending.set(true);
+    this.compactionMaxAgeError.set(null);
+    try {
+      await this.client.setSetting('compactionMaxSnapshotAgeDays', days);
+    } catch (err) {
+      this.compactionMaxAgeError.set(err instanceof Error ? err.message : String(err));
+    } finally {
+      this.compactionMaxAgePending.set(false);
+    }
   }
 }

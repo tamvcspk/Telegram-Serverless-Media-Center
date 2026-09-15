@@ -193,6 +193,38 @@ describe('@tsmc/core-mtproto createSyncGatewayMethods', () => {
 
     const events = await methods.fetchEventsSince('1', 0);
     expect(events).toEqual([{ msgId: 10, event: { v: 1, op: 'settings.set', ts: 1, dev: 'a', k: 'x', val: 1 } }]);
+    expect(mocks.getMessages).toHaveBeenCalledTimes(1);
+  });
+
+  it('fetchEventsSince(): trang đầu đầy ĐÚNG bằng trần trang → tự gọi tiếp trang sau, minId nhích lên id message cuối trang trước, dừng khi trang sau ít hơn trần', async () => {
+    const client = new (await import('telegram')).TelegramClient('' as never, 0, '', {} as never);
+    const methods = createSyncGatewayMethods(() => client);
+    mocks.getEntity.mockResolvedValue(makeChannel({ id: 1 }));
+
+    const makeEvent = (n: number): SyncEvent => ({ v: 1, op: 'settings.set', ts: n, dev: 'a', k: `k${n}`, val: n });
+    // Trang 1: đúng 500 message (= FETCH_EVENTS_PAGE_LIMIT nội bộ) — id 1..500,
+    // trộn một message KHÔNG parse được (msgId 250) để xác nhận con trỏ nhích
+    // theo id message THẬT, không phải theo event đã lọc được.
+    const page1 = Array.from({ length: 500 }, (_, i) => {
+      const id = i + 1;
+      return id === 250 ? { id, message: 'không phải JSON' } : { id, message: JSON.stringify(makeEvent(id)) };
+    });
+    // Trang 2: 3 message, id 501..503 — ít hơn trần → dừng, KHÔNG gọi trang 3.
+    const page2 = [501, 502, 503].map((id) => ({ id, message: JSON.stringify(makeEvent(id)) }));
+
+    mocks.getMessages.mockResolvedValueOnce(page1).mockResolvedValueOnce(page2);
+
+    const events = await methods.fetchEventsSince('1', 0);
+
+    expect(mocks.getMessages).toHaveBeenCalledTimes(2);
+    expect(mocks.getMessages.mock.calls[0]?.[1]).toMatchObject({ minId: 0 });
+    // Con trỏ trang 2 phải là id message CUỐI của trang 1 (500), không phải
+    // msgId event cuối cùng ĐÃ LỌC ĐƯỢC (499, vì id 250 bị bỏ qua).
+    expect(mocks.getMessages.mock.calls[1]?.[1]).toMatchObject({ minId: 500 });
+    // 500 message trang 1 trừ 1 message hỏng (id 250) + 3 message trang 2 = 502 event.
+    expect(events).toHaveLength(502);
+    expect(events.map((e) => e.msgId)).not.toContain(250);
+    expect(events[events.length - 1]).toEqual({ msgId: 503, event: makeEvent(503) });
   });
 
   it('fetchPinnedSnapshot(): không có pinnedMsgId → null; có → tải + parse JSON', async () => {

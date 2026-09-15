@@ -11,10 +11,17 @@ import { isSyncEvent, type SnapshotV1, type StateChannelCandidate, type SyncEven
 const STATE_CHANNEL_ABOUT_PREFIX = 'tsmc-state/1';
 const STATE_CHANNEL_TITLE = 'TSMC State';
 const STATE_CHANNEL_ABOUT = `${STATE_CHANNEL_ABOUT_PREFIX} · Kho dữ liệu của Telegram Media Center. Đừng xoá kênh này.`;
-// messages.getHistory trả tối đa 100/lần dù limit lớn hơn — GramJS tự phân
-// trang khi limit vượt mức đó (xem IterMessagesParams), 500 chỉ là mức trần
-// hợp lý cho một lần đọc kể từ snapshot (compaction chạy trước khi log vượt
-// 200 event — ADR-0009 — nên khoảng cách thực tế luôn nhỏ hơn nhiều).
+// Kích thước MỘT trang gọi getMessages() — KHÔNG phải trần tổng số event đọc
+// được (bug thật đã phát hiện qua rà soát, chưa từng xảy ra trên thiết bị
+// thật: bản trước gọi getMessages() đúng MỘT LẦN với limit này rồi coi là đã
+// đọc hết, nên nếu số event kể từ snapshot vượt quá đây — compaction không
+// chạy đủ lâu, đúng kịch bản mà việc "cấu hình ngưỡng nén" ở roadmap lo ngại
+// — hydrate() sẽ âm thầm bỏ sót phần còn lại, không phải Telegram xoá gì, chỉ
+// là code không đọc hết. fetchEventsSince() dưới đây tự LẶP gọi getMessages()
+// nhiều trang (minId nhích dần) tới khi một trang trả về ÍT HƠN mức này —
+// dấu hiệu duy nhất đáng tin để biết đã hết, GramJS không trả kèm tổng số.
+// 500 vẫn là kích thước trang hợp lý (đủ lớn để trường hợp thường — compaction
+// chạy đúng hạn, log luôn dưới ~200 event — chỉ cần đúng MỘT trang).
 const FETCH_EVENTS_PAGE_LIMIT = 500;
 
 export interface MinimalChannel {
@@ -125,22 +132,41 @@ export function createSyncGatewayMethods(getClient: () => TelegramClient) {
 
     async fetchEventsSince(channelId: string, sinceMsgId: number): Promise<Array<{ msgId: number; event: SyncEvent }>> {
       const channel = await resolveChannel(channelId);
-      const messages = await getClient().getMessages(channel, { minId: sinceMsgId, limit: FETCH_EVENTS_PAGE_LIMIT, reverse: true });
-
       const events: Array<{ msgId: number; event: SyncEvent }> = [];
-      for (const message of messages) {
-        if (!message.message) {
-          continue;
+      // Con trỏ trang — nhích lên id THẬT của message cuối cùng đã thấy (kể
+      // cả message không parse được thành SyncEvent hợp lệ), không phải
+      // msgId của event cuối cùng đã ĐẨY vào mảng — nếu không, một trang mà
+      // TOÀN BỘ message đều bị lọc (không phải JSON hợp lệ) sẽ không nhích
+      // được con trỏ, lặp vô hạn cùng một trang.
+      let cursor = sinceMsgId;
+
+      for (;;) {
+        const messages = await getClient().getMessages(channel, { minId: cursor, limit: FETCH_EVENTS_PAGE_LIMIT, reverse: true });
+        if (messages.length === 0) {
+          break;
         }
-        try {
-          const parsed: unknown = JSON.parse(message.message);
-          if (isSyncEvent(parsed)) {
-            events.push({ msgId: message.id, event: parsed });
+        for (const message of messages) {
+          if (message.message) {
+            try {
+              const parsed: unknown = JSON.parse(message.message);
+              if (isSyncEvent(parsed)) {
+                events.push({ msgId: message.id, event: parsed });
+              }
+            } catch {
+              // Message text trong kênh state không phải JSON hợp lệ — bỏ qua
+              // thay vì làm vỡ hydrate (biên ngoài, dù tự mình ghi — xem
+              // isSyncEvent trong shared-models).
+            }
           }
-        } catch {
-          // Message text trong kênh state không phải JSON hợp lệ — bỏ qua
-          // thay vì làm vỡ hydrate (biên ngoài, dù tự mình ghi — xem
-          // isSyncEvent trong shared-models).
+          cursor = message.id;
+        }
+        // Trang chưa đầy → đã hết, không còn trang kế tiếp để đọc. Trang ĐẦY
+        // ĐÚNG BẰNG limit không tự nó nghĩa là còn nữa, nhưng đây là dấu hiệu
+        // duy nhất GramJS cung cấp (không kèm tổng số) — chấp nhận đúng MỘT
+        // lần gọi thừa (trả về rỗng, dừng ở nhánh trên) khi số event còn lại
+        // khớp chẵn bội số của limit.
+        if (messages.length < FETCH_EVENTS_PAGE_LIMIT) {
+          break;
         }
       }
       return events;

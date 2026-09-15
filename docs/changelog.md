@@ -4,6 +4,16 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-09-15 — Sync: vá trần phân trang khi hydrate + ngưỡng nén cấu hình được + chỉ báo ở Settings (ADR-0009 addendum)
+
+Đóng cả 3 việc brainstorm 2026-08-29 ở `docs/roadmap.md` § Sync & dữ liệu trong một slice.
+
+**Bug thật phát hiện qua rà soát mã nguồn (chưa từng xảy ra trên thiết bị thật):** `fetchEventsSince()` (`libs/core-mtproto/src/gateway-sync.ts`) trước đây gọi `getMessages()` đúng MỘT LẦN với `limit: 500` rồi coi như đã đọc hết toàn bộ event kể từ `baseMsgId` — nếu compaction không chạy đủ lâu và số event thật vượt 500, `hydrate()`/`maybeCompact()` sẽ âm thầm bỏ sót phần còn lại (event vẫn còn nguyên trên kênh, chỉ là code không đọc hết trang tiếp theo). Vá bằng cho `fetchEventsSince()` tự lặp gọi `getMessages()` nhiều trang, con trỏ `minId` nhích theo id message THẬT cuối mỗi trang (kể cả message không parse được thành `SyncEvent`, tránh kẹt vòng lặp), dừng khi một trang trả về ít hơn trần trang. Test mới mô phỏng đúng kịch bản 2 trang (500 message lẫn 1 message hỏng, rồi 3 message trang sau) ở `libs/core-mtproto/src/gateway-sync.spec.ts`.
+
+**Ngưỡng nén theo tuổi cấu hình được + chỉ báo ở Settings:** `decideCompaction()`/`maybeCompact()` (`libs/core-sync/src/compaction.ts`) giờ đọc ngưỡng từ setting đồng bộ `compactionMaxSnapshotAgeDays` (cùng cơ chế `maxConcurrency` đã có), mặc định VẪN 7 ngày (ADR-0009, không đổi) nếu chưa cấu hình, kẹp [1, 90] ngày phòng giá trị hỏng. Ngưỡng >200 event giữ nguyên KHÔNG cấu hình được. Settings (`apps/web/src/app/settings`) thêm khối "Đồng bộ" mới — thứ NĂM ngoài bốn khối gốc (Tài khoản/Lưu trữ/Mạng/Chẩn đoán) của mockup Màn hình 7 — slider 1-30 ngày + chỉ báo đọc `SyncMetaRecord.lastSnapshotAt` qua liveQuery, hiện "chưa từng nén" thay vì bịa số ngày nếu chưa từng compact.
+
+`npm run test:libs` (4 test mới)/`ng build`/`npm run lint` sạch — **CHƯA verify bằng tài khoản thật** (compaction chưa từng tự phát sinh trong một lần dùng bình thường). Chi tiết: [ADR-0009 § addendum 2026-09-15](./adr/0009-dong-bo-state-event-log-va-snapshot.md#cập-nhật-sau-khi-accepted-2026-09-15-rà-soát-brainstorm-2026-08-29--vá-bug-thật).
+
 ## 2026-09-15 — GUI ingest desktop: vá 2 bug thật ở Nhật ký (không cuộn xuống cuối, "Làm mới" không thấy gì mới)
 
 User báo hai vấn đề sau lượt verify luồng chính (mục dưới): "Logs không cuộn sẵn tới cuối cùng" và "Nội dung không cập nhật sau khi bấm làm mới".
