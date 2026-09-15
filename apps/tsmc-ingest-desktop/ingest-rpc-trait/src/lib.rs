@@ -132,20 +132,25 @@ pub struct UploadedRef {
     pub msg_id: i64,
 }
 
-/// Mười thao tác RPC mà implementation MTProto phải đáp ứng — bọc cổng theo
-/// đúng nguyên tắc `TelegramGateway` của ADR-0003: đổi thư viện MTProto sau
-/// này (nếu cần) là đổi implementation của trait này, không lan ra toàn bộ
-/// app (điều kiện bắt buộc #2, ADR-0017). Bảy thao tác đầu khớp 1-1 với bản
-/// TypeScript đã verify (`gateway-index.ts`/`gateway-ingest.ts`, xem doc
+/// Mười hai thao tác RPC mà implementation MTProto phải đáp ứng — bọc cổng
+/// theo đúng nguyên tắc `TelegramGateway` của ADR-0003: đổi thư viện MTProto
+/// sau này (nếu cần) là đổi implementation của trait này, không lan ra toàn
+/// bộ app (điều kiện bắt buộc #2, ADR-0017). Bảy thao tác đầu khớp 1-1 với
+/// bản TypeScript đã verify (`gateway-index.ts`/`gateway-ingest.ts`, xem doc
 /// comment gốc của module này) — `list_own_channels`/`create_channel`
-/// (2026-09-11) và `sign_out` (2026-09-14) là NGOẠI LỆ có chủ đích: ba thao
-/// tác desktop-only, không có tương ứng 1-1 phía TS. `sign_out` khác về bản
-/// chất so với hai cái kia (những cái đó là "kênh", cái này là "tài khoản")
-/// — `apps/web` có đăng xuất riêng (`logout-confirm-sheet.ts`) nhưng đó là
-/// một luồng client-heavy phức tạp hơn hẳn (flush outbox, xoá IndexedDB) vì
-/// còn state đồng bộ cục bộ để dọn; ingest desktop không có state đó, chỉ
-/// cần gọi `auth.LogOut` rồi xoá `session.sqlite3` — xem [ADR-0017 §
-/// addendum 2026-09-14](../../../docs/adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-14-thêm-sign_out-vào-ingestrpc).
+/// (2026-09-11), `sign_out` (2026-09-14), và `check_deleted_messages`/
+/// `delete_message` (2026-09-15, Trình quản lý catalog) là NGOẠI LỆ có chủ
+/// đích: năm thao tác desktop-only, không có tương ứng 1-1 phía TS.
+/// `sign_out` khác về bản chất so với hai cái đầu (những cái đó là "kênh",
+/// cái này là "tài khoản") — `apps/web` có đăng xuất riêng
+/// (`logout-confirm-sheet.ts`) nhưng đó là một luồng client-heavy phức tạp
+/// hơn hẳn (flush outbox, xoá IndexedDB) vì còn state đồng bộ cục bộ để dọn;
+/// ingest desktop không có state đó, chỉ cần gọi `auth.LogOut` rồi xoá
+/// `session.sqlite3` — xem [ADR-0017 § addendum
+/// 2026-09-14](../../../docs/adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-14-thêm-sign_out-vào-ingestrpc).
+/// `check_deleted_messages`/`delete_message` phục vụ đối soát/dọn catalog ở
+/// Trình quản lý catalog — xem [ADR-0017 § addendum
+/// 2026-09-15](../../../docs/adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-15-trình-quản-lý-catalog-ingestrpc-thêm-2-thao-tác).
 #[async_trait]
 pub trait IngestRpc: Send + Sync {
     /// 1. Resolve username/invite-link/id nội bộ thành channel + access_hash
@@ -208,4 +213,22 @@ pub trait IngestRpc: Send + Sync {
     /// để lại một session còn SỐNG mà app không còn cách nào thu hồi nữa
     /// (cùng thứ tự đã verify đúng ở `apps/web`, xem ADR-0011).
     async fn sign_out(&self) -> Result<(), IngestRpcError>;
+
+    /// 9. Đối soát "Trình quản lý catalog" (A.4, ADR-0017 § addendum
+    /// "Trình quản lý catalog") — kiểm tra tập `msg_id` mà catalog.json đang
+    /// tham chiếu còn tồn tại trên kênh không (vd bị xoá tay bằng app
+    /// Telegram gốc). Trả đúng tập con KHÔNG còn tồn tại — rỗng nếu catalog
+    /// lành mạnh. NGOẠI LỆ thứ tư không tương ứng 1-1 phía TS:
+    /// `gateway-index.ts` không có nhu cầu này (web app không có màn quản lý
+    /// catalog tương đương).
+    async fn check_deleted_messages(&self, channel: &ResolvedChannel, msg_ids: &[i64]) -> Result<Vec<i64>, IngestRpcError>;
+
+    /// 10. Xoá HẲN một message khỏi kênh (`deleteMessages`) — dùng khi user
+    /// chọn "Xoá khỏi catalog + xoá message trên kênh" ở Trình quản lý
+    /// catalog. NGOẠI LỆ thứ năm không tương ứng 1-1 phía TS:
+    /// `gateway-index.ts` chỉ gọi `deleteMessages()` NỘI BỘ trong
+    /// `publishCatalogDocument()` (dọn catalog cũ), không lộ ra thành một
+    /// RPC độc lập — nhu cầu "xoá một message bất kỳ theo yêu cầu admin"
+    /// chỉ tồn tại ở công cụ desktop.
+    async fn delete_message(&self, channel: &ResolvedChannel, msg_id: i64) -> Result<(), IngestRpcError>;
 }

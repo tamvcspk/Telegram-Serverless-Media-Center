@@ -1,0 +1,176 @@
+.catalog-manager {
+  --cm-border-20: color-mix(in srgb, var(--mat-sys-on-surface) 20%, transparent);
+  --cm-border-12: color-mix(in srgb, var(--mat-sys-on-surface) 12%, transparent);
+  --cm-border-8: color-mix(in srgb, var(--mat-sys-on-surface) 8%, transparent);
+
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  box-sizing: border-box;
+
+  // Cùng kỹ thuật `%ws-text-input`/`.row-action-button` của `workspace.scss`
+  // — hai màn không dùng chung một style class thật (mỗi route Angular
+  // đóng gói CSS riêng, `styleUrl` không tự leak sang route khác), chỉ lặp
+  // lại quy ước để nhất quán về mặt thị giác.
+  %cm-text-input {
+    box-sizing: border-box;
+    border: 1px solid var(--cm-border-20);
+    font: inherit;
+    font-size: 0.85rem;
+    background: var(--mat-sys-surface, transparent);
+    color: var(--mat-sys-on-surface, inherit);
+
+    &:focus {
+      outline: none;
+      border-color: var(--mat-sys-primary);
+    }
+  }
+
+  .topbar {
+    flex: 0 0 auto;
+    gap: 0.75rem;
+    font-size: 0.9rem;
+
+    .title {
+      font-weight: 500;
+    }
+
+    .channel-name {
+      opacity: 0.75;
+    }
+
+    .toolbar-spacer {
+      flex: 1 1 auto;
+    }
+
+    .search-input {
+      @extend %cm-text-input;
+      flex: 0 1 14rem;
+      min-width: 8rem;
+      border-radius: 999px;
+      padding: 0.35rem 0.9rem;
+    }
+  }
+
+  .row-action-button {
+    --mat-icon-button-state-layer-size: 28px;
+    --mat-icon-button-icon-size: 16px;
+    flex: 0 0 auto;
+    color: var(--mat-sys-on-surface-variant, currentColor);
+  }
+
+  .empty-hint {
+    padding: 1rem;
+    margin: 0;
+    font-size: 0.85rem;
+    opacity: 0.7;
+    text-align: center;
+
+    &.error {
+      opacity: 1;
+      color: var(--mat-sys-error, #b3261e);
+    }
+  }
+
+  // Bảy cột: Title · Năm · Season · Ep · msgId · Trạng thái · hành động —
+  // header và mỗi hàng PHẢI dùng cùng `grid-template-columns` để cột thẳng
+  // hàng nhau (cùng kỹ thuật `workspace.scss`, header nằm ngoài viewport ảo).
+  $columns: minmax(0, 1.6fr) 4.5rem 4.5rem 3.5rem 5rem 8rem 2.5rem;
+
+  .table-header-row {
+    display: grid;
+    grid-template-columns: $columns;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.4rem 1rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    opacity: 0.7;
+    border-bottom: 1px solid var(--cm-border-12);
+  }
+
+  .table-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    margin: 0 1rem 1rem;
+    border: 1px solid var(--cm-border-12);
+    border-radius: 0.5rem;
+    overflow-x: hidden;
+
+    ::ng-deep .cdk-virtual-scroll-content-wrapper {
+      width: 100%;
+    }
+  }
+
+  .table-row {
+    display: grid;
+    grid-template-columns: $columns;
+    gap: 0.5rem;
+    align-items: center;
+    height: 48px;
+    padding: 0 1rem;
+    border-top: 1px solid var(--cm-border-8);
+
+    &.broken {
+      background: color-mix(in srgb, var(--mat-sys-error, #b3261e) 6%, transparent);
+    }
+
+    input {
+      @extend %cm-text-input;
+      width: 100%;
+      border-radius: 0.25rem;
+      padding: 0.3rem 0.4rem;
+    }
+
+    .num-input {
+      text-align: right;
+    }
+
+    .msg-id {
+      font-size: 0.8rem;
+      opacity: 0.75;
+    }
+
+    .status {
+      font-size: 0.75rem;
+    }
+
+    .ok-badge {
+      opacity: 0.6;
+    }
+
+    .broken-badge {
+      font-weight: 600;
+      color: var(--mat-sys-error, #b3261e);
+    }
+  }
+
+  .table-footer {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0 1rem 1rem;
+    flex-wrap: wrap;
+
+    .item-count {
+      font-size: 0.8rem;
+      opacity: 0.7;
+    }
+
+    .toolbar-spacer {
+      flex: 1 1 auto;
+    }
+
+    .publish-status {
+      font-size: 0.8rem;
+
+      &.ok {
+        color: #2e7d32;
+      }
+
+      &.error {
+        color: var(--mat-sys-error, #b3261e);
+      }
+    }
+  }
+}

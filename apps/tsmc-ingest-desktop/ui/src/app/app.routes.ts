@@ -1,14 +1,15 @@
 import { Routes } from '@angular/router';
 import { canDeactivateWorkspace } from './workspace/workspace-deactivate.guard';
 
-// Bốn route thật ở slice này — Đăng nhập + Chọn kênh + Workspace ba vùng +
-// Cài đặt (docs/ux-design.md § Phụ lục A.4/A.3, workspace mới chỉ có vùng
-// HÀNG ĐỢI, xem doc comment ở workspace/workspace.ts). "Cài đặt" KHÔNG có
-// trong mockup A.4 gốc — thêm theo gap docs/roadmap.md § Ingest ("Màn
-// Settings — chưa có"), vào qua icon ⚙ ở topbar Workspace. Hai màn còn lại
-// của phụ lục A.4 (Trình quản lý catalog, Nhật ký) vẫn chưa có route — thêm
-// route lazy riêng cho từng màn khi tới lượt, không dựng khung layout chung
-// trước khi có ≥2 màn cần dùng chung nó (rule-of-three, ui-conventions §1/§6).
+// Năm route thật ở slice này — Đăng nhập + Chọn kênh + Workspace ba vùng +
+// Cài đặt + Trình quản lý catalog (docs/ux-design.md § Phụ lục A.4/A.3,
+// workspace mới chỉ có vùng HÀNG ĐỢI, xem doc comment ở
+// workspace/workspace.ts). "Cài đặt" KHÔNG có trong mockup A.4 gốc — thêm
+// theo gap docs/roadmap.md § Ingest ("Màn Settings — chưa có"), vào qua icon
+// ⚙ ở topbar Workspace. "Trình quản lý catalog" vào qua icon riêng cạnh ⚙ ở
+// cùng topbar. Còn đúng một màn A.4 chưa có route (Nhật ký) — thêm route
+// lazy riêng khi tới lượt, không dựng khung layout chung trước khi có ≥2 màn
+// cần dùng chung nó (rule-of-three, ui-conventions §1/§6).
 export const routes: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'login' },
   {
@@ -31,5 +32,9 @@ export const routes: Routes = [
   {
     path: 'settings',
     loadComponent: () => import('./settings/settings').then((m) => m.Settings)
+  },
+  {
+    path: 'catalog',
+    loadComponent: () => import('./catalog-manager/catalog-manager').then((m) => m.CatalogManager)
   }
 ];

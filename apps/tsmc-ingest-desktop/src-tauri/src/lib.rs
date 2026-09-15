@@ -1,3 +1,4 @@
+mod catalog;
 mod commands;
 mod dto;
 mod pipeline;
@@ -42,6 +43,8 @@ pub fn run() {
             commands::check_write_permission,
             commands::read_pinned_catalog,
             commands::sign_out,
+            catalog::check_deleted_messages,
+            catalog::delete_message,
             probe::list_media_files,
             probe::probe_media,
             probe::list_dir_entries,

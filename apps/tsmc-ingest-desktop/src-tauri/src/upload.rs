@@ -1,6 +1,8 @@
-//! Ba thao tác `IngestRpc` cuối cùng đưa vào Tauri command — `upload_video`/
-//! `upload_subtitle`/`publish_catalog` (`download_document` để dành khi màn
-//! "Trình quản lý catalog" cần đối soát, chưa cần cho luồng upload). Cộng
+//! Ba thao tác `IngestRpc` cho luồng upload đưa vào Tauri command —
+//! `upload_video`/`upload_subtitle`/`publish_catalog` (`download_document`
+//! vẫn để trống — đối soát ở "Trình quản lý catalog" dùng
+//! `catalog.rs::check_deleted_messages`, không cần tải lại nội dung file).
+//! Cộng
 //! `cancel_upload`/`get_current_task`/`clear_current_task` — không thuộc
 //! `IngestRpc` (thao tác điều khiển phía client, không phải RPC MTProto),
 //! đọc/ghi `AppState::active_cancel`/`current_task` (ADR-0018).

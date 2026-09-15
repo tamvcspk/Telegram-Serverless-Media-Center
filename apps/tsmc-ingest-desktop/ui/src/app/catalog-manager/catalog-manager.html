@@ -1,0 +1,94 @@
+<section class="catalog-manager">
+  <mat-toolbar class="topbar">
+    <button mat-icon-button type="button" (click)="onBack()" aria-label="Quay lại workspace" title="Quay lại workspace" matTooltip="Quay lại workspace">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M19 12H5M11 18l-6-6 6-6" />
+      </svg>
+    </button>
+
+    <span class="title">Trình quản lý catalog</span>
+    <span class="channel-name">{{ selectedChannelStore.channel()?.title }}</span>
+
+    <span class="toolbar-spacer"></span>
+
+    <input class="search-input" type="search" placeholder="Tìm theo title/msgId…" [value]="searchText()" (input)="onSearchInput($any($event.target).value)" />
+
+    <button mat-button type="button" [disabled]="loading() || reconciling() || items().length === 0" (click)="onReconcile()">
+      {{ reconciling() ? 'Đang đối soát…' : 'Đối soát với kênh' }}
+    </button>
+
+    <button mat-raised-button type="button" color="primary" [disabled]="!dirty() || publishing()" (click)="onPublish()">
+      {{ publishing() ? 'Đang lưu…' : 'Lưu catalog' }}
+    </button>
+  </mat-toolbar>
+
+  @if (loading()) {
+    <p class="empty-hint">Đang tải catalog…</p>
+  } @else if (loadError(); as err) {
+    <p class="empty-hint error">{{ err }}</p>
+  } @else if (items().length === 0) {
+    <p class="empty-hint">Chưa có catalog nào ghim ở kênh này — upload ít nhất một item ở Workspace trước.</p>
+  } @else {
+    <div class="table-header-row">
+      <span>Title</span>
+      <span>Năm</span>
+      <span>Season</span>
+      <span>Ep</span>
+      <span>msgId</span>
+      <span>Trạng thái</span>
+      <span></span>
+    </div>
+
+    @if (filteredItems().length === 0) {
+      <p class="empty-hint">Không có dòng nào khớp "{{ searchText() }}".</p>
+    }
+
+    <cdk-virtual-scroll-viewport itemSize="48" class="table-list">
+      <div *cdkVirtualFor="let item of filteredItems(); trackBy: trackByMsgId" class="table-row" [class.broken]="brokenIds().has(item.msgId)">
+        <input class="title-input" type="text" [value]="item.title ?? ''" (change)="onTitleInput(item.msgId, $any($event.target).value)" />
+        <input class="num-input" type="number" [value]="item.year ?? ''" (change)="onYearInput(item.msgId, $any($event.target).value)" />
+        <input class="num-input" type="number" [value]="item.series?.season ?? ''" (change)="onSeasonInput(item.msgId, $any($event.target).value)" />
+        <input class="num-input" type="number" [value]="item.series?.episode ?? ''" (change)="onEpisodeInput(item.msgId, $any($event.target).value)" />
+        <span class="msg-id">#{{ item.msgId }}</span>
+        <span class="status">
+          @if (brokenIds().has(item.msgId)) {
+            <span class="broken-badge">⚠ Message đã xoá</span>
+          } @else {
+            <span class="ok-badge">OK</span>
+          }
+        </span>
+        <button mat-icon-button type="button" class="row-action-button" [matMenuTriggerFor]="rowMenu" aria-label="Hành động" title="Hành động" matTooltip="Hành động">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+            <circle cx="12" cy="5" r="1.6" />
+            <circle cx="12" cy="12" r="1.6" />
+            <circle cx="12" cy="19" r="1.6" />
+          </svg>
+        </button>
+        <mat-menu #rowMenu="matMenu">
+          <button mat-menu-item type="button" (click)="removeFromCatalog(item.msgId)">Xoá khỏi catalog</button>
+          <button mat-menu-item type="button" (click)="removeFromCatalogAndChannel(item)">Xoá khỏi catalog + xoá message trên kênh</button>
+        </mat-menu>
+      </div>
+    </cdk-virtual-scroll-viewport>
+
+    <div class="table-footer">
+      <span class="item-count">{{ items().length }} item</span>
+
+      <span class="toolbar-spacer"></span>
+
+      @if (publishing()) {
+        <span class="publish-status">
+          @if (publishFloodWaitSeconds(); as s) {
+            Đang lưu catalog — FLOOD_WAIT {{ s }}s…
+          } @else {
+            Đang lưu catalog…
+          }
+        </span>
+      } @else if (publishError(); as err) {
+        <span class="publish-status error">Lưu lỗi: {{ err }}</span>
+      } @else if (publishResult(); as result) {
+        <span class="publish-status ok">Đã lưu — {{ result.totalItems }} item.</span>
+      }
+    </div>
+  }
+</section>

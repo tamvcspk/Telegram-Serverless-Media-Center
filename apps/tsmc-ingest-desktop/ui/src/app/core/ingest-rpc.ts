@@ -39,7 +39,9 @@ import type {
  * MTProto). Thêm `prepare_upload`/`cleanup_temp_dir` (`pipeline.rs`, cũng
  * không đụng MTProto) + `upload_video`/`upload_subtitle`/`publish_catalog`/
  * `cancel_upload` (`upload.rs`, CẦN đã chọn kênh — đọc lại
- * `state.selected_channel` phía Rust) cho luồng "Bắt đầu upload".
+ * `state.selected_channel` phía Rust) cho luồng "Bắt đầu upload". Thêm
+ * `check_deleted_messages`/`delete_message` (`catalog.rs`, cùng CẦN đã chọn
+ * kênh) cho màn "Trình quản lý catalog" (A.4).
  */
 
 export function checkSession(apiId: number): Promise<boolean> {
@@ -88,6 +90,21 @@ export function checkWritePermission(): Promise<boolean> {
 
 export function readPinnedCatalog(): Promise<PinnedCatalogDto | null> {
   return invoke<PinnedCatalogDto | null>('read_pinned_catalog');
+}
+
+/** Đối soát "Trình quản lý catalog" (A.4, ADR-0017 § addendum "Trình quản lý
+ * catalog") — kiểm tra tập `msgId` catalog đang tham chiếu còn tồn tại trên
+ * kênh không. Trả đúng tập con KHÔNG còn tồn tại (rỗng nếu catalog lành
+ * mạnh) — không bắt UI tự so sánh mảng dài bằng input. */
+export function checkDeletedMessages(msgIds: number[]): Promise<number[]> {
+  return invoke<number[]>('check_deleted_messages', { msgIds });
+}
+
+/** Xoá HẲN một message khỏi kênh — dùng khi user chọn "Xoá khỏi catalog +
+ * xoá message trên kênh" ở Trình quản lý catalog. KHÔNG tự đụng catalog.json
+ * — UI tự gỡ entry khỏi mảng đang sửa rồi publish riêng qua `publishCatalog()`. */
+export function deleteMessage(msgId: number): Promise<void> {
+  return invoke<void>('delete_message', { msgId });
 }
 
 /** Đăng xuất (màn Cài đặt, ADR-0017 § addendum 2026-09-14) — gọi

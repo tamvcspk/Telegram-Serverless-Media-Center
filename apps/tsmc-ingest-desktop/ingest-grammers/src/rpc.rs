@@ -366,6 +366,52 @@ impl IngestRpc for GrammersIngestRpc {
         self.client.sign_out().await.map_err(to_rpc_error)?;
         Ok(())
     }
+
+    /// Chunk 100 id/lần — giới hạn an toàn cho `channels.GetMessages` (chưa
+    /// thấy tài liệu ghim con số chính thức, 100 là mức dùng phổ biến của
+    /// các client MTProto khác cho lời gọi tương tự). `get_messages_by_id()`
+    /// (grammers) trả `Vec<Option<Message>>` CÙNG THỨ TỰ với id đưa vào.
+    ///
+    /// **Bug thật phát hiện lúc verify thiết bị thật (2026-09-15):** `None`
+    /// KHÔNG phải tín hiệu duy nhất của "đã bị xoá" — Telegram không lược bỏ
+    /// message đã xoá khỏi response của `channels.GetMessages`, mà trả về
+    /// biến thể `tl::enums::Message::Empty` (tombstone) cho đúng vị trí id
+    /// đó. `Message::peer_id()` (grammers) của biến thể `Empty` rơi về
+    /// `fetched_in` (= chính `peer_ref` truyền vào) khi `peer_id` trong TL
+    /// rỗng — nghĩa là filter nội bộ của `get_messages_by_id()`
+    /// (`m.peer_id() == peer.id`) KHÔNG loại được `Empty`, nó vẫn nằm trong
+    /// map kết quả và trả về `Some(Message)`, không phải `None`. Ban đầu chỉ
+    /// kiểm `message.is_none()` nên KHÔNG BAO GIỜ phát hiện được message đã
+    /// xoá thật (verify thật: xoá tay 1 message, "Đối soát với kênh" không
+    /// gắn cờ gì) — vá bằng kiểm thêm biến thể `Empty` ở field `raw` công
+    /// khai của `Message`.
+    async fn check_deleted_messages(&self, channel: &ResolvedChannel, msg_ids: &[i64]) -> Result<Vec<i64>, IngestRpcError> {
+        let peer = self.peer_for(channel)?;
+        let peer_ref = peer.to_ref().await.map_err(|e| IngestRpcError::Other(e.to_string()))?.ok_or_else(|| IngestRpcError::Other("không lấy được PeerRef".into()))?;
+
+        let mut missing = Vec::new();
+        for chunk in msg_ids.chunks(100) {
+            let ids: Vec<i32> = chunk.iter().map(|&id| id as i32).collect();
+            let messages = self.client.get_messages_by_id(peer_ref, &ids).await.map_err(to_rpc_error)?;
+            for (id, message) in chunk.iter().zip(messages.into_iter()) {
+                let deleted = match &message {
+                    None => true,
+                    Some(m) => matches!(m.raw, tl::enums::Message::Empty(_)),
+                };
+                if deleted {
+                    missing.push(*id);
+                }
+            }
+        }
+        Ok(missing)
+    }
+
+    async fn delete_message(&self, channel: &ResolvedChannel, msg_id: i64) -> Result<(), IngestRpcError> {
+        let peer = self.peer_for(channel)?;
+        let peer_ref = peer.to_ref().await.map_err(|e| IngestRpcError::Other(e.to_string()))?.ok_or_else(|| IngestRpcError::Other("không lấy được PeerRef".into()))?;
+        self.client.delete_messages(peer_ref, &[msg_id as i32]).await.map_err(to_rpc_error)?;
+        Ok(())
+    }
 }
 
 impl GrammersIngestRpc {

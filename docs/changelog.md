@@ -4,6 +4,20 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-09-15 — GUI ingest desktop: verify Trình quản lý catalog — ĐẠT
+
+User xác nhận đã chạy `cargo tauri dev` + tài khoản thật, đi hết checklist ở [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--trình-quản-lý-catalog-2026-09-15): catalog lành mạnh hiện đúng, "Đối soát với kênh" phát hiện đúng message xoá tay (SAU khi vá bug `Message::Empty` bên dưới), sửa Title/Năm/Season/Ep + "Lưu catalog" ghim đúng bản mới, "Xoá khỏi catalog" (chỉ gỡ entry) và "Xoá khỏi catalog + xoá message trên kênh" (huỷ dialog không làm gì, xác nhận thì xoá message NGAY rồi mới gỡ entry) đều đúng thiết kế, nhánh cập nhật đồng thời (upload từ Workspace trong lúc `/catalog` đang mở) không làm mất item, catalog rỗng hiện đúng thông báo trống. Chỉ còn FLOOD_WAIT lúc "Lưu catalog" chưa test (không chủ động ép được, CLAUDE.md) — không chặn, để mở trong checklist.
+
+## 2026-09-15 — GUI ingest desktop: thêm Trình quản lý catalog (A.4, ADR-0017 § addendum)
+
+Đóng một trong hai màn A.4 còn lại ở roadmap (Nhật ký vẫn chưa bắt đầu). `IngestRpc` thêm 2 method — ngoại lệ thứ tư/năm không tương ứng 1-1 phía TS: `check_deleted_messages()` (tra đúng tập msgId catalog có qua `get_messages_by_id()` của grammers thay vì quét lịch sử kênh — chính xác tuyệt đối, tự nhiên bounded, không cần phân trang) và `delete_message()` (xoá hẳn một message khỏi kênh). Cả hai wire thành Tauri command ở file mới `catalog.rs`.
+
+Route mới `/catalog` (`catalog-manager/`, vào qua icon cạnh ⚙ ở topbar Workspace) — bảng CDK Virtual Scroll sửa Title/Năm/Season/Ep trực tiếp, nút "Đối soát với kênh" (thủ công) gắn cờ item trỏ tới message đã xoá, menu mỗi dòng "Xoá khỏi catalog" (chỉ gỡ khỏi mảng đang sửa) hoặc "Xoá khỏi catalog + xoá message trên kênh" (cảnh báo `DialogService.confirm()` tone warn, xoá message chạy ngay lúc xác nhận), "Lưu catalog" publish một lần cho cả batch — đọc lại catalog mới nhất lúc publish và loại đúng tập id đã xoá, không dựa vào "còn trong mảng đang sửa hay không" (tránh vô tình xoá nhầm item mới xuất hiện đồng thời từ nơi khác). Nhân tiện tách `withFloodWaitRetry()`/`countdown()` (trước ở `workspace.ts`) ra `core/flood-wait-retry.ts` — lần dùng thứ hai, tránh hai bản đếm ngược lệch nhau.
+
+`cargo build`/`cargo clippy --workspace -- -D warnings`, `ng build`/`npm run lint` sạch. **Chưa verify** bằng `cargo tauri dev` + tài khoản thật (đối soát phát hiện đúng message đã xoá thật, hai nhánh Xoá, Lưu catalog cập nhật đúng pinned msg mới). Chi tiết: [ADR-0017 § addendum 2026-09-15](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-15-trình-quản-lý-catalog-ingestrpc-thêm-2-thao-tác).
+
+**Vá cùng ngày — bug thật phát hiện lúc verify (user report):** badge "⚠ Message đã xoá" không hiện dù đã xoá tay message thật. Nguyên nhân: Telegram trả `Message::Empty` (tombstone) thay vì lược bỏ hẳn message đã xoá khỏi `channels.GetMessages`, và `Message::peer_id()` của biến thể đó (grammers) rơi về đúng peer đang truy vấn khi TL không có `peer_id` — nên filter nội bộ của `get_messages_by_id()` không loại được nó, `check_deleted_messages()` ban đầu chỉ kiểm `None` nên bỏ sót hoàn toàn. Vá bằng kiểm thêm biến thể `Empty` ở `Message::raw`. `cargo check`/`clippy -p ingest-grammers -p ingest-rpc-trait` sạch — chưa verify lại bằng tài khoản thật sau vá.
+
 ## 2026-09-15 — GUI ingest desktop: verify Đăng xuất — ĐẠT
 
 User xác nhận đã chạy `cargo tauri dev` + tài khoản thật: Đăng xuất (`sign_out`, ADR-0017 § addendum 2026-09-14) hoạt động đúng thiết kế. Chưa có xác nhận riêng từng bước con (đối chiếu "Thiết bị đang hoạt động" trên app Telegram gốc, nhánh có upload chạy dở, nhánh huỷ dialog, nhánh lỗi server). Checklist: [docs/pending-device-tests.md § Đăng xuất](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--đăng-xuất-2026-09-14).

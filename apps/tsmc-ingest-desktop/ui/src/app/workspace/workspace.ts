@@ -23,6 +23,7 @@ import {
 } from '@tsmc/core-ingest';
 import type { CatalogItemV1 } from '@tsmc/shared-models';
 import { DraftStore, type QueueItem } from '../core/draft-store';
+import { withFloodWaitRetry } from '../core/flood-wait-retry';
 import {
   cancelUpload,
   cleanupTempDir,
@@ -358,6 +359,12 @@ export class Workspace implements OnInit {
     void this.router.navigateByUrl('/settings');
   }
 
+  /** Icon cạnh ⚙ — màn "Trình quản lý catalog" (A.4), cùng ngoài
+   * canDeactivate guard của route này. */
+  protected onOpenCatalogManager(): void {
+    void this.router.navigateByUrl('/catalog');
+  }
+
   protected trackByPath(_index: number, item: { path: string }): string {
     return item.path;
   }
@@ -534,40 +541,6 @@ export class Workspace implements OnInit {
     return null;
   }
 
-  /** `FLOOD_WAIT` không có cách né hợp lệ (CLAUDE.md) — chờ ĐÚNG số giây
-   * Telegram yêu cầu rồi tự thử lại `fn()`, lặp tới khi thành công hoặc gặp
-   * lỗi KHÁC FloodWait (ném lại cho caller). `onTick(null)` báo hết chờ. */
-  private async withFloodWaitRetry<T>(onTick: (secondsLeft: number | null) => void, fn: () => Promise<T>): Promise<T> {
-    for (;;) {
-      try {
-        return await fn();
-      } catch (err) {
-        const rpcErr = toIngestRpcError(err);
-        if (rpcErr.kind !== 'FloodWait') {
-          throw rpcErr;
-        }
-        await this.countdown(onTick, rpcErr.detail.seconds);
-      }
-    }
-  }
-
-  private countdown(onTick: (secondsLeft: number | null) => void, totalSeconds: number): Promise<void> {
-    return new Promise((resolve) => {
-      let remaining = totalSeconds;
-      onTick(remaining);
-      const interval = setInterval(() => {
-        remaining -= 1;
-        if (remaining <= 0) {
-          clearInterval(interval);
-          onTick(null);
-          resolve();
-          return;
-        }
-        onTick(remaining);
-      }, 1000);
-    });
-  }
-
   /** Huỷ lần upload video ĐANG chạy (SPIKE-10 M5: "huỷ dừng lưu lượng ≤ 3s")
    * — RPC `upload_video()` đang chờ sẽ tự reject bằng `Cancelled`, `processItem()`
    * bắt lỗi đó bình thường (item đó đánh dấu Lỗi, batch chạy tiếp cho các item
@@ -684,7 +657,7 @@ export class Workspace implements OnInit {
         prepared.final_probe.audio.map((a) => ({ codec: a.codec, lang: a.lang ?? undefined, index: a.index }))
       );
 
-      const uploaded = await this.withFloodWaitRetry(
+      const uploaded = await withFloodWaitRetry(
         (s) => this.updateQueueItem(item.taskId, { floodWaitSeconds: s ?? undefined }),
         () =>
           uploadVideo({
@@ -706,7 +679,7 @@ export class Workspace implements OnInit {
         // `apps/tsmc-ingest/src/commands/upload.ts` (`<tên gốc>.<lang>.srt`),
         // không phải tên file tạm `sub-<index>.srt` bên trong `temp_dir`.
         const subFileName = `${stripExt(item.path)}${sub.lang ? `.${sub.lang}` : ''}.srt`;
-        const subUploaded = await this.withFloodWaitRetry(
+        const subUploaded = await withFloodWaitRetry(
           (s) => this.updateQueueItem(item.taskId, { floodWaitSeconds: s ?? undefined }),
           () => uploadSubtitle(sub.path, subFileName)
         );
@@ -721,7 +694,7 @@ export class Workspace implements OnInit {
       const siblingNames = await listDirEntries(dir);
       const sidecarMatches = matchSidecarSubtitles(basename(item.path), siblingNames);
       for (const match of sidecarMatches) {
-        const subUploaded = await this.withFloodWaitRetry(
+        const subUploaded = await withFloodWaitRetry(
           (s) => this.updateQueueItem(item.taskId, { floodWaitSeconds: s ?? undefined }),
           () => uploadSubtitle(`${dir}/${match.fileName}`, match.fileName)
         );
@@ -745,7 +718,7 @@ export class Workspace implements OnInit {
     const merged = mergeCatalogItems(existingItems, newItems);
     const envelope = buildCatalogEnvelope({ id: channel.id, title: channel.title }, merged);
 
-    const result = await this.withFloodWaitRetry(
+    const result = await withFloodWaitRetry(
       (s) => this.publishFloodWaitSeconds.set(s),
       () => publishCatalog(JSON.stringify(envelope), pinned?.msg_id ?? null)
     );

@@ -394,6 +394,36 @@ Liên quan: [ADR-0017 § addendum 2026-09-14](./adr/0017-grammers-cho-cong-cu-in
 - Form Bước 1 KHÔNG tự điền sau đăng xuất → kiểm `sign_out()` (Rust) có lỡ xoá cả `credentials.json`/entry keyring `credentials` không (thiết kế là KHÔNG được đụng vào) — `load_saved_credentials()` gọi lại phải vẫn thấy dữ liệu cũ.
 - Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0017 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
 
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — Trình quản lý catalog (2026-09-15)
+
+Liên quan: [ADR-0017 § addendum 2026-09-15](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-15-trình-quản-lý-catalog-ingestrpc-thêm-2-thao-tác), [docs/changelog.md § 2026-09-15, Trình quản lý catalog](./changelog.md#2026-09-15--gui-ingest-desktop-thêm-trình-quản-lý-catalog-a4-adr-0017--addendum), [docs/roadmap.md § Ingest](./roadmap.md#ingest). "Thiết bị thật" nghĩa là `cargo tauri dev` + tài khoản Telegram thật.
+
+**KHÔNG chạy hộ bằng agent/Claude.** `check_deleted_messages`/`delete_message`/`publish_catalog` đều là RPC MTProto thật trên kênh media của admin.
+
+### Chuẩn bị
+
+- [x] `cargo build --workspace`/`cargo clippy --workspace -- -D warnings` sạch — verify 2026-09-15.
+- [x] `ng build`/`npm run lint` sạch sau khi thêm route `/catalog` + icon topbar Workspace — verify 2026-09-15, môi trường dev (không phải `cargo tauri dev`; build cục bộ bị chặn bởi tiến trình `cargo tauri dev` khác đang chạy sẵn lúc code slice này, chưa tự `cargo build`/`clippy` lại được — không liên quan tới đúng/sai của code, chỉ là file lock `ffmpeg-runtime/*.dll`).
+
+### Các bước
+
+- [x] Kênh có catalog đang ghim, lành mạnh (mọi message còn nguyên) → vào `/catalog` (icon cạnh ⚙ ở topbar Workspace) → bảng hiện đúng số item khớp `catalog: N item` ở Workspace, Title/Năm/Season/Ep hiện đúng giá trị đã lưu.
+- [x] Bấm "Đối soát với kênh" → không có item nào bị gắn cờ "⚠ Message đã xoá" (catalog lành mạnh).
+- [x] Tự tay xoá MỘT message video (dùng app Telegram gốc, xoá một item đang có trong catalog) → quay lại `/catalog`, bấm "Đối soát với kênh" lần nữa → ĐÚNG item đó (và chỉ item đó) hiện badge "⚠ Message đã xoá".
+- [x] Sửa Title/Năm/Season/Ep một dòng bất kỳ (không phải dòng vừa phát hiện hỏng) → nút "Lưu catalog" chuyển từ disabled sang bấm được → bấm → catalog.v1.json mới ghim đúng giá trị vừa sửa, `catalog: N item` ở Workspace không đổi số lượng.
+- [x] Menu dòng đã bị gắn cờ hỏng → "Xoá khỏi catalog" → dòng biến mất khỏi bảng NGAY (chưa đụng Telegram) → bấm "Lưu catalog" → catalog.v1.json mới KHÔNG còn item đó, `catalog: N-1 item`.
+- [x] Menu MỘT dòng còn lành mạnh → "Xoá khỏi catalog + xoá message trên kênh" → dialog cảnh báo tone warn hiện đúng tên item, bấm "Huỷ" → KHÔNG có gì xảy ra (dòng vẫn còn, message vẫn còn trên kênh) → mở lại menu, xác nhận thật lần này → message biến mất khỏi kênh NGAY (kiểm bằng app Telegram gốc, trước cả khi bấm "Lưu catalog") → dòng biến mất khỏi bảng → bấm "Lưu catalog" → catalog.v1.json mới không còn item đó.
+- [x] **Nhánh cập nhật đồng thời (đúng lý do tách `removedIds` khỏi "còn trong mảng đang sửa"):** mở `/catalog`, KHÔNG bấm Lưu ngay → mở `/workspace` ở route khác (hoặc để tab kia), upload thêm 1 item mới, publish xong → quay lại `/catalog` (không load lại trang) → sửa một dòng bất kỳ rồi bấm "Lưu catalog" → catalog.v1.json mới PHẢI có đủ cả item vừa upload từ Workspace LẪN thay đổi vừa sửa ở `/catalog` (không được làm mất item mới do đọc "bản catalog lúc mount" thay vì đọc lại lúc publish).
+- [ ] FLOOD_WAIT rơi vào lúc "Lưu catalog" (nếu gặp tự nhiên — KHÔNG chủ động ép) → nút hiện "Đang lưu catalog — FLOOD_WAIT Ns…", tự đếm ngược rồi tự thử lại, không mất dữ liệu đã sửa.
+- [x] Kênh CHƯA có catalog nào ghim → vào `/catalog` → hiện đúng thông báo trống ("Chưa có catalog nào ghim ở kênh này…"), không lỗi/màn trắng.
+
+### Nếu có gì vỡ
+
+- "Đối soát với kênh" luôn trả rỗng dù đã xoá message thật → **bug thật đã gặp + vá (2026-09-15, user report cùng ngày code slice này):** `channels.GetMessages` không lược bỏ message đã xoá, trả `tl::enums::Message::Empty` (tombstone) thay vì omit hẳn — `Message::peer_id()` của biến thể đó rơi về đúng peer đang truy vấn nên KHÔNG bị filter nội bộ của `get_messages_by_id()` loại, kết quả là `Some(Message)` chứ không phải `None`. Đã vá bằng kiểm thêm `matches!(message.raw, tl::enums::Message::Empty(_))` ở `check_deleted_messages()` — xem [ADR-0017 § addendum 2026-09-15](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-15-trình-quản-lý-catalog-ingestrpc-thêm-2-thao-tác). Nếu vẫn gặp SAU bản vá này → nghi ngờ tiếp theo mới là peer/channel đang chọn sai (`state.selected_channel`) hoặc lỗi RPC bị nuốt thầm lặng.
+- "Lưu catalog" làm MẤT item không liên quan gì tới thao tác vừa làm → nghi ngờ đầu tiên: `removedIds` (Angular) không được reset đúng lúc `load()`, hoặc `onPublish()` lỡ dùng lại logic cũ "loại theo còn/không còn trong `items()`" thay vì `removedIds` tường minh — xem doc comment `catalog-manager.ts::removedIds`.
+- "Xoá khỏi catalog + xoá message trên kênh" xoá catalog nhưng KHÔNG xoá message thật (hoặc ngược lại) → kiểm thứ tự trong `removeFromCatalogAndChannel()`: `deleteMessage()` PHẢI thành công (RPC thật trả `Ok`) trước khi `removeFromCatalog()` chạy — nếu đảo ngược, một message đã bị coi là "xoá" trên UI dù RPC thật lỗi.
+- Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0017 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
+
 ## Player: hiển thị phụ đề (`subs[]`) (2026-08-31)
 
 Liên quan: [docs/changelog.md § 2026-08-31, verify — ĐẠT](./changelog.md#2026-08-31--player-verify-thật-phụ-đề-đơn-ngôn-ngữ--đạt), [docs/roadmap.md § UI theo từng màn hình](./roadmap.md#ui-theo-từng-màn-hình). Khác mục CLI ngay dưới đây — đây là tính năng web, verify trên **staging** (https://tsmc-staging.web.app) bằng trình duyệt thật, không phải máy admin.
