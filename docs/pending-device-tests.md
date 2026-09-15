@@ -425,6 +425,33 @@ Liên quan: [ADR-0017 § addendum 2026-09-15](./adr/0017-grammers-cho-cong-cu-in
 - "Xoá khỏi catalog + xoá message trên kênh" xoá catalog nhưng KHÔNG xoá message thật (hoặc ngược lại) → kiểm thứ tự trong `removeFromCatalogAndChannel()`: `deleteMessage()` PHẢI thành công (RPC thật trả `Ok`) trước khi `removeFromCatalog()` chạy — nếu đảo ngược, một message đã bị coi là "xoá" trên UI dù RPC thật lỗi.
 - Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0017 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
 
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — Nhật ký (2026-09-15)
+
+Liên quan: [docs/ux-design.md § Phụ lục A.4](./ux-design.md#a4-các-màn-còn-lại), [docs/roadmap.md § Ingest](./roadmap.md#ingest). "Thiết bị thật" nghĩa là `cargo tauri dev` + tài khoản Telegram thật.
+
+**KHÔNG chạy hộ bằng agent/Claude** — `read_app_log()` tự nó không đụng MTProto, nhưng verify cần log THẬT phát sinh từ một phiên đăng nhập/upload thật.
+
+### Chuẩn bị
+
+- [x] `cargo build --workspace` sạch — verify 2026-09-15.
+- [ ] `cargo clippy --workspace -- -D warnings` — KHÔNG chạy được trong phiên code slice này (tranh chấp file lock `ffmpeg-runtime/*.dll` với phiên `cargo tauri dev` khác đang chạy sẵn lúc code — không liên quan đúng/sai của code, cùng tình huống đã ghi ở mục "Trình quản lý catalog" phía trên). Cần chạy lại khi rảnh phiên dev.
+- [x] `ng build`/`npm run lint` sạch sau khi thêm route `/logs` + icon topbar Workspace + `@tauri-apps/plugin-clipboard-manager` — verify 2026-09-15.
+
+### Các bước
+
+- [x] Vào `/logs` (icon cạnh "Trình quản lý catalog" ở topbar Workspace) lần đầu, SAU khi đã đăng nhập/thao tác ít nhất một lần trong phiên `cargo tauri dev` này → nội dung file log (`app_log_dir()/<tên app>.log`) hiện ra, cuộn sẵn xuống dòng cuối cùng — verify 2026-09-15, ĐẠT.
+- [x] Nội dung log KHÔNG chứa `auth_key`, session token, hay OTP/mật khẩu 2FA đã nhập — chỉ có thao tác giao thức cấp thấp (connect, salt, tên RPC...) — verify 2026-09-15, ĐẠT.
+- [ ] Bấm "Làm mới" sau khi vừa phát sinh thêm hoạt động (vd thử "Đối soát với kênh" ở `/catalog`) → nội dung cập nhật, có thêm dòng mới ở cuối. Chưa xác nhận riêng.
+- [x] Bấm "Sao chép" → dán vào một chỗ khác (Notepad...) → nội dung dán khớp y hệt nội dung đang hiện trên màn `/logs` — verify 2026-09-15, ĐẠT qua `cargo tauri dev`. Bản đóng gói (`cargo tauri build`) CHƯA verify riêng — webview có thể khác `cargo tauri dev`, đúng bài học đã gặp ở `localStorage` màn Đăng nhập 2026-09-11, để mở tới khi build bản đóng gói kế tiếp.
+- [ ] File log chưa từng tồn tại (case hiếm — vd vừa xoá tay file này trong lúc app đang chạy) → `/logs` hiện "Chưa có gì được ghi.", KHÔNG lỗi/màn trắng. Chưa xác nhận.
+- [ ] Log vượt trần rotation 40KB (nếu gặp tự nhiên khi test — không chủ động spam để ép) → file cũ bị xoá hẳn (`RotationStrategy::KeepOne` của `tauri_plugin_log`), `/logs` vẫn đọc được file mới không lỗi. Chưa gặp tự nhiên.
+
+### Nếu có gì vỡ
+
+- `/logs` hiện "Chưa có gì được ghi." dù chắc chắn đã có hoạt động → kiểm đúng tên file `read_app_log()` tự tái tạo (`src-tauri/src/logs.rs::log_file_path()`) có khớp `app.package_info().name` thật của build đó không — tên package đổi (vd đổi `productName` ở `tauri.conf.json`) sẽ làm lệch đường dẫn này, vì `tauri_plugin_log` không có API công khai để hỏi lại đường dẫn nó đang dùng.
+- "Sao chép" không dán được gì (nhất là ở bản `cargo tauri build` đóng gói) → kiểm `capabilities/default.json` có đúng `clipboard-manager:allow-write-text` không, và plugin đã `.plugin(tauri_plugin_clipboard_manager::init())` ở `lib.rs::run()` chưa.
+- Bất kỳ hành vi nào lệch thiết kế → cập nhật lại tài liệu này (mục này không có ADR riêng — `read_app_log()`/clipboard-manager là chi tiết triển khai, không phải quyết định kiến trúc).
+
 ## Player: hiển thị phụ đề (`subs[]`) (2026-08-31)
 
 Liên quan: [docs/changelog.md § 2026-08-31, verify — ĐẠT](./changelog.md#2026-08-31--player-verify-thật-phụ-đề-đơn-ngôn-ngữ--đạt), [docs/roadmap.md § UI theo từng màn hình](./roadmap.md#ui-theo-từng-màn-hình). Khác mục CLI ngay dưới đây — đây là tính năng web, verify trên **staging** (https://tsmc-staging.web.app) bằng trình duyệt thật, không phải máy admin.

@@ -39,3 +39,4 @@ keyring = { version = "3.6.3", default-features = false, features = ["windows-na
 # `../Cargo.toml` cạnh `libsql`) — dùng cho mục đích bảo mật, không để
 # `cargo update` âm thầm đổi phiên bản RNG.
 rand = "=0.8.8"
+tauri-plugin-clipboard-manager = "2"

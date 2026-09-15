@@ -4,6 +4,18 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-09-15 — GUI ingest desktop: verify Nhật ký (luồng chính) — ĐẠT
+
+User xác nhận đã chạy `cargo tauri dev` + tài khoản thật cho luồng chính: `/logs` hiện đúng nội dung file log, nội dung KHÔNG lộ `auth_key`/session token/OTP, nút "Sao chép" dán ra đúng y hệt nội dung đang hiện. Ba nhánh hiếm còn lại (nút "Làm mới", file log chưa từng tồn tại, rotation vượt 40KB) và "Sao chép" ở bản đóng gói (`cargo tauri build`, khác webview `cargo tauri dev`) CHƯA xác nhận riêng — để mở trong checklist. Checklist: [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--nhật-ký-2026-09-15).
+
+## 2026-09-15 — GUI ingest desktop: thêm Nhật ký (A.4, màn cuối cùng của phụ lục A.4)
+
+Đóng gap còn lại của roadmap § Ingest ("Nhật ký (A.4) — chưa bắt đầu") — cả 5 màn A.4 gốc (Đăng nhập, Chọn kênh, Trình quản lý catalog, Nhật ký, cộng "Cài đặt" thêm mới ngoài mockup gốc) giờ đã có code thật.
+
+Route mới `/logs` (`logs/`, vào qua icon cạnh "Trình quản lý catalog" ở topbar Workspace) — hiển thị lại TOÀN BỘ file log kỹ thuật mà `tauri_plugin_log` đã ghi từ 2026-09-11 (bật cả ở release, chỉ ghi thao tác giao thức MTProto cấp thấp, không có `auth_key`/session token — không đổi gì cách ghi log đã có, màn này chỉ thêm chỗ xem). Command mới `read_app_log()` (`src-tauri/src/logs.rs`) KHÔNG thuộc `IngestRpc` (không đụng MTProto — cùng nhóm `tmdb_search`/`probe_media`), tự tái tạo đúng đường dẫn file nội bộ của plugin (`app_log_dir()/<package_info().name>.log`, không có API công khai để hỏi lại) — rotation mặc định `KeepOne` của plugin (giữ tối đa 40KB) nên đọc trọn file, không cần tự phân trang. Nút "Sao chép" dùng `tauri-plugin-clipboard-manager`/`@tauri-apps/plugin-clipboard-manager` (plugin Tauri chính thức mới thêm, permission `clipboard-manager:allow-write-text`) thay vì `navigator.clipboard` trần — Clipboard API trong webview Tauri không đảm bảo nhất quán giữa `cargo tauri dev` và bản đóng gói (đúng bài học đã gặp ở `localStorage` màn Đăng nhập, 2026-09-11). Nút "Làm mới" đọc thủ công, không tự poll — cùng nguyên tắc "Đối soát" ở Trình quản lý catalog.
+
+`cargo build`/`ng build`/`npm run lint` sạch. `cargo clippy --all-targets` KHÔNG chạy được trong phiên code (tranh chấp file lock `ffmpeg-runtime/*.dll` với một phiên `cargo tauri dev` khác đang chạy sẵn lúc code slice này — không liên quan đúng/sai của code, cùng tình huống đã ghi ở slice Trình quản lý catalog trước đó). **Chưa verify** bằng tài khoản thật — checklist ở [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--nhật-ký-2026-09-15).
+
 ## 2026-09-15 — `ingest-ffmpeg`: verify vá "invalid argument" remux audio AC3 — ĐẠT
 
 User xác nhận đã chạy `cargo tauri dev` + tài khoản thật, fix ở mục ngay dưới hoạt động đúng ("fix work") — file MKV H.264/AC3 từng gây lỗi giờ `prepare_upload`/upload thành công. Checklist: [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--workspace-ba-vùng-bắt-đầu-upload-2026-09-12).

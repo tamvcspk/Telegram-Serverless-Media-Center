@@ -1,6 +1,7 @@
 mod catalog;
 mod commands;
 mod dto;
+mod logs;
 mod pipeline;
 mod probe;
 mod secret_store;
@@ -28,6 +29,7 @@ pub fn run() {
             )?;
             Ok(())
         })
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             commands::check_session,
@@ -60,6 +62,7 @@ pub fn run() {
             tmdb::tmdb_save_key,
             tmdb::tmdb_delete_key,
             tmdb::tmdb_search,
+            logs::read_app_log,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

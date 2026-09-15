@@ -71,6 +71,9 @@ importers:
       '@tauri-apps/api':
         specifier: ^2.9.0
         version: 2.11.1
+      '@tauri-apps/plugin-clipboard-manager':
+        specifier: 2.3.3
+        version: 2.3.3
       '@tsmc/core-ingest':
         specifier: workspace:*
         version: link:../../../libs/core-ingest
@@ -2420,6 +2423,9 @@ packages:
 
   '@tauri-apps/api@2.11.1':
     resolution: {integrity: sha512-M2FPuYND2m+wh5hfW9ZpSdxMPdEJovPBWwoHJmwUpysTYNHaOkVFN419m/K0LIgjb/7KU2vBgsUepJWugQCvAA==}
+
+  '@tauri-apps/plugin-clipboard-manager@2.3.3':
+    resolution: {integrity: sha512-KnyoTs9gj1yEgDkSPUNjOIOHjJTr5wk8IWcYMOWxYTIJCip6QwlyPW8u2X+6bd6kHM4fAdZNpxoal0gy/TwJbg==}
 
   '@tootallnate/quickjs-emscripten@0.23.0':
     resolution: {integrity: sha512-C5Mc6rdnsaJDjO3UpGW/CQTHtCKaYlScZTly4JIu97Jxo/odCiH0ITnDXSJPTOrEKk/ycSZ0AOgTmkDtkOsvIA==}
@@ -7183,6 +7189,10 @@ snapshots:
   '@standard-schema/spec@1.1.0': {}
 
   '@tauri-apps/api@2.11.1': {}
+
+  '@tauri-apps/plugin-clipboard-manager@2.3.3':
+    dependencies:
+      '@tauri-apps/api': 2.11.1
 
   '@tootallnate/quickjs-emscripten@0.23.0': {}
 

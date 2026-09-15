@@ -312,6 +312,15 @@ export function toTmdbError(err: unknown): TmdbErrorDto {
   return { kind: 'Other', detail: err instanceof Error ? err.message : String(err) };
 }
 
+/** "Nhật ký" (A.4) — đọc lại TOÀN BỘ nội dung file log kỹ thuật mà
+ * `tauri_plugin_log` đang ghi từ lâu (`lib.rs::run()`, bật cả ở release).
+ * KHÔNG thuộc `IngestRpc` (không đụng MTProto trực tiếp — cùng nhóm
+ * `tmdbSearch()`/`probeMedia()`: đọc/ghi cục bộ máy admin). Chuỗi rỗng nếu
+ * chưa có gì được log — không phải lỗi. */
+export function readAppLog(): Promise<string> {
+  return invoke<string>('read_app_log');
+}
+
 export function describeTmdbError(err: TmdbErrorDto): string {
   switch (err.kind) {
     case 'NoApiKey':

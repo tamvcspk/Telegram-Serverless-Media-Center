@@ -365,6 +365,12 @@ export class Workspace implements OnInit {
     void this.router.navigateByUrl('/catalog');
   }
 
+  /** Icon cạnh "Trình quản lý catalog" — màn "Nhật ký" (A.4, màn cuối cùng
+   * của phụ lục này), cùng ngoài canDeactivate guard của route này. */
+  protected onOpenLogs(): void {
+    void this.router.navigateByUrl('/logs');
+  }
+
   protected trackByPath(_index: number, item: { path: string }): string {
     return item.path;
   }
