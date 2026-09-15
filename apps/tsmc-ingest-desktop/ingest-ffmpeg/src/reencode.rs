@@ -55,7 +55,7 @@
 //! `thumbnail.rs`, chỉ khác là dùng cho MỌI frame của cả video, không phải
 //! một frame duy nhất.
 
-use ffmpeg_next::{self as ffmpeg, codec, encoder, filter, format, format::Pixel, frame, media::Type as MediaType, software::scaling, util::dictionary::Owned as Dictionary, Rational};
+use ffmpeg_next::{self as ffmpeg, channel_layout::ChannelLayout, codec, encoder, filter, format, format::Pixel, frame, media::Type as MediaType, software::{resampling, scaling}, util::dictionary::Owned as Dictionary, Rational};
 
 use crate::ensure_init;
 
@@ -151,12 +151,16 @@ pub fn reencode_to_mp4(input_path: &str, output_path: &str) -> Result<(), ffmpeg
     aost.set_parameters(&audio_encoder);
     let audio_out_index = 1i32;
 
+    let audio_norm_format = audio_decoder.format();
+    let audio_norm_channel_layout = audio_decoder.channel_layout();
+    let audio_norm_rate = audio_decoder.rate() as i32;
+
     let args = format!(
         "time_base={}:sample_rate={}:sample_fmt={}:channel_layout=0x{:x}",
         audio_decoder.time_base(),
-        audio_decoder.rate(),
-        audio_decoder.format().name(),
-        audio_decoder.channel_layout().bits()
+        audio_norm_rate,
+        audio_norm_format.name(),
+        audio_norm_channel_layout.bits()
     );
     let mut audio_filter = filter::Graph::new();
     audio_filter.add(&filter::find("abuffer").unwrap(), "in", &args)?;
@@ -173,6 +177,14 @@ pub fn reencode_to_mp4(input_path: &str, output_path: &str) -> Result<(), ffmpeg
         audio_filter.get("out").unwrap().sink().set_frame_size(audio_encoder.frame_size());
     }
     let audio_dec_time_base = audio_decoder.time_base();
+    // Bắt buộc, cùng lý do đã ghi ở `remux.rs::drain_audio_transcode` (phát
+    // hiện thật 2026-09-15, AC3 đổi channel layout GIỮA file) — chuẩn hoá
+    // MỌI frame audio về đúng định dạng đã dựng `audio_filter` trước khi đẩy
+    // vào `abuffer`, tránh "Changing audio frame properties on the fly is
+    // not supported" (EINVAL) nếu Hạng D cũng gặp track đổi định dạng giữa
+    // chừng như Hạng C đã gặp thật.
+    let mut audio_resampler = resampling::Context::get(audio_norm_format, audio_norm_channel_layout, audio_norm_rate as u32, audio_norm_format, audio_norm_channel_layout, audio_norm_rate as u32)?;
+    let mut audio_resampler_src = (audio_norm_rate, audio_norm_format, audio_norm_channel_layout);
 
     octx.set_metadata(ictx.metadata().to_owned());
     let mut header_opts = Dictionary::new();
@@ -188,7 +200,7 @@ pub fn reencode_to_mp4(input_path: &str, output_path: &str) -> Result<(), ffmpeg
             let mut packet = packet;
             packet.rescale_ts(audio_ist_time_base, audio_dec_time_base);
             audio_decoder.send_packet(&packet)?;
-            drain_audio_decoder(&mut audio_decoder, &mut audio_filter, &mut audio_encoder, &mut octx, audio_dec_time_base, audio_out_index)?;
+            drain_audio_decoder(&mut audio_decoder, &mut audio_filter, &mut audio_encoder, &mut octx, audio_dec_time_base, audio_out_index, &mut audio_resampler, &mut audio_resampler_src, audio_norm_format, audio_norm_channel_layout, audio_norm_rate)?;
         }
     }
 
@@ -200,7 +212,7 @@ pub fn reencode_to_mp4(input_path: &str, output_path: &str) -> Result<(), ffmpeg
 
     // Flush audio: decoder -> filter -> encoder.
     audio_decoder.send_eof()?;
-    drain_audio_decoder(&mut audio_decoder, &mut audio_filter, &mut audio_encoder, &mut octx, audio_dec_time_base, audio_out_index)?;
+    drain_audio_decoder(&mut audio_decoder, &mut audio_filter, &mut audio_encoder, &mut octx, audio_dec_time_base, audio_out_index, &mut audio_resampler, &mut audio_resampler_src, audio_norm_format, audio_norm_channel_layout, audio_norm_rate)?;
     audio_filter.get("in").unwrap().source().flush()?;
     drain_audio_filter_and_encode(&mut audio_filter, &mut audio_encoder, &mut octx, audio_dec_time_base, audio_out_index)?;
     audio_encoder.send_eof()?;
@@ -269,6 +281,7 @@ fn drain_audio_filter_and_encode(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn drain_audio_decoder(
     decoder: &mut codec::decoder::Audio,
     filter_graph: &mut filter::Graph,
@@ -276,12 +289,27 @@ fn drain_audio_decoder(
     octx: &mut format::context::Output,
     dec_time_base: Rational,
     out_index: i32,
+    resampler: &mut resampling::Context,
+    resampler_src: &mut (i32, format::Sample, ChannelLayout),
+    norm_format: format::Sample,
+    norm_channel_layout: ChannelLayout,
+    norm_rate: i32
 ) -> Result<(), ffmpeg::Error> {
     let mut decoded = frame::Audio::empty();
     while decoder.receive_frame(&mut decoded).is_ok() {
         let ts = decoded.timestamp();
         decoded.set_pts(ts);
-        filter_graph.get("in").unwrap().source().add(&decoded)?;
+
+        let frame_sig = (decoded.rate() as i32, decoded.format(), decoded.channel_layout());
+        if frame_sig != *resampler_src {
+            *resampler = resampling::Context::get(decoded.format(), decoded.channel_layout(), decoded.rate(), norm_format, norm_channel_layout, norm_rate as u32)?;
+            *resampler_src = frame_sig;
+        }
+
+        let mut normalized = frame::Audio::empty();
+        resampler.run(&decoded, &mut normalized)?;
+
+        filter_graph.get("in").unwrap().source().add(&normalized)?;
         drain_audio_filter_and_encode(filter_graph, encoder_ctx, octx, dec_time_base, out_index)?;
     }
     Ok(())

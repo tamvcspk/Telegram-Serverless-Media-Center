@@ -10,7 +10,7 @@
 //! quyết ở đây (ADR-0017 điều kiện bắt buộc #4 — crate này không chứa luật
 //! phân hạng).
 
-use ffmpeg_next::{self as ffmpeg, codec, encoder, filter, format, frame, media::Type as MediaType, util::dictionary::Owned as Dictionary, Rational};
+use ffmpeg_next::{self as ffmpeg, channel_layout::ChannelLayout, codec, encoder, filter, format, frame, media::Type as MediaType, software::resampling, util::dictionary::Owned as Dictionary, Rational};
 
 use crate::ensure_init;
 
@@ -24,6 +24,26 @@ enum AudioSink {
         filter_graph: filter::Graph,
         dec_time_base: Rational,
         out_index: i32,
+        // Bắt buộc, KHÔNG điều kiện (cùng chủ đích với `scaling::Context`
+        // bắt buộc của `reencode.rs`) — chuẩn hoá MỌI frame audio giải mã
+        // về đúng định dạng đã dùng để dựng `filter_graph` lúc đầu, trước
+        // khi đẩy vào `abuffer`. Lý do: phát hiện thật 2026-09-15 — một
+        // track AC3 thật (rip lại, không phải lỗi phía TSMC) đổi channel
+        // layout GIỮA file (stereo → 5.1(side) ở khung hình cuối), trong
+        // khi `ffprobe`/packet đầu chỉ thấy "stereo". `abuffer` (nguồn
+        // filter graph) khoá cứng định dạng lúc dựng graph — KHÔNG hỗ trợ
+        // đổi định dạng giữa chừng như video ("Changing audio frame
+        // properties on the fly is not supported", nổ `AVERROR(EINVAL)`
+        // = "Invalid argument" đúng như user báo). Resampler dựng lại
+        // (rẻ, chỉ khi tín hiệu nguồn đổi thật) khi `resampler_src` lệch
+        // với frame vừa nhận, đích luôn cố định về `norm_*` (đúng định
+        // dạng graph gốc) — file KHÔNG đổi định dạng giữa chừng (đa số)
+        // chỉ tốn một lượt resample gần như identity, không đổi hành vi.
+        resampler: resampling::Context,
+        resampler_src: (i32, format::Sample, ChannelLayout),
+        norm_format: format::Sample,
+        norm_channel_layout: ChannelLayout,
+        norm_rate: i32,
     },
 }
 
@@ -78,8 +98,7 @@ pub fn remux(input_path: &str, output_path: &str, reencode_audio_to_aac: bool) -
         ist_time_bases[audio_in_index] = ist.time_base();
 
         let ctx = codec::context::Context::from_parameters(ist.parameters())?;
-        let mut dec = ctx.decoder().audio()?;
-        dec.set_parameters(ist.parameters())?;
+        let dec = ctx.decoder().audio()?;
 
         // `let codec = ...` che biến giá trị "codec" nhưng KHÔNG che module
         // `codec` (namespace giá trị/kiểu tách biệt trong Rust) — mọi
@@ -116,12 +135,16 @@ pub fn remux(input_path: &str, output_path: &str, reencode_audio_to_aac: bool) -
         let idx = ost_index;
         ost_index += 1;
 
+        let norm_format = dec.format();
+        let norm_channel_layout = dec.channel_layout();
+        let norm_rate = dec.rate() as i32;
+
         let args = format!(
             "time_base={}:sample_rate={}:sample_fmt={}:channel_layout=0x{:x}",
             dec.time_base(),
-            dec.rate(),
-            dec.format().name(),
-            dec.channel_layout().bits()
+            norm_rate,
+            norm_format.name(),
+            norm_channel_layout.bits()
         );
         let mut graph = filter::Graph::new();
         graph.add(&filter::find("abuffer").unwrap(), "in", &args)?;
@@ -140,7 +163,20 @@ pub fn remux(input_path: &str, output_path: &str, reencode_audio_to_aac: bool) -
         }
 
         let dtb = dec.time_base();
-        AudioSink::Transcode { decoder: dec, encoder_ctx: enc, filter_graph: graph, dec_time_base: dtb, out_index: idx }
+        let resampler = resampling::Context::get(norm_format, norm_channel_layout, norm_rate as u32, norm_format, norm_channel_layout, norm_rate as u32)?;
+        let resampler_src = (norm_rate, norm_format, norm_channel_layout);
+        AudioSink::Transcode {
+            decoder: dec,
+            encoder_ctx: enc,
+            filter_graph: graph,
+            dec_time_base: dtb,
+            out_index: idx,
+            resampler,
+            resampler_src,
+            norm_format,
+            norm_channel_layout,
+            norm_rate
+        }
     };
 
     let _ = ost_index;
@@ -171,18 +207,18 @@ pub fn remux(input_path: &str, output_path: &str, reencode_audio_to_aac: bool) -
                     packet.set_stream(*out_index as usize);
                     packet.write_interleaved(&mut octx)?;
                 }
-                AudioSink::Transcode { decoder, encoder_ctx, filter_graph, dec_time_base, out_index } => {
+                AudioSink::Transcode { decoder, encoder_ctx, filter_graph, dec_time_base, out_index, resampler, resampler_src, norm_format, norm_channel_layout, norm_rate } => {
                     packet.rescale_ts(ist_time_bases[in_index], *dec_time_base);
                     decoder.send_packet(&packet)?;
-                    drain_audio_transcode(decoder, filter_graph, encoder_ctx, &mut octx, *dec_time_base, *out_index)?;
+                    drain_audio_transcode(decoder, filter_graph, encoder_ctx, &mut octx, *dec_time_base, *out_index, resampler, resampler_src, *norm_format, *norm_channel_layout, *norm_rate)?;
                 }
             }
         }
     }
 
-    if let AudioSink::Transcode { decoder, encoder_ctx, filter_graph, dec_time_base, out_index } = &mut audio_sink {
+    if let AudioSink::Transcode { decoder, encoder_ctx, filter_graph, dec_time_base, out_index, resampler, resampler_src, norm_format, norm_channel_layout, norm_rate } = &mut audio_sink {
         decoder.send_eof()?;
-        drain_audio_transcode(decoder, filter_graph, encoder_ctx, &mut octx, *dec_time_base, *out_index)?;
+        drain_audio_transcode(decoder, filter_graph, encoder_ctx, &mut octx, *dec_time_base, *out_index, resampler, resampler_src, *norm_format, *norm_channel_layout, *norm_rate)?;
         filter_graph.get("in").unwrap().source().flush()?;
         drain_filter_and_encode(filter_graph, encoder_ctx, &mut octx, *dec_time_base, *out_index)?;
         encoder_ctx.send_eof()?;
@@ -219,6 +255,7 @@ fn drain_filter_and_encode(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn drain_audio_transcode(
     decoder: &mut codec::decoder::Audio,
     filter_graph: &mut filter::Graph,
@@ -226,12 +263,27 @@ fn drain_audio_transcode(
     octx: &mut format::context::Output,
     dec_time_base: Rational,
     out_index: i32,
+    resampler: &mut resampling::Context,
+    resampler_src: &mut (i32, format::Sample, ChannelLayout),
+    norm_format: format::Sample,
+    norm_channel_layout: ChannelLayout,
+    norm_rate: i32
 ) -> Result<(), ffmpeg::Error> {
     let mut decoded = frame::Audio::empty();
     while decoder.receive_frame(&mut decoded).is_ok() {
         let ts = decoded.timestamp();
         decoded.set_pts(ts);
-        filter_graph.get("in").unwrap().source().add(&decoded)?;
+
+        let frame_sig = (decoded.rate() as i32, decoded.format(), decoded.channel_layout());
+        if frame_sig != *resampler_src {
+            *resampler = resampling::Context::get(decoded.format(), decoded.channel_layout(), decoded.rate(), norm_format, norm_channel_layout, norm_rate as u32)?;
+            *resampler_src = frame_sig;
+        }
+
+        let mut normalized = frame::Audio::empty();
+        resampler.run(&decoded, &mut normalized)?;
+
+        filter_graph.get("in").unwrap().source().add(&normalized)?;
         drain_filter_and_encode(filter_graph, encoder_ctx, octx, dec_time_base, out_index)?;
     }
     Ok(())

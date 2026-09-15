@@ -4,6 +4,16 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-09-15 — `ingest-ffmpeg`: verify vá "invalid argument" remux audio AC3 — ĐẠT
+
+User xác nhận đã chạy `cargo tauri dev` + tài khoản thật, fix ở mục ngay dưới hoạt động đúng ("fix work") — file MKV H.264/AC3 từng gây lỗi giờ `prepare_upload`/upload thành công. Checklist: [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--workspace-ba-vùng-bắt-đầu-upload-2026-09-12).
+
+## 2026-09-15 — `ingest-ffmpeg`: vá lỗi thật "invalid argument" khi remux audio AC3 đổi channel layout giữa file
+
+User báo lỗi khẩn `prepare_upload` fail với "remux/re-encode lỗi: Invalid argument" trên một file MKV H.264/AC3 thật (`The Big Bang Theory S01E05`, ~20 phút). Tái hiện bằng ví dụ chạy tay (`cargo run --example repro_invalid_argument -p ingest-ffmpeg`, đã xoá sau khi debug xong), thêm log per-frame lộ ra nguyên nhân thật: track AC3 của file đổi channel layout GIỮA file (mở đầu stereo, 1 frame cuối cùng nhảy sang 5.1(side)) — `ffprobe` chỉ đọc packet đầu nên báo nhầm cả file là stereo. `abuffer` (nguồn audio filter graph ở `remux.rs`/`reencode.rs`, nhánh Hạng C và Hạng D) khoá cứng định dạng lúc dựng graph, KHÔNG hỗ trợ đổi định dạng giữa chừng như video ("Changing audio frame properties on the fly is not supported").
+
+Vá bằng một `resampling::Context` bắt buộc (cùng chủ đích với `scaling::Context` bắt buộc đã vá cho video Hạng D ngày 2026-09-12 — luôn chạy, không điều kiện), chuẩn hoá MỌI frame audio giải mã về đúng định dạng đã dùng để dựng graph trước khi đẩy vào `abuffer`, tự dựng lại resampler khi tín hiệu nguồn (rate/format/channel layout) đổi thật. Áp dụng cả `remux.rs::drain_audio_transcode` lẫn `reencode.rs::drain_audio_decoder` (code audio trùng lặp có chủ đích giữa hai file). `cargo build`/`cargo clippy --workspace` (0 warning) sạch. Verify tay ngoài Tauri (build lại đúng file gây lỗi, `ffprobe` đọc output OK, duration audio/video khớp gốc trong sai số <1s, không còn log lỗi), sau đó verify qua `cargo tauri dev` + tài khoản thật — xem mục "verify ĐẠT" ngay trên. Checklist: [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--workspace-ba-vùng-bắt-đầu-upload-2026-09-12).
+
 ## 2026-09-15 — GUI ingest desktop: verify Trình quản lý catalog — ĐẠT
 
 User xác nhận đã chạy `cargo tauri dev` + tài khoản thật, đi hết checklist ở [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--trình-quản-lý-catalog-2026-09-15): catalog lành mạnh hiện đúng, "Đối soát với kênh" phát hiện đúng message xoá tay (SAU khi vá bug `Message::Empty` bên dưới), sửa Title/Năm/Season/Ep + "Lưu catalog" ghim đúng bản mới, "Xoá khỏi catalog" (chỉ gỡ entry) và "Xoá khỏi catalog + xoá message trên kênh" (huỷ dialog không làm gì, xác nhận thì xoá message NGAY rồi mới gỡ entry) đều đúng thiết kế, nhánh cập nhật đồng thời (upload từ Workspace trong lúc `/catalog` đang mở) không làm mất item, catalog rỗng hiện đúng thông báo trống. Chỉ còn FLOOD_WAIT lúc "Lưu catalog" chưa test (không chủ động ép được, CLAUDE.md) — không chặn, để mở trong checklist.
