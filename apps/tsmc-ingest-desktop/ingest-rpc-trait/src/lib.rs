@@ -132,15 +132,34 @@ pub struct UploadedRef {
     pub msg_id: i64,
 }
 
-/// Mười hai thao tác RPC mà implementation MTProto phải đáp ứng — bọc cổng
+/// Một video document tìm thấy khi quét TOÀN BỘ lịch sử kênh
+/// (`scan_channel_videos`) — dùng cho "đối soát chiều ngược lại" ở Trình
+/// quản lý catalog (file có trên kênh nhưng thiếu trong catalog.json).
+/// KHÔNG so với catalog ở tầng này — điều kiện bắt buộc #4 (ADR-0017): luật
+/// nghiệp vụ (item nào là "mồ côi") ở lại tầng gọi (Angular), trait này chỉ
+/// trả thô. `file_name` có thể `None` — client Telegram di động gửi
+/// "as video" nhiều khi KHÔNG gắn `DocumentAttributeFilename`, chỉ có
+/// `DocumentAttributeVideo` (đã ghi nhận ở `ChannelDiagnosticMessage`,
+/// `gateway-index.ts`, bản TypeScript).
+#[derive(Debug, Clone)]
+pub struct ChannelVideoDocument {
+    pub msg_id: i64,
+    pub file_name: Option<String>,
+    pub size: u64,
+    pub mime_type: Option<String>,
+    pub duration_sec: Option<f64>,
+}
+
+/// Mười ba thao tác RPC mà implementation MTProto phải đáp ứng — bọc cổng
 /// theo đúng nguyên tắc `TelegramGateway` của ADR-0003: đổi thư viện MTProto
 /// sau này (nếu cần) là đổi implementation của trait này, không lan ra toàn
 /// bộ app (điều kiện bắt buộc #2, ADR-0017). Bảy thao tác đầu khớp 1-1 với
 /// bản TypeScript đã verify (`gateway-index.ts`/`gateway-ingest.ts`, xem doc
 /// comment gốc của module này) — `list_own_channels`/`create_channel`
-/// (2026-09-11), `sign_out` (2026-09-14), và `check_deleted_messages`/
-/// `delete_message` (2026-09-15, Trình quản lý catalog) là NGOẠI LỆ có chủ
-/// đích: năm thao tác desktop-only, không có tương ứng 1-1 phía TS.
+/// (2026-09-11), `sign_out` (2026-09-14), `check_deleted_messages`/
+/// `delete_message` (2026-09-15, Trình quản lý catalog) và
+/// `scan_channel_videos` (2026-09-16, đối soát chiều ngược lại) là NGOẠI LỆ
+/// có chủ đích: sáu thao tác desktop-only, không có tương ứng 1-1 phía TS.
 /// `sign_out` khác về bản chất so với hai cái đầu (những cái đó là "kênh",
 /// cái này là "tài khoản") — `apps/web` có đăng xuất riêng
 /// (`logout-confirm-sheet.ts`) nhưng đó là một luồng client-heavy phức tạp
@@ -151,6 +170,9 @@ pub struct UploadedRef {
 /// `check_deleted_messages`/`delete_message` phục vụ đối soát/dọn catalog ở
 /// Trình quản lý catalog — xem [ADR-0017 § addendum
 /// 2026-09-15](../../../docs/adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-15-trình-quản-lý-catalog-ingestrpc-thêm-2-thao-tác).
+/// `scan_channel_videos` phục vụ đối soát chiều ngược lại (file mồ côi) —
+/// xem [ADR-0017 § addendum
+/// 2026-09-16](../../../docs/adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-16-trình-quản-lý-catalog-đối-soát-chiều-ngược-lại--ingestrpc-thêm-1-thao-tác).
 #[async_trait]
 pub trait IngestRpc: Send + Sync {
     /// 1. Resolve username/invite-link/id nội bộ thành channel + access_hash
@@ -231,4 +253,21 @@ pub trait IngestRpc: Send + Sync {
     /// RPC độc lập — nhu cầu "xoá một message bất kỳ theo yêu cầu admin"
     /// chỉ tồn tại ở công cụ desktop.
     async fn delete_message(&self, channel: &ResolvedChannel, msg_id: i64) -> Result<(), IngestRpcError>;
+
+    /// 11. Quét TOÀN BỘ lịch sử kênh (`messages.getHistory` qua
+    /// `iter_messages()`, không bounded/giới hạn N tin gần nhất) — trả mọi
+    /// document có `DocumentAttributeVideo`, dùng cho "đối soát chiều ngược
+    /// lại" ở Trình quản lý catalog (file có trên kênh nhưng thiếu trong
+    /// catalog.json — vd upload tay ngoài app, hoặc publish catalog thất bại
+    /// ở một máy khác). NGOẠI LỆ thứ sáu không tương ứng 1-1 phía TS, cùng
+    /// nhóm `check_deleted_messages`/`delete_message`. Cố ý KHÔNG lọc bằng
+    /// `messages.search` + `InputMessagesFilterDocument` phía server —
+    /// Telegram xếp document có `DocumentAttributeVideo` ("sent as video")
+    /// vào filter Video, không phải Document, nên lọc kiểu đó sẽ bỏ sót
+    /// đúng thứ cần tìm; lọc thủ công bằng attribute sau khi tải về vừa
+    /// đúng vừa nhất quán với cách `fetchHistorySince()` (`gateway-index.ts`)
+    /// đã làm ở web app. KHÔNG có cancel/progress ở v1 — cùng mức tối giản
+    /// với `check_deleted_messages`, quét kênh rất lớn có thể chậm nhưng để
+    /// dành mở rộng sau nếu verify thật cho thấy cần.
+    async fn scan_channel_videos(&self, channel: &ResolvedChannel) -> Result<Vec<ChannelVideoDocument>, IngestRpcError>;
 }

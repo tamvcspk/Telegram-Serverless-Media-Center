@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { ProbeResult } from '@tsmc/core-ingest';
 import type {
+  ChannelVideoDocumentDto,
   CurrentTaskDto,
   IngestRpcErrorDto,
   LoginOutcomeDto,
@@ -41,7 +42,9 @@ import type {
  * `cancel_upload` (`upload.rs`, CẦN đã chọn kênh — đọc lại
  * `state.selected_channel` phía Rust) cho luồng "Bắt đầu upload". Thêm
  * `check_deleted_messages`/`delete_message` (`catalog.rs`, cùng CẦN đã chọn
- * kênh) cho màn "Trình quản lý catalog" (A.4).
+ * kênh) cho màn "Trình quản lý catalog" (A.4). Thêm `scan_channel_videos`
+ * (2026-09-16, cùng CẦN đã chọn kênh) cho "đối soát chiều ngược lại" ở màn
+ * đó — quét TOÀN BỘ lịch sử kênh, chưa so với catalog.
  */
 
 export function checkSession(apiId: number): Promise<boolean> {
@@ -105,6 +108,16 @@ export function checkDeletedMessages(msgIds: number[]): Promise<number[]> {
  * — UI tự gỡ entry khỏi mảng đang sửa rồi publish riêng qua `publishCatalog()`. */
 export function deleteMessage(msgId: number): Promise<void> {
   return invoke<void>('delete_message', { msgId });
+}
+
+/** Đối soát chiều ngược lại (Trình quản lý catalog, 2026-09-16) — quét TOÀN
+ * BỘ lịch sử kênh, trả mọi video document tìm thấy (thô, CHƯA so với
+ * catalog). Caller tự tính hiệu tập hợp với `msgId` đang có trong `items()`
+ * để tìm "file mồ côi" (điều kiện bắt buộc #4 ADR-0017 — luật nghiệp vụ
+ * không nằm ở tầng RPC). Tốn hơn `checkDeletedMessages()` (phải đi hết lịch
+ * sử thay vì tra đúng tập id đã biết) — chỉ gọi khi user chủ động bấm. */
+export function scanChannelVideos(): Promise<ChannelVideoDocumentDto[]> {
+  return invoke<ChannelVideoDocumentDto[]>('scan_channel_videos');
 }
 
 /** Đăng xuất (màn Cài đặt, ADR-0017 § addendum 2026-09-14) — gọi

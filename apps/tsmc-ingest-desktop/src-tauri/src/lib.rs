@@ -65,6 +65,7 @@ pub fn run() {
             commands::sign_out,
             catalog::check_deleted_messages,
             catalog::delete_message,
+            catalog::scan_channel_videos,
             probe::list_media_files,
             probe::probe_media,
             probe::list_dir_entries,

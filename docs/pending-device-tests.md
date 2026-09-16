@@ -425,6 +425,34 @@ Liên quan: [ADR-0017 § addendum 2026-09-15](./adr/0017-grammers-cho-cong-cu-in
 - "Xoá khỏi catalog + xoá message trên kênh" xoá catalog nhưng KHÔNG xoá message thật (hoặc ngược lại) → kiểm thứ tự trong `removeFromCatalogAndChannel()`: `deleteMessage()` PHẢI thành công (RPC thật trả `Ok`) trước khi `removeFromCatalog()` chạy — nếu đảo ngược, một message đã bị coi là "xoá" trên UI dù RPC thật lỗi.
 - Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0017 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
 
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — Trình quản lý catalog, đối soát chiều ngược lại (2026-09-16)
+
+Liên quan: [ADR-0017 § addendum 2026-09-16](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-16-trình-quản-lý-catalog-đối-soát-chiều-ngược-lại--ingestrpc-thêm-1-thao-tác), [docs/roadmap.md § Ingest](./roadmap.md#ingest). "Thiết bị thật" nghĩa là `cargo tauri dev` + tài khoản Telegram thật.
+
+**KHÔNG chạy hộ bằng agent/Claude.** `scan_channel_videos`/`publish_catalog` đều là RPC MTProto thật trên kênh media của admin.
+
+### Chuẩn bị
+
+- [x] `cargo build --workspace`/`cargo clippy --workspace -- -D warnings` sạch — verify 2026-09-16.
+- [x] `ng build`/`npm run lint`/`npm run test:libs` sạch sau khi thêm `OrphanReviewDialog` + nút "Tìm file mồ côi" — verify 2026-09-16, môi trường dev (không phải `cargo tauri dev`).
+
+### Các bước
+
+- [x] Kênh có ÍT NHẤT một video đã upload NGOÀI catalog hiện có (vd: tự upload tay bằng app Telegram gốc, hoặc xoá tay một entry khỏi catalog.json mà KHÔNG xoá message trên kênh) → vào `/catalog`, bấm "Tìm file mồ côi" → `OrphanReviewDialog` hiện ĐÚNG file đó (và chỉ file đó), size/duration hiển thị hợp lý.
+- [x] Kênh catalog lành mạnh, không có file mồ côi nào → bấm "Tìm file mồ côi" → không mở dialog, hiện thông báo "Không tìm thấy file mồ côi nào…".
+- [x] Trong dialog có nhiều dòng, bỏ tick MỘT phần (không phải tất cả) rồi bấm "Thêm vào catalog" → CHỈ đúng những dòng còn tick xuất hiện thêm vào bảng metadata (seed Title/Season/Ep từ tên file qua `seedMetadataFromFilename()`), dòng bỏ tick không xuất hiện. Bấm "Lưu catalog" → catalog.v1.json mới có đúng số item đã cộng thêm.
+- [x] Đóng dialog bằng Esc hoặc bấm ra ngoài (không bấm "Thêm vào catalog") → KHÔNG có dòng nào được thêm vào bảng.
+- [ ] File mồ côi KHÔNG có tên (client di động gửi "as video" không gắn `DocumentAttributeFilename`) → dialog hiển thị fallback `#msgId` thay vì lỗi/trống, chọn thêm vẫn seed metadata được (dù title mặc định không đẹp — admin tự sửa tay).
+- [ ] Kênh có VÀI TRĂM/NGHÌN message (không riêng video) → "Tìm file mồ côi" chạy xong trong thời gian hợp lý (ghi lại số giây thật nếu chậm — v1 không có progress bar, chỉ biết đã treo hay chưa qua log/Nhật ký).
+- [ ] FLOOD_WAIT rơi vào lúc quét (nếu gặp tự nhiên — KHÔNG chủ động ép) → nút trả về lỗi qua `loadError` (không crash màn), thử bấm lại chạy lại từ đầu (v1 không resume theo trang).
+
+### Nếu có gì vỡ
+
+- "Tìm file mồ côi" bỏ sót video thật đã biết chắc chắn có `DocumentAttributeVideo` → nghi ngờ đầu tiên: `iter_messages()` dừng sớm (kiểm `iter.next()` có thật sự lặp hết trang hay không), hoặc điều kiện `matches!(&doc.raw.document, Some(tl::enums::Document::Document(d)) if d.attributes.iter().any(...))` sai — xem `ingest-grammers/src/rpc.rs::scan_channel_videos()`.
+- "Tìm file mồ côi" hiện NHẦM cả file không phải video (phụ đề, catalog.json cũ) → kiểm lại filter `DocumentAttribute::Video` có đang áp dụng đúng hay bị bỏ qua.
+- Thêm vào catalog xong nhưng "Lưu catalog" không thấy item mới → kiểm `items.update()` ở `onScanOrphans()` có thật sự chạy trước khi `dirty.set(true)`, và `onPublish()` có đọc đúng `items()` mới nhất (không phải bản cache cũ).
+- Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0017 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
+
 ## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — Nhật ký (2026-09-15)
 
 Liên quan: [docs/ux-design.md § Phụ lục A.4](./ux-design.md#a4-các-màn-còn-lại), [docs/roadmap.md § Ingest](./roadmap.md#ingest). "Thiết bị thật" nghĩa là `cargo tauri dev` + tài khoản Telegram thật.

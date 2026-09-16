@@ -4,6 +4,18 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-09-17 — GUI ingest desktop: verify Trình quản lý catalog — đối soát chiều ngược lại — ĐẠT một phần
+
+User xác nhận qua `cargo tauri dev` + tài khoản thật: 4/7 bước checklist ĐẠT — quét ra đúng file mồ côi thật, case không có mồ côi nào, chọn một phần rồi "Lưu catalog" ra đúng item được chọn, đóng dialog không thêm gì. Còn để đó (không chặn): file không có tên (fallback `#msgId`), thời gian quét trên kênh nhiều message, FLOOD_WAIT lúc quét. Chi tiết: [ADR-0017 § addendum 2026-09-17](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-17-verify-chiều-ngược-lại--đạt-một-phần), checklist ở [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--trình-quản-lý-catalog-đối-soát-chiều-ngược-lại-2026-09-16).
+
+## 2026-09-16 — GUI ingest desktop: Trình quản lý catalog — đối soát chiều ngược lại (file mồ côi, ADR-0017 addendum)
+
+Đóng gap đã ghi rõ ở addendum 2026-09-15 ("KHÔNG làm chiều ngược lại — để dành slice sau"). `IngestRpc` thêm method thứ 11 `scan_channel_videos()` — quét TOÀN BỘ lịch sử kênh bằng `iter_messages()` (không bounded, không dùng server-side `MessagesFilter` vì Telegram xếp video "sent as video" vào filter Video chứ không phải Document — lọc kiểu đó sẽ bỏ sót đúng thứ cần tìm), lọc thủ công bằng `DocumentAttribute::Video`, trả THÔ chưa so với catalog.
+
+UI: nút toolbar riêng "Tìm file mồ côi" (tách khỏi "Đối soát với kênh" — chi phí RPC khác hẳn) ở `/catalog` → dialog mới `OrphanReviewDialog` (toggle từng dòng, mặc định chọn hết, sao y khuôn `GradeDDialog`) → dòng được chọn seed bằng `seedMetadataFromFilename()` rồi append vào bảng đang sửa, chỉ có hiệu lực thật sau khi bấm "Lưu catalog" (cùng luồng sẵn có).
+
+`cargo build`/`cargo clippy --workspace -- -D warnings`, `ng build`/`npm run lint`/`npm run test:libs` sạch — **CHƯA verify bằng `cargo tauri dev` + tài khoản thật**. Chi tiết: [ADR-0017 § addendum 2026-09-16](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-16-trình-quản-lý-catalog-đối-soát-chiều-ngược-lại--ingestrpc-thêm-1-thao-tác), checklist ở [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--trình-quản-lý-catalog-đối-soát-chiều-ngược-lại-2026-09-16).
+
 ## 2026-09-15 — Sync: vá trần phân trang khi hydrate + ngưỡng nén cấu hình được + chỉ báo ở Settings (ADR-0009 addendum)
 
 Đóng cả 3 việc brainstorm 2026-08-29 ở `docs/roadmap.md` § Sync & dữ liệu trong một slice.

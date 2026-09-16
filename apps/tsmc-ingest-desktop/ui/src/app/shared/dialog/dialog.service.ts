@@ -4,6 +4,7 @@ import { firstValueFrom } from 'rxjs';
 import type { TmdbKind, TmdbSearchResultDto } from '../../core/ingest-rpc.types';
 import { ConfirmDialog, type ConfirmDialogData } from './confirm-dialog';
 import { GradeDDialog, type GradeDDialogItem } from './grade-d-dialog';
+import { OrphanReviewDialog, type OrphanReviewDialogItem } from './orphan-review-dialog';
 import { TmdbKeyDialog, type TmdbKeyDialogData } from './tmdb-key-dialog';
 import { TmdbSearchDialog, type TmdbSearchDialogData } from './tmdb-search-dialog';
 
@@ -57,6 +58,20 @@ export class DialogService {
     const ref = this.dialog.open<GradeDDialog, { items: GradeDDialogItem[] }, string[]>(GradeDDialog, {
       data: { items },
       width: '30rem'
+    });
+    const result = await firstValueFrom(ref.afterClosed());
+    return new Set(result ?? []);
+  }
+
+  /** Hiện danh sách file mồ côi tìm thấy khi quét TOÀN BỘ lịch sử kênh (đối
+   * soát chiều ngược lại, Trình quản lý catalog, 2026-09-16) — toggle riêng
+   * từng dòng, mặc định TẤT CẢ được chọn. Trả về tập `msgId` còn được chọn;
+   * đóng bằng nút "Đóng"/Esc/bấm ra ngoài → tập RỖNG (không thêm gì, cùng
+   * nguyên tắc "đóng không phải xác nhận = từ chối" của `confirm()`). */
+  async reviewOrphans(items: OrphanReviewDialogItem[]): Promise<ReadonlySet<number>> {
+    const ref = this.dialog.open<OrphanReviewDialog, { items: OrphanReviewDialogItem[] }, number[]>(OrphanReviewDialog, {
+      data: { items },
+      width: '32rem'
     });
     const result = await firstValueFrom(ref.afterClosed());
     return new Set(result ?? []);

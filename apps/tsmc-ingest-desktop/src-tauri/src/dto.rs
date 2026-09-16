@@ -4,7 +4,7 @@
 //! implementation MTProto khác sau này (ADR-0017 điều kiện bắt buộc #2).
 
 use ingest_ffmpeg::{Container, ProbeAudioStream, ProbeResult, ProbeSubtitleStream, ProbeVideoStream};
-use ingest_rpc_trait::{IngestRpcError, PinnedCatalog, ResolvedChannel, UploadProgress, UploadedRef};
+use ingest_rpc_trait::{ChannelVideoDocument, IngestRpcError, PinnedCatalog, ResolvedChannel, UploadProgress, UploadedRef};
 use serde::{Deserialize, Serialize};
 
 /// KHÔNG collapse lỗi về `String` trần — `FloodWait` phải giữ nguyên số giây
@@ -198,6 +198,25 @@ pub struct UploadedRefDto {
 impl From<UploadedRef> for UploadedRefDto {
     fn from(r: UploadedRef) -> Self {
         Self { msg_id: r.msg_id }
+    }
+}
+
+/// Khớp `ChannelVideoDocument` — một video document tìm thấy khi quét TOÀN
+/// BỘ lịch sử kênh (`scan_channel_videos`, đối soát chiều ngược lại ở Trình
+/// quản lý catalog). Chưa so với catalog — phía Angular tự tính hiệu tập
+/// hợp với `msgId` đang có trong `items()`.
+#[derive(Debug, Serialize)]
+pub struct ChannelVideoDocumentDto {
+    pub msg_id: i64,
+    pub file_name: Option<String>,
+    pub size: u64,
+    pub mime_type: Option<String>,
+    pub duration_sec: Option<f64>,
+}
+
+impl From<ChannelVideoDocument> for ChannelVideoDocumentDto {
+    fn from(d: ChannelVideoDocument) -> Self {
+        Self { msg_id: d.msg_id, file_name: d.file_name, size: d.size, mime_type: d.mime_type, duration_sec: d.duration_sec }
     }
 }
 

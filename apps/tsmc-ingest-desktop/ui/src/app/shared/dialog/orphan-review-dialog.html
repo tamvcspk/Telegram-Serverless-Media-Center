@@ -1,0 +1,24 @@
+<h2 mat-dialog-title>File mồ côi tìm thấy trên kênh</h2>
+<mat-dialog-content>
+  <p>{{ data.items.length }} video có trên kênh nhưng chưa có trong catalog. Bỏ tick file nào không muốn thêm ngay bây giờ.</p>
+  <ul class="orphan-list">
+    @for (item of data.items; track item.msgId) {
+      <li>
+        <mat-checkbox [checked]="isChecked(item.msgId)" (change)="toggle(item.msgId, $event.checked)">
+          {{ item.fileName }}
+          <span class="meta">
+            (#{{ item.msgId }} · {{ item.sizeLabel }}
+            @if (item.durationLabel) {
+              · {{ item.durationLabel }}
+            }
+            )
+          </span>
+        </mat-checkbox>
+      </li>
+    }
+  </ul>
+</mat-dialog-content>
+<mat-dialog-actions align="end">
+  <button mat-button type="button" (click)="onClose()">Đóng</button>
+  <button mat-flat-button type="button" color="primary" (click)="onConfirm()">Thêm vào catalog</button>
+</mat-dialog-actions>

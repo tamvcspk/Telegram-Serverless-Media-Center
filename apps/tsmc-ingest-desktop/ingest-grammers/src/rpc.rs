@@ -36,15 +36,15 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use grammers_client::{Client, InvocationError};
 use grammers_client::message::InputMessage;
-use grammers_client::media::{Attribute, Uploaded};
+use grammers_client::media::{Attribute, Media, Uploaded};
 use grammers_client::peer::Peer;
 use grammers_mtproto::transport;
 use grammers_mtsender::{Sender, connect_with_auth};
 use grammers_session::Session as _;
 use grammers_tl_types as tl;
 use ingest_rpc_trait::{
-    CancelFlag, IngestRpc, IngestRpcError, PinnedCatalog, ProgressSink, ResolvedChannel, SubtitleUploadInput,
-    UploadProgress, UploadedRef, VideoUploadInput,
+    CancelFlag, ChannelVideoDocument, IngestRpc, IngestRpcError, PinnedCatalog, ProgressSink, ResolvedChannel,
+    SubtitleUploadInput, UploadProgress, UploadedRef, VideoUploadInput,
 };
 
 use crate::encrypted_session::EncryptedSqliteSession;
@@ -411,6 +411,46 @@ impl IngestRpc for GrammersIngestRpc {
         let peer_ref = peer.to_ref().await.map_err(|e| IngestRpcError::Other(e.to_string()))?.ok_or_else(|| IngestRpcError::Other("không lấy được PeerRef".into()))?;
         self.client.delete_messages(peer_ref, &[msg_id as i32]).await.map_err(to_rpc_error)?;
         Ok(())
+    }
+
+    /// Quét TOÀN BỘ lịch sử kênh bằng `iter_messages()` (`messages.getHistory`
+    /// không lọc, cùng RPC `fetchHistorySince()` của `gateway-index.ts` dùng)
+    /// — KHÔNG dùng `search_messages().filter(InputMessagesFilterDocument)`:
+    /// Telegram xếp document có `DocumentAttributeVideo` ("sent as video")
+    /// vào filter Video chứ không phải Document, lọc kiểu đó sẽ bỏ sót đúng
+    /// thứ cần tìm. Lọc thủ công bằng attribute sau khi tải về, cùng cách
+    /// `extractVideoAttributes()` (gateway-index.ts) làm ở web app. Bỏ qua
+    /// tombstone `Message::Empty` phòng thủ (cùng kiểu kiểm đã áp dụng ở
+    /// `check_deleted_messages`) dù `getHistory` không chắc trả biến thể này.
+    async fn scan_channel_videos(&self, channel: &ResolvedChannel) -> Result<Vec<ChannelVideoDocument>, IngestRpcError> {
+        let peer = self.peer_for(channel)?;
+        let peer_ref = peer.to_ref().await.map_err(|e| IngestRpcError::Other(e.to_string()))?.ok_or_else(|| IngestRpcError::Other("không lấy được PeerRef".into()))?;
+
+        let mut iter = self.client.iter_messages(peer_ref);
+        let mut results = Vec::new();
+        while let Some(message) = iter.next().await.map_err(to_rpc_error)? {
+            if matches!(message.raw, tl::enums::Message::Empty(_)) {
+                continue;
+            }
+            let Some(Media::Document(doc)) = message.media() else {
+                continue;
+            };
+            let has_video_attr = matches!(
+                &doc.raw.document,
+                Some(tl::enums::Document::Document(d)) if d.attributes.iter().any(|a| matches!(a, tl::enums::DocumentAttribute::Video(_)))
+            );
+            if !has_video_attr {
+                continue;
+            }
+            results.push(ChannelVideoDocument {
+                msg_id: message.id() as i64,
+                file_name: doc.name().map(str::to_string),
+                size: doc.size().unwrap_or(0) as u64,
+                mime_type: doc.mime_type().map(str::to_string),
+                duration_sec: doc.duration(),
+            });
+        }
+        Ok(results)
     }
 }
 

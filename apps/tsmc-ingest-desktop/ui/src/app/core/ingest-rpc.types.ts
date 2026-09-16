@@ -82,6 +82,19 @@ export interface UploadedRefDto {
   msg_id: number;
 }
 
+/** Khớp `ChannelVideoDocumentDto` — một video document tìm thấy khi quét
+ * TOÀN BỘ lịch sử kênh (`scanChannelVideos()`, đối soát chiều ngược lại ở
+ * Trình quản lý catalog). Chưa so với catalog — tầng gọi tự tính hiệu tập
+ * hợp với `msgId` đang có trong `items()`. `file_name` có thể `null` — client
+ * Telegram di động gửi "as video" nhiều khi không gắn tên file. */
+export interface ChannelVideoDocumentDto {
+  msg_id: number;
+  file_name: string | null;
+  size: number;
+  mime_type: string | null;
+  duration_sec: number | null;
+}
+
 /** Payload sự kiện `"upload-progress"` (`app.emit()`, KHÔNG phải giá trị trả
  * về của `invoke()` — một lần `uploadVideo()` bắn NHIỀU sự kiện này). `task_id`
  * (UUID sinh phía Angular) là correlation id (ADR-0018) — chỉ áp dụng update

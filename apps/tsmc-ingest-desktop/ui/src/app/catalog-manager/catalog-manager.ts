@@ -5,12 +5,21 @@ import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { Router } from '@angular/router';
-import { buildCatalogEnvelope, mergeCatalogItems, parseExistingCatalogItems } from '@tsmc/core-ingest';
+import { buildCatalogEnvelope, mergeCatalogItems, parseExistingCatalogItems, seedMetadataFromFilename } from '@tsmc/core-ingest';
 import type { CatalogItemV1 } from '@tsmc/shared-models';
 import { withFloodWaitRetry } from '../core/flood-wait-retry';
-import { checkDeletedMessages, deleteMessage, describeIngestError, publishCatalog, readPinnedCatalog, toIngestRpcError } from '../core/ingest-rpc';
+import {
+  checkDeletedMessages,
+  deleteMessage,
+  describeIngestError,
+  publishCatalog,
+  readPinnedCatalog,
+  scanChannelVideos,
+  toIngestRpcError
+} from '../core/ingest-rpc';
 import { SelectedChannelStore } from '../core/selected-channel';
 import { DialogService } from '../shared/dialog/dialog.service';
+import type { OrphanReviewDialogItem } from '../shared/dialog/orphan-review-dialog';
 
 /**
  * Trình quản lý catalog (A.4, docs/ux-design.md § Phụ lục A.4 + A.6) — bảng
@@ -18,14 +27,22 @@ import { DialogService } from '../shared/dialog/dialog.service';
  * message thật trong kênh, re-publish MỘT LẦN cho cả batch thay đổi (đúng
  * nguyên tắc "catalog luôn là ảnh chụp đầy đủ" đã dùng ở `workspace.ts`).
  *
- * **Phạm vi đối soát (chốt với user, không làm rộng hơn ở slice này):** CHỈ
- * một chiều — phát hiện catalog item trỏ tới message ĐÃ BỊ XOÁ trên kênh
- * (`checkDeletedMessages()`, dùng `get_messages_by_id()` của grammers tra
- * ĐÚNG tập `msgId` catalog đang có, không quét lịch sử kênh — chính xác
- * tuyệt đối, không có vùng "ngoài cửa sổ quét", và tự nhiên bounded theo số
- * item catalog). KHÔNG phát hiện chiều ngược lại (file mồ côi có trong kênh
- * nhưng thiếu trong catalog) — để dành slice sau (cần thêm UI nhập metadata
- * tối thiểu cho item mới phát hiện).
+ * **Phạm vi đối soát:** HAI chiều, hai nút riêng (chi phí RPC khác nhau, giữ
+ * tường minh — không gộp làm một):
+ * - Chiều xuôi (`onReconcile()`) — phát hiện catalog item trỏ tới message ĐÃ
+ *   BỊ XOÁ trên kênh (`checkDeletedMessages()`, dùng `get_messages_by_id()`
+ *   của grammers tra ĐÚNG tập `msgId` catalog đang có, không quét lịch sử
+ *   kênh — chính xác tuyệt đối, không có vùng "ngoài cửa sổ quét", và tự
+ *   nhiên bounded theo số item catalog).
+ * - Chiều ngược lại (`onScanOrphans()`, 2026-09-16) — phát hiện file mồ côi
+ *   có trên kênh nhưng thiếu trong catalog (`scanChannelVideos()`, quét
+ *   TOÀN BỘ lịch sử kênh bằng `iter_messages()`, không bounded — tốn hơn
+ *   hẳn chiều xuôi nên KHÔNG tự chạy chung, chỉ chạy khi user bấm riêng).
+ *   Kết quả hiện qua `OrphanReviewDialog` (toggle từng dòng, mặc định chọn
+ *   hết); dòng nào được chọn thì seed bằng `seedMetadataFromFilename()`
+ *   (`@tsmc/core-ingest`, dùng lại nguyên vẹn) rồi APPEND thẳng vào
+ *   `items()` đang sửa — từ đó sửa/xoá/publish qua đúng luồng bảng catalog
+ *   sẵn có, không cần UI riêng cho "item mới phát hiện".
  *
  * Dữ liệu đọc từ Telegram (catalog.json do CHÍNH kênh của mình soạn, nhưng
  * vẫn không tin tuyệt đối — CLAUDE.md bất biến #7) qua `parseExistingCatalogItems()`
@@ -69,6 +86,7 @@ export class CatalogManager implements OnInit {
 
   protected readonly reconciling = signal(false);
   protected readonly brokenIds = signal<ReadonlySet<number>>(new Set());
+  protected readonly scanningOrphans = signal(false);
 
   protected readonly publishing = signal(false);
   protected readonly publishFloodWaitSeconds = signal<number | null>(null);
@@ -163,6 +181,48 @@ export class CatalogManager implements OnInit {
     }
   }
 
+  /** Đối soát chiều ngược lại (nút toolbar riêng, thủ công — cùng lý do
+   * "chi phí RPC tường minh" ở `onReconcile()`, nhưng tốn hơn hẳn vì phải
+   * quét TOÀN BỘ lịch sử kênh). Rỗng → báo bằng `alert()`, không mở dialog
+   * vô ích. Không rỗng → `OrphanReviewDialog`, dòng nào được chọn thì seed
+   * metadata từ tên file rồi APPEND vào `items()` đang sửa (chỉ có hiệu lực
+   * thật sau khi bấm "Lưu catalog", giống mọi sửa đổi khác ở màn này). */
+  async onScanOrphans(): Promise<void> {
+    this.scanningOrphans.set(true);
+    try {
+      const docs = await scanChannelVideos();
+      const catalogIds = new Set(this.items().map((item) => item.msgId));
+      const orphans = docs.filter((d) => !catalogIds.has(d.msg_id));
+
+      if (orphans.length === 0) {
+        await this.dialogService.alert({
+          title: 'Đối soát chiều ngược lại',
+          message: 'Không tìm thấy file mồ côi nào — mọi video trên kênh đều đã có trong catalog.'
+        });
+        return;
+      }
+
+      const dialogItems: OrphanReviewDialogItem[] = orphans.map((d) => ({
+        msgId: d.msg_id,
+        fileName: d.file_name ?? `#${d.msg_id}`,
+        sizeLabel: `${(d.size / 1_000_000).toFixed(1)} MB`,
+        durationLabel: d.duration_sec ? formatDuration(d.duration_sec) : null
+      }));
+      const selected = await this.dialogService.reviewOrphans(dialogItems);
+      if (selected.size === 0) {
+        return;
+      }
+
+      const toAdd = orphans.filter((d) => selected.has(d.msg_id)).map((d) => seedMetadataFromFilename(d.msg_id, d.file_name ?? `#${d.msg_id}`));
+      this.items.update((items) => [...items, ...toAdd]);
+      this.dirty.set(true);
+    } catch (err) {
+      this.loadError.set(describeIngestError(toIngestRpcError(err)));
+    } finally {
+      this.scanningOrphans.set(false);
+    }
+  }
+
   /** Chỉ gỡ khỏi mảng đang sửa — KHÔNG đụng Telegram. Cần "Lưu catalog" để
    * thật sự có hiệu lực trên kênh. */
   removeFromCatalog(msgId: number): void {
@@ -246,4 +306,14 @@ export class CatalogManager implements OnInit {
   onBack(): void {
     void this.router.navigateByUrl('/workspace');
   }
+}
+
+/** `mm:ss` cho hiển thị trong `OrphanReviewDialog` — không có helper dùng
+ * chung sẵn trong app này (`ingest-rpc.ts` cũng chỉ format inline tại chỗ
+ * dùng), không bịa thêm abstraction cho một chỗ dùng duy nhất. */
+function formatDuration(seconds: number): string {
+  const total = Math.round(seconds);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
 }

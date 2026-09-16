@@ -17,6 +17,10 @@
       {{ reconciling() ? 'Đang đối soát…' : 'Đối soát với kênh' }}
     </button>
 
+    <button mat-button type="button" [disabled]="loading() || scanningOrphans()" (click)="onScanOrphans()">
+      {{ scanningOrphans() ? 'Đang quét…' : 'Tìm file mồ côi' }}
+    </button>
+
     <button mat-raised-button type="button" color="primary" [disabled]="!dirty() || publishing()" (click)="onPublish()">
       {{ publishing() ? 'Đang lưu…' : 'Lưu catalog' }}
     </button>

@@ -350,3 +350,39 @@ Lỗi ở bước 1 (FLOOD_WAIT, mất mạng) → trả lỗi ngay, **KHÔNG xo
 `cargo check -p ingest-grammers -p ingest-rpc-trait`/`cargo clippy -p ingest-grammers -p ingest-rpc-trait -- -D warnings` (`CMAKE_GENERATOR="Visual Studio 17 2022"`, xem ADR-0021 § mục 7) sạch — build toàn workspace qua `src-tauri` (`cargo build --workspace`) vẫn bị chặn cục bộ bởi rust-analyzer/`cargo tauri dev` khác đang chạy nền giữ khoá `ffmpeg-runtime/*.dll`, không liên quan tới đúng/sai của bản vá.
 
 **Verify 2026-09-15, ĐẠT** — user xác nhận qua `cargo tauri dev` + tài khoản thật: xoá tay 1 message thật → "Đối soát với kênh" gắn cờ ĐÚNG đúng item đó (bản vá `Message::Empty` hoạt động đúng). Đi hết checklist còn lại: sửa metadata + "Lưu catalog", "Xoá khỏi catalog", "Xoá khỏi catalog + xoá message trên kênh" (cả nhánh huỷ dialog lẫn xác nhận), nhánh cập nhật đồng thời (upload từ Workspace trong lúc `/catalog` đang mở không bị mất), catalog rỗng — đều ĐẠT. Chỉ còn FLOOD_WAIT lúc "Lưu catalog" chưa test (không chủ động ép, CLAUDE.md), không chặn. Chi tiết: [docs/changelog.md § 2026-09-15, verify ĐẠT](../changelog.md#2026-09-15--gui-ingest-desktop-verify-trình-quản-lý-catalog--đạt), checklist ở [docs/pending-device-tests.md](../pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--trình-quản-lý-catalog-2026-09-15).
+
+## Cập nhật sau khi Accepted (2026-09-16, "Trình quản lý catalog": đối soát chiều ngược lại — `IngestRpc` thêm 1 thao tác)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết
+> định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó —
+> quyết định gốc **vẫn đứng vững**.
+
+Addendum 2026-09-15 chốt phạm vi đối soát CHỈ một chiều (catalog item nào đã bị xoá khỏi kênh) và ghi rõ để dành chiều ngược lại (file mồ côi có trên kênh nhưng thiếu trong catalog) cho slice sau. Slice này đóng chiều ngược lại đó.
+
+**Quyết định (bổ sung, không thay đổi 4 điều kiện bắt buộc gốc):** thêm method thứ mười một vào `IngestRpc` — **ngoại lệ thứ sáu** (sau `list_own_channels`/`create_channel` addendum 2026-09-11, `sign_out` addendum 2026-09-14, `check_deleted_messages`/`delete_message` addendum 2026-09-15) không có tương ứng 1-1 phía TS:
+
+- `scan_channel_videos(channel) -> Vec<ChannelVideoDocument>` — quét TOÀN BỘ lịch sử kênh, trả mọi document có `DocumentAttributeVideo`. Trả THÔ, không so với catalog — tầng gọi (`catalog-manager.ts`) tự tính hiệu tập hợp với `msgId` đang có trong `items()` (điều kiện bắt buộc #4: trait không chứa luật nghiệp vụ). `gateway-index.ts` không có RPC nào cho nhu cầu này — web app không có màn quản lý catalog tương đương.
+
+**Thiết kế kỹ thuật quan trọng nhất — cố ý KHÔNG dùng server-side `MessagesFilter`:** `grammers-client` 0.10.0 có `Client::search_messages().filter(tl::enums::MessagesFilter)`, hỗ trợ `InputMessagesFilterDocument` — trông như cách lọc rẻ nhất (đỡ phải tải mọi loại message về rồi tự lọc). Đọc kỹ semantics trước khi dùng: Telegram xếp document có `DocumentAttributeVideo` ("sent as video", đúng loại video mọi lần app này upload) vào filter **Video**, không phải filter **Document** — lọc server-side kiểu Document sẽ ÂM THẦM BỎ SÓT chính thứ cần tìm, mà không có lỗi nào báo ra để phát hiện sớm (RPC vẫn trả `200`, chỉ là danh sách thiếu). Chọn `Client::iter_messages()` (`messages.getHistory`, không lọc gì phía server) rồi tự kiểm `DocumentAttribute::Video` sau khi tải về — đúng và nhất quán với cách `fetchHistorySince()` (`gateway-index.ts`, bản TypeScript đã verify thật ở web app) đã làm, không dùng `MessagesFilter` nào ở đó.
+
+**Bounded hay không:** quét TOÀN BỘ lịch sử kênh, KHÔNG giới hạn N tin nhắn gần nhất — khác kiểu "T3 full-scan bounded" mà Index/Browse (web app) dùng. Mục đích của "đối soát" là không bỏ sót file mồ côi nằm sâu trong lịch sử cũ; bounded sẽ làm mất đúng thuộc tính đó.
+
+**Scope tối giản có chủ đích, để dành mở rộng nếu verify thật cho thấy cần:** không có cancel, không có progress event — chỉ spinner "Đang quét…" disable nút trong lúc chạy (`catalog-manager.ts::scanningOrphans`). Cùng mức tối giản với `check_deleted_messages()` (cũng không có cả hai).
+
+**Implementation (`ingest-grammers/src/rpc.rs::scan_channel_videos()`):** loop `iter.next().await` (grammers `MessageIter`) tới khi `None`, bỏ qua tombstone `tl::enums::Message::Empty` (phòng thủ đã áp dụng ở `check_deleted_messages()`, dù `getHistory` không chắc trả biến thể này). Với message có `media()` là `Media::Document`, kiểm `doc.raw.document` có attribute `DocumentAttribute::Video` — nếu có, đẩy `ChannelVideoDocument { msg_id, file_name, size, mime_type, duration_sec }` vào kết quả, dùng accessor public sẵn có của `grammers_client::media::Document` (`name()`/`size()`/`mime_type()`/`duration()`), không tự parse thêm attribute nào khác ngoài check "có Video hay không". `file_name` là `Option<String>` — client Telegram di động gửi "as video" nhiều khi KHÔNG gắn `DocumentAttributeFilename` (đã ghi nhận trước ở `ChannelDiagnosticMessage.hasVideoAttrNoFilename`, `gateway-index.ts`).
+
+**Command Tauri mới (`src-tauri/src/catalog.rs`):** `scan_channel_videos` — cùng khuôn `check_deleted_messages`/`delete_message` (đọc `state.selected_channel`, không nhận `ResolvedChannel` qua IPC). DTO mới `ChannelVideoDocumentDto` (`dto.rs`).
+
+**UI (`catalog-manager.ts`/`.html`):** nút toolbar riêng "Tìm file mồ côi" (tách khỏi "Đối soát với kênh" — chi phí RPC khác hẳn nhau, quét toàn bộ lịch sử tốn hơn hẳn tra đúng tập `msgId` đã biết, giữ tường minh không gộp chung một nút). Không có mồ côi nào → `DialogService.alert()`. Có → dialog mới `OrphanReviewDialog` (`shared/dialog/`, sao y khuôn `GradeDDialog` đã có: toggle từng dòng, mặc định TẤT CẢ được chọn, đóng bằng Esc/bấm ra ngoài/nút "Đóng" → mảng rỗng). Dòng được chọn → `seedMetadataFromFilename()` (`@tsmc/core-ingest`, dùng lại nguyên vẹn, không viết lại luật seed) rồi APPEND thẳng vào `items()` đang sửa — không có UI riêng cho "item mới phát hiện", tái dùng đúng luồng sửa/xoá/publish catalog sẵn có (chỉ có hiệu lực thật trên kênh sau khi bấm "Lưu catalog", giống mọi sửa đổi khác ở màn này).
+
+`cargo build`/`cargo clippy --workspace -- -D warnings`, `ng build`/`npm run lint`/`npm run test:libs` — sạch. **CHƯA verify bằng `cargo tauri dev` + tài khoản thật** — checklist ở [docs/pending-device-tests.md](../pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--trình-quản-lý-catalog-đối-soát-chiều-ngược-lại-2026-09-16).
+
+## Cập nhật sau khi Accepted (2026-09-17, verify chiều ngược lại — ĐẠT một phần)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết
+> định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó —
+> quyết định gốc **vẫn đứng vững**.
+
+User xác nhận qua `cargo tauri dev` + tài khoản thật: 4/7 bước checklist của addendum 2026-09-16 đã ĐẠT — kênh có video ngoài catalog → "Tìm file mồ côi" hiện ĐÚNG đúng file đó; kênh lành mạnh → báo đúng "không tìm thấy"; bỏ tick một phần trong `OrphanReviewDialog` rồi "Thêm vào catalog" → chỉ đúng dòng còn tick được thêm, "Lưu catalog" ra đúng số item; đóng dialog không bấm "Thêm vào catalog" → không thêm gì. Xác nhận `scan_channel_videos()` (lọc bằng `DocumentAttribute::Video`, không dùng server-side `MessagesFilter`) hoạt động đúng như thiết kế trên dữ liệu kênh thật.
+
+**Còn mở, không chặn (để đó theo yêu cầu user):** file mồ côi không có `DocumentAttributeFilename` (fallback hiển thị `#msgId`) chưa test bằng file thật kiểu này; thời gian quét thật trên kênh có vài trăm/nghìn message chưa đo (v1 không có progress bar); FLOOD_WAIT rơi vào lúc quét chưa gặp tự nhiên (không chủ động ép, CLAUDE.md). Checklist đầy đủ ở [docs/pending-device-tests.md](../pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--trình-quản-lý-catalog-đối-soát-chiều-ngược-lại-2026-09-16) — ba mục này vẫn còn `[ ]` chưa tick, mục còn lại đã `[x]`.
