@@ -1,8 +1,9 @@
-//! Ba thao tác `IngestRpc` cho luồng upload đưa vào Tauri command —
-//! `upload_video`/`upload_subtitle`/`publish_catalog` (`download_document`
-//! vẫn để trống — đối soát ở "Trình quản lý catalog" dùng
-//! `catalog.rs::check_deleted_messages`, không cần tải lại nội dung file).
-//! Cộng
+//! Bốn thao tác `IngestRpc` cho luồng upload đưa vào Tauri command —
+//! `upload_video`/`upload_subtitle`/`publish_catalog`/`upload_poster` (qua
+//! `upload_tmdb_poster`, gộp cả bước tải ảnh TMDB — xem doc comment ở đó;
+//! `download_document` vẫn để trống — đối soát ở "Trình quản lý catalog"
+//! dùng `catalog.rs::check_deleted_messages`, không cần tải lại nội dung
+//! file). Cộng
 //! `cancel_upload`/`get_current_task`/`clear_current_task` — không thuộc
 //! `IngestRpc` (thao tác điều khiển phía client, không phải RPC MTProto),
 //! đọc/ghi `AppState::active_cancel`/`current_task` (ADR-0018).
@@ -16,6 +17,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::dto::{CurrentTaskDto, IngestRpcErrorDto, UploadProgressDto, UploadedRefDto};
 use crate::state::{AppState, ConnState};
+use crate::tmdb::TMDB_IMAGE_BASE_LARGE;
 
 /// Upload video kèm `DocumentAttributeVideo`/thumbnail — thao tác DUY NHẤT
 /// cần tiến trình/huỷ (đủ lớn/đủ lâu để cần, SPIKE-10 M4/M5). Tiến trình bắn
@@ -101,6 +103,34 @@ pub async fn upload_subtitle(state: State<'_, AppState>, file_path: String, file
 
     let input = SubtitleUploadInput { file_path: file_path.into(), file_name };
     rpc.upload_subtitle(channel, input).await.map(UploadedRefDto::from).map_err(IngestRpcErrorDto::from)
+}
+
+/// Tải poster TMDB (`poster_path` THÔ, vd `/abc123.jpg` — KHÔNG phải
+/// `poster_url` cỡ nhỏ đã ghép sẵn cho dialog tìm kiếm, xem doc comment
+/// `TmdbSearchResultDto`) rồi upload thẳng dạng Document — gộp "tải" + "ghi
+/// vào kênh" trong MỘT command duy nhất (khác `tmdb_search`/`tmdb_details`
+/// ở `tmdb.rs`, thuần `reqwest` không đụng MTProto) vì bước ghi cần
+/// `state.selected_channel`/`rpc` mà `tmdb.rs` cố tình không có (tách biệt
+/// "gọi TMDB" khỏi "ghi Telegram", ADR-0019). Lỗi tải ảnh (mạng/TMDB) gộp
+/// chung vào `IngestRpcErrorDto::Other` — không phải lỗi RPC MTProto nhưng
+/// dùng lại đúng enum lỗi của luồng upload này cho nhất quán phía Angular
+/// (khác `tmdb_search`/`tmdb_details` dùng `TmdbErrorDto` riêng, vì hai lệnh
+/// đó KHÔNG đụng `IngestRpc`).
+#[tauri::command]
+pub async fn upload_tmdb_poster(state: State<'_, AppState>, poster_path: String, file_name: String) -> Result<UploadedRefDto, IngestRpcErrorDto> {
+    let conn = state.conn.lock().await;
+    let ConnState::Ready { rpc, .. } = &*conn else {
+        return Err(IngestRpcErrorDto::other("chưa đăng nhập xong"));
+    };
+    let selected = state.selected_channel.lock().await;
+    let channel = selected.as_ref().ok_or_else(|| IngestRpcErrorDto::other("chưa chọn kênh — gọi resolve_channel()/select_channel() trước upload_tmdb_poster()"))?;
+
+    let url = format!("{TMDB_IMAGE_BASE_LARGE}{poster_path}");
+    let response = reqwest::get(&url).await.map_err(|e| IngestRpcErrorDto::other(e.to_string()))?;
+    let response = response.error_for_status().map_err(|e| IngestRpcErrorDto::other(e.to_string()))?;
+    let bytes = response.bytes().await.map_err(|e| IngestRpcErrorDto::other(e.to_string()))?.to_vec();
+
+    rpc.upload_poster(channel, file_name, bytes).await.map(UploadedRefDto::from).map_err(IngestRpcErrorDto::from)
 }
 
 /// `sendFile → pinMessage → deleteMessages(previous)` — ghim TRƯỚC, xoá bản

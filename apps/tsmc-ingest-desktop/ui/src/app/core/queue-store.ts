@@ -8,7 +8,17 @@ import type { CatalogItemV1 } from '@tsmc/shared-models';
  * Hạng D (`mode: 'reencode_all'`). `queued` là trạng thái tức thời ngay lúc
  * vừa đẩy từ bảng metadata sang, trước khi `processItem()` kịp set stage
  * đầu tiên. */
-export type UploadStage = 'queued' | 'remuxing' | 'reencoding' | 'generating_thumbnail' | 'extracting_subtitles' | 'uploading_video' | 'uploading_subtitles' | 'done' | 'error';
+export type UploadStage =
+  | 'queued'
+  | 'remuxing'
+  | 'reencoding'
+  | 'generating_thumbnail'
+  | 'extracting_subtitles'
+  | 'uploading_video'
+  | 'uploading_subtitles'
+  | 'uploading_poster'
+  | 'done'
+  | 'error';
 
 /** Dòng trong HÀNG ĐỢI UPLOAD (sidebar trái) — file ĐÃ bấm "Upload", không
  * còn sửa metadata được nữa. `taskId` (UUID, ADR-0018) là correlation id
@@ -20,6 +30,9 @@ export interface UploadQueueItem {
   name: string;
   rank: CompatRank;
   metadata: CatalogItemV1;
+  /** Kế thừa từ `QueueItem.pendingPosterPath` lúc đẩy vào hàng đợi — xem doc
+   * comment ở đó (ADR-0019 § addendum 2026-09-17). */
+  pendingPosterPath?: string;
   durationSec?: number;
   stage: UploadStage;
   progress?: { bytesSent: number; totalBytes: number };

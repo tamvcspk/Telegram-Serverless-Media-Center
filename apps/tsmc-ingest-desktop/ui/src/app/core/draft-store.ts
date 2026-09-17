@@ -22,6 +22,12 @@ export interface QueueItem {
   /** Mặc định `true`, TRỪ khi probe xong ra Hạng D (mockup A.5 "File Hạng D:
    * mặc định bỏ chọn"). */
   selected: boolean;
+  /** `poster_path` THÔ của kết quả TMDB admin vừa chọn (ADR-0019 § addendum
+   * 2026-09-17) — CHƯA upload, chỉ tải+ghi thật lúc `processItem()` (cùng
+   * lúc với video/subtitle của dòng này), tránh tạo message poster mồ côi
+   * nếu admin chọn TMDB rồi xoá dòng khỏi hàng trước khi bấm "Upload". Khác
+   * `metadata.poster` (chỉ có `{ msgId }` SAU khi đã upload thật). */
+  pendingPosterPath?: string;
 }
 
 /** Bảng metadata (Draft) — `providedIn: 'root'` (ADR-0018 mục 6): sống xuyên

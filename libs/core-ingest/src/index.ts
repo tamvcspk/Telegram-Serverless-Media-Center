@@ -18,3 +18,5 @@ export type { CatalogChannelRef } from './catalog-merge';
 
 export { matchSidecarSubtitles } from './sidecar-subtitles';
 export type { SidecarSubtitleMatch } from './sidecar-subtitles';
+
+export { composeCaption } from './caption-hashtags';

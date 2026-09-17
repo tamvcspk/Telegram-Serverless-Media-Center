@@ -342,12 +342,30 @@ pub enum TmdbErrorDto {
 /// Một kết quả tìm kiếm TMDB đã chuẩn hoá — `tmdb.rs` gộp field khác nhau
 /// của `search/movie` (`title`/`release_date`) và `search/tv`
 /// (`name`/`first_air_date`) về CÙNG một shape cho Angular, không phân biệt
-/// movie/tv nữa ở tầng UI. `poster_url` đã ghép sẵn base URL ảnh TMDB —
-/// Angular chỉ cần gán thẳng vào `<img src>`.
+/// movie/tv nữa ở tầng UI. `poster_url` đã ghép sẵn base URL ảnh TMDB THU NHỎ
+/// (`w92`) — Angular chỉ cần gán thẳng vào `<img src>` cho dialog tìm kiếm.
+/// `poster_path` là đường dẫn THÔ (`/xxxx.jpg`) — giữ riêng để
+/// `upload_tmdb_poster` (`upload.rs`) tự ghép base URL CỠ LỚN (`w500`) khi
+/// admin chọn kết quả, không tái dùng `poster_url` cỡ nhỏ cho ảnh poster thật
+/// sẽ lưu vào kênh (TMDB nâng cao, 2026-09-17).
 #[derive(Debug, Clone, Serialize)]
 pub struct TmdbSearchResultDto {
     pub id: i64,
     pub title: String,
     pub year: Option<i32>,
     pub poster_url: Option<String>,
+    pub poster_path: Option<String>,
+}
+
+/// Metadata nâng cao TMDB (genres/cast/director) — ADR-0019 § addendum
+/// 2026-09-17. `cast` đã cắt về top N theo `order` (billing order TMDB trả
+/// sẵn, không cần tự sắp lại). `director`: phim lấy từ `credits.crew` (job
+/// "Director"); phim bộ dùng `created_by[0]` (TMDB không có "director" một
+/// người cho cả series — `created_by` là tương đương gần nhất, lấy người đầu
+/// nếu có nhiều hơn một, xem `tmdb.rs::tmdb_details()`).
+#[derive(Debug, Clone, Serialize)]
+pub struct TmdbDetailsDto {
+    pub genres: Vec<String>,
+    pub cast: Vec<String>,
+    pub director: Option<String>,
 }

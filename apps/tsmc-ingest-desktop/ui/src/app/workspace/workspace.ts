@@ -14,6 +14,7 @@ import {
   assertChannelWritable,
   buildCatalogEnvelope,
   classifyCompatRank,
+  composeCaption,
   deriveCompat,
   inheritMetadata,
   matchSidecarSubtitles,
@@ -29,6 +30,7 @@ import {
   cleanupTempDir,
   clearCurrentTask,
   describeIngestError,
+  describeTmdbError,
   getCurrentTask,
   listDirEntries,
   listMediaFiles,
@@ -38,11 +40,14 @@ import {
   probeMedia,
   publishCatalog,
   readPinnedCatalog,
+  tmdbDetails,
   tmdbHasKey,
   tmdbSaveKey,
   toIngestRpcError,
   toProbeResult,
+  toTmdbError,
   uploadSubtitle,
+  uploadTmdbPoster,
   uploadVideo
 } from '../core/ingest-rpc';
 import type { PreparedUploadDto, RemuxModeDto } from '../core/ingest-rpc.types';
@@ -60,6 +65,7 @@ const UPLOAD_STAGE_LABEL: Record<UploadStage, string> = {
   extracting_subtitles: 'Đang rút phụ đề…',
   uploading_video: 'Đang upload video…',
   uploading_subtitles: 'Đang upload phụ đề…',
+  uploading_poster: 'Đang upload poster…',
   done: 'Xong',
   error: 'Lỗi'
 };
@@ -427,7 +433,15 @@ export class Workspace implements OnInit {
    * khi admin BẤM CHỌN một kết quả cụ thể — không có "tự động điền kết quả
    * đầu tiên" (đúng nguyên tắc `inheritMetadata()` đã áp dụng: gợi ý, không
    * tự chốt). `metaSource: 'manual'` vì admin tự tay xác nhận (không thêm
-   * `'tmdb'` vào enum — xem ADR-0019 § "Đánh đổi chấp nhận"). */
+   * `'tmdb'` vào enum — xem ADR-0019 § "Đánh đổi chấp nhận").
+   *
+   * TMDB nâng cao (ADR-0019 § addendum 2026-09-17): SAU khi admin chọn kết
+   * quả, gọi thêm `tmdbDetails()` lấy genres/cast/director — best-effort,
+   * KHÔNG chặn việc đã điền title/year ở trên nếu lệnh này lỗi (mạng/TMDB
+   * sập giữa hai lệnh gọi liên tiếp không nên xoá mất kết quả đã có). Poster
+   * CHƯA tải/upload ở đây — chỉ ghi nhớ `pendingPosterPath`, upload thật dời
+   * sang `processItem()` lúc bấm "Upload" (tránh message poster mồ côi nếu
+   * admin chọn TMDB rồi xoá dòng khỏi bảng trước khi upload). */
   protected async onTmdbLookup(item: QueueItem): Promise<void> {
     if (!(await tmdbHasKey())) {
       const key = await this.dialogService.promptTmdbApiKey();
@@ -437,11 +451,27 @@ export class Workspace implements OnInit {
       await tmdbSaveKey(key);
     }
 
-    const picked = await this.dialogService.searchTmdb(item.metadata.title ?? item.name, item.metadata.kind === 'episode' ? 'episode' : 'movie');
+    const kind = item.metadata.kind === 'episode' ? 'episode' : 'movie';
+    const picked = await this.dialogService.searchTmdb(item.metadata.title ?? item.name, kind);
     if (!picked) {
       return;
     }
     this.updateMetadata(item.path, (m) => ({ ...m, title: picked.title, year: picked.year ?? m.year, metaSource: 'manual' }));
+    if (picked.poster_path) {
+      this.updateItem(item.path, { pendingPosterPath: picked.poster_path });
+    }
+
+    try {
+      const details = await tmdbDetails(picked.id, kind);
+      this.updateMetadata(item.path, (m) => ({
+        ...m,
+        genres: details.genres.length > 0 ? details.genres : m.genres,
+        cast: details.cast.length > 0 ? details.cast : m.cast,
+        director: details.director ?? m.director
+      }));
+    } catch (err) {
+      await this.dialogService.alert({ title: 'TMDB nâng cao', message: `Không lấy được genres/cast/director: ${describeTmdbError(toTmdbError(err))}` });
+    }
   }
 
   // --- Bảng metadata: thao tác hàng loạt trên các dòng đã chọn ---
@@ -603,7 +633,16 @@ export class Workspace implements OnInit {
       // nên không cần id trước thời điểm này.
       this.queue.update((items) => items.filter((i) => i.path !== staged.path));
       const taskId = crypto.randomUUID();
-      const queued: UploadQueueItem = { taskId, path: staged.path, name: staged.name, rank: staged.rank as CompatRank, metadata: staged.metadata, durationSec: staged.durationSec, stage: 'queued' };
+      const queued: UploadQueueItem = {
+        taskId,
+        path: staged.path,
+        name: staged.name,
+        rank: staged.rank as CompatRank,
+        metadata: staged.metadata,
+        pendingPosterPath: staged.pendingPosterPath,
+        durationSec: staged.durationSec,
+        stage: 'queued'
+      };
       this.uploadQueue.update((items) => [...items, queued]);
 
       this.currentUploadTaskId.set(taskId);
@@ -674,7 +713,9 @@ export class Workspace implements OnInit {
             height: prepared.final_probe.video?.height ?? 0,
             durationSec: Math.round(prepared.final_probe.duration_sec),
             thumbnailPath: prepared.thumbnail_path,
-            caption: item.metadata.title
+            // Hashtag ghi MỘT LẦN lúc publish, KHÔNG đồng bộ lại sau — ADR-0014
+            // § addendum 2026-09-17 (xem doc comment `composeCaption()`).
+            caption: composeCaption(item.metadata)
           })
       );
 
@@ -707,7 +748,22 @@ export class Workspace implements OnInit {
         subs.push({ lang: match.lang ?? 'und', msgId: subUploaded.msg_id });
       }
 
-      return { ...item.metadata, msgId: uploaded.msg_id, compat, ...(subs.length > 0 ? { subs } : {}) };
+      // Poster TMDB (ADR-0019 § addendum 2026-09-17) — chỉ tải+upload THẬT ở
+      // đây (không phải lúc "Tra TMDB"), tránh message poster mồ côi nếu
+      // admin chọn TMDB rồi xoá dòng khỏi bảng trước khi upload (xem doc
+      // comment `QueueItem.pendingPosterPath`).
+      let poster: CatalogItemV1['poster'];
+      if (item.pendingPosterPath) {
+        this.updateQueueItem(item.taskId, { stage: 'uploading_poster' });
+        const posterFileName = `${stripExt(item.path)}.poster.jpg`;
+        const posterUploaded = await withFloodWaitRetry(
+          (s) => this.updateQueueItem(item.taskId, { floodWaitSeconds: s ?? undefined }),
+          () => uploadTmdbPoster(item.pendingPosterPath!, posterFileName)
+        );
+        poster = { msgId: posterUploaded.msg_id };
+      }
+
+      return { ...item.metadata, msgId: uploaded.msg_id, compat, ...(subs.length > 0 ? { subs } : {}), ...(poster ? { poster } : {}) };
     } finally {
       void cleanupTempDir(prepared.temp_dir);
     }

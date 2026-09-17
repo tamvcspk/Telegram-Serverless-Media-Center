@@ -2,7 +2,7 @@
 
 - **Trạng thái:** Accepted
 - **Ngày:** 2026-08-23
-- **Liên quan:** [ADR-0009](./0009-dong-bo-state-event-log-va-snapshot.md), [ADR-0010](./0010-catalog-spec-v1-va-chien-luoc-indexing.md), [ADR-0013](./0013-bot-dong-hanh-va-pipeline-ingest.md)
+- **Liên quan:** [ADR-0009](./0009-dong-bo-state-event-log-va-snapshot.md), [ADR-0010](./0010-catalog-spec-v1-va-chien-luoc-indexing.md), [ADR-0013](./0013-bot-dong-hanh-va-pipeline-ingest.md), [ADR-0017](./0017-grammers-cho-cong-cu-ingest-desktop.md) (đóng băng phạm vi Ingest Editor so với ingest-desktop, addendum 2026-09-17), [ADR-0019](./0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md) (lý do TMDB/API key chỉ nên gọi từ ingest-desktop)
 
 ## Bối cảnh
 
@@ -125,3 +125,34 @@ Mục 4 ("Kho Cá Nhân... chỉ khác cờ `writable: true`") mô tả một c�
 **Chưa phủ, và là giới hạn thật đã biết:** catalog rất lớn nhiều item; kênh nhiều publisher; và quan trọng nhất — **`FLOOD_WAIT` xảy ra GIỮA CHỪNG chuỗi 3 RPC ghi liên tiếp**. Nếu `FLOOD_WAIT` (hoặc mất mạng) xảy ra sau `sendFile` nhưng trước `pinMessage`, hoặc sau `pinMessage` nhưng trước `deleteMessages`, kênh media có thể rơi vào trạng thái dở dang (catalog mới đã gửi nhưng chưa ghim, hoặc đã ghim nhưng bản catalog cũ chưa bị xoá — tồn đọng như rác). `publishCatalogDocument()`/`publishCatalogMetadata()` hiện **không có** logic retry/rollback cho tình huống này — lỗi giữa chừng sẽ ném ra ngoài (người dùng thấy Lưu thất bại) nhưng không tự dọn phần đã làm được. Đây là giới hạn chưa xử lý, không phải điều SPIKE-06 đặt ra để kiểm chứng; để dành cho slice sau nếu thực tế cho thấy cần.
 
 Đã gỡ dòng rủi ro tương ứng ở [architecture.md §7](../architecture.md#7-rủi-ro-lớn-nhất--trạng-thái-kiểm-chứng) (đánh dấu gạch ngang, 🟢).
+
+## Cập nhật sau khi Accepted (2026-09-17, đóng băng phạm vi Ingest Editor — hai đường ghi catalog không còn ngang hàng)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**, xem lý do bên dưới.
+
+### Bối cảnh phát sinh
+
+Brainstorm phiên 2026-09-17 (chuẩn bị làm TMDB nâng cao + sync hashtag vào caption cho ingest-desktop) đặt lại câu hỏi: hiện có **hai** đường ghi `catalog.json` độc lập, hai codebase MTProto khác nhau hoàn toàn —
+
+1. **Ingest Editor** (web app, Màn hình 6, addendum "slice Ingest Editor" ở trên, 2026-08-28) — GramJS, `libs/core-mtproto/src/gateway-index.ts`, sửa **từng item rời rạc** ngay tại Browse.
+2. **Trình quản lý catalog** (`apps/tsmc-ingest-desktop`, A.4, [ADR-0017](./0017-grammers-cho-cong-cu-ingest-desktop.md)) — `grammers`, sửa **cả bảng catalog cùng lúc** trong một phiên biên tập, cộng đối soát 2 chiều (mồ côi + message đã xoá).
+
+Ingest Editor ra đời **10 ngày trước khi ingest-desktop tồn tại** (SPIKE-10 mở 2026-09-05, ADR-0017 accepted 2026-09-07) — thời điểm đó công cụ ghi duy nhất là `tsmc-ingest` CLI không có GUI, nên Ingest Editor lấp đúng khoảng trống "sửa nhanh một field từ trình duyệt, không cần công cụ riêng". Khoảng trống đó **không còn** — ingest-desktop giờ là công cụ biên tập catalog đầy đủ, và tiếp tục phát triển thêm ([ADR-0019](./0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md) đã có TMDB Title/Năm; TMDB nâng cao genres/cast/director/poster + sync hashtag vào caption message đang để dành ở [roadmap.md](../roadmap.md), quyết định trong cùng phiên brainstorm này).
+
+**Lý do kỹ thuật cụ thể khiến việc tiếp tục "song song hoá" hai đường ghi tốn kém hơn giá trị mang lại:**
+
+- Sync hashtag (quyết định 2026-09-17, sẽ code ở ingest-desktop) chỉ rẻ vì "Lưu catalog" ở Trình quản lý catalog có sẵn **snapshot gốc để diff theo `msgId`** ngay trong phiên biên tập — chỉ cần `editMessage` cho đúng những dòng thực sự đổi, không phải quét lại toàn kênh. Ingest Editor sửa **từng item rời rạc, không có ngữ cảnh diff đó** — muốn làm y hệt phải xây lại toàn bộ cơ chế theo dõi snapshot ở một codebase khác (TS/GramJS), cho một tính năng chỉ hưởng lợi khi sửa hàng loạt.
+- Genres/cast/director/poster từ TMDB đòi thêm HTTP client + luồng lưu API key — Ingest Editor (web app) gọi trực tiếp từ trình duyệt sẽ lộ API key qua DevTools (đúng lý do ADR-0019 phương án A đã loại cho ingest-desktop, phương án B chọn gọi từ Rust) — nhân bản sang web nghĩa là phải giải lại đúng bài toán đó lần thứ hai, or chấp nhận rủi ro lộ key.
+- Duy trì tính năng ngang hàng ở hai codebase MTProto độc lập (GramJS thin trong Service Worker vs `grammers` trong Tauri) là chi phí tăng dần vô hạn theo thời gian — mỗi tính năng catalog mới phải quyết "có làm ở cả hai không" thay vì có sẵn câu trả lời.
+
+### Quyết định mới (bổ sung, không đổi quyết định gốc)
+
+**Đóng băng phạm vi Ingest Editor ở đúng mức field đơn giản hiện có** — Title, `originalTitle`, `year`, `kind`, `series.season`, `series.episode` (đúng những gì `saveMediaMetadata()` cho sửa hôm nay, **không thêm field mới**). Mọi tính năng biên tập catalog nâng cao từ nay — tra cứu TMDB (genres/cast/director), upload poster, sync hashtag vào caption — **chỉ được xây ở ingest-desktop**, không bao giờ nhân bản sang Ingest Editor/web app.
+
+**Không phải deprecate.** Ingest Editor vẫn là lối thoát hợp lệ và duy nhất khi admin cần sửa nhanh một field từ thiết bị **không có** ingest-desktop (hiện chỉ build cho Windows, Tauri) — giá trị khác biệt thật của nó ("sửa 1 item, ngay tại chỗ đang browse, từ bất kỳ trình duyệt nào") vẫn còn, chỉ không còn lý do để nó đuổi kịp năng lực của ingest-desktop nữa.
+
+### Hệ quả
+
+**Không đổi:** mô hình kênh, cờ `writable`/`isOwn`, `checkSourceWritable()`, `publishCatalogDocument()` — toàn bộ cơ chế ghi hiện có của Ingest Editor giữ nguyên, chỉ đóng băng ở mức field đang hỗ trợ.
+
+**Chấp nhận:** hai đường ghi catalog từ nay **không ngang hàng năng lực** — đây là quyết định có chủ đích, không phải nợ kỹ thuật bị bỏ quên. Nếu sau này có lý do thật (vd nhu cầu sửa genres từ điện thoại) cần nâng lại Ingest Editor, đó là một quyết định mới, không phải hệ quả tự nhiên của addendum này.

@@ -150,16 +150,17 @@ pub struct ChannelVideoDocument {
     pub duration_sec: Option<f64>,
 }
 
-/// Mười ba thao tác RPC mà implementation MTProto phải đáp ứng — bọc cổng
+/// Mười bốn thao tác RPC mà implementation MTProto phải đáp ứng — bọc cổng
 /// theo đúng nguyên tắc `TelegramGateway` của ADR-0003: đổi thư viện MTProto
 /// sau này (nếu cần) là đổi implementation của trait này, không lan ra toàn
 /// bộ app (điều kiện bắt buộc #2, ADR-0017). Bảy thao tác đầu khớp 1-1 với
 /// bản TypeScript đã verify (`gateway-index.ts`/`gateway-ingest.ts`, xem doc
 /// comment gốc của module này) — `list_own_channels`/`create_channel`
 /// (2026-09-11), `sign_out` (2026-09-14), `check_deleted_messages`/
-/// `delete_message` (2026-09-15, Trình quản lý catalog) và
-/// `scan_channel_videos` (2026-09-16, đối soát chiều ngược lại) là NGOẠI LỆ
-/// có chủ đích: sáu thao tác desktop-only, không có tương ứng 1-1 phía TS.
+/// `delete_message` (2026-09-15, Trình quản lý catalog),
+/// `scan_channel_videos` (2026-09-16, đối soát chiều ngược lại) và
+/// `upload_poster` (2026-09-17, TMDB nâng cao) là NGOẠI LỆ có chủ đích: bảy
+/// thao tác desktop-only, không có tương ứng 1-1 phía TS.
 /// `sign_out` khác về bản chất so với hai cái đầu (những cái đó là "kênh",
 /// cái này là "tài khoản") — `apps/web` có đăng xuất riêng
 /// (`logout-confirm-sheet.ts`) nhưng đó là một luồng client-heavy phức tạp
@@ -270,4 +271,15 @@ pub trait IngestRpc: Send + Sync {
     /// với `check_deleted_messages`, quét kênh rất lớn có thể chậm nhưng để
     /// dành mở rộng sau nếu verify thật cho thấy cần.
     async fn scan_channel_videos(&self, channel: &ResolvedChannel) -> Result<Vec<ChannelVideoDocument>, IngestRpcError>;
+
+    /// 12. Upload poster (tải sẵn thành `bytes` ở tầng gọi — thường là ảnh
+    /// TMDB tải qua `reqwest`) dưới dạng **Document** (`.document(...)`,
+    /// KHÔNG có attribute `Video`/`Photo` nào) — cố ý, để tái dùng NGUYÊN VẸN
+    /// pipeline download Document đã verify thật (subtitle/video), né hẳn gap
+    /// "Poster ảnh thật" (Telegram Photo, khác API hẳn với Document) còn
+    /// `[Chưa bắt đầu]` ở `docs/roadmap.md`. NGOẠI LỆ thứ bảy không tương ứng
+    /// 1-1 phía TS — `gateway-ingest.ts` không có khái niệm poster (tính năng
+    /// mới, chỉ ở ingest-desktop từ TMDB nâng cao) — xem [ADR-0014 § addendum
+    /// 2026-09-17](../../../docs/adr/0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md#cập-nhật-sau-khi-accepted-2026-09-17-đóng-băng-phạm-vi-ingest-editor--hai-đường-ghi-catalog-không-còn-ngang-hàng).
+    async fn upload_poster(&self, channel: &ResolvedChannel, file_name: String, bytes: Vec<u8>) -> Result<UploadedRef, IngestRpcError>;
 }

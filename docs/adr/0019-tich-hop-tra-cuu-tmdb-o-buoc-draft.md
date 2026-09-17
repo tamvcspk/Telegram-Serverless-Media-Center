@@ -2,7 +2,7 @@
 
 - **Trạng thái:** Accepted
 - **Ngày:** 2026-09-13
-- **Liên quan:** [ADR-0010](./0010-catalog-spec-v1-va-chien-luoc-indexing.md) (Catalog Spec v1 — ràng buộc `metaSource`), [ADR-0011](./0011-bao-mat-session-va-noi-dung-khong-tin-cay.md) (mô hình lưu bí mật ở app-data), [ADR-0017](./0017-grammers-cho-cong-cu-ingest-desktop.md) (để ngỏ TMDB), [ADR-0018](./0018-task-id-lam-khoa-tuong-quan-ipc-ingest-desktop.md) (tiền lệ command điều khiển không thuộc `IngestRpc`), [ADR-0020](./0020-ma-hoa-bi-mat-app-data-qua-os-keyring.md) (mã hoá `tmdb_api_key.json` qua OS keyring)
+- **Liên quan:** [ADR-0010](./0010-catalog-spec-v1-va-chien-luoc-indexing.md) (Catalog Spec v1 — ràng buộc `metaSource`), [ADR-0014](./0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md) (addendum 2026-09-17 — lý do TMDB chỉ gọi từ ingest-desktop, không nhân bản sang Ingest Editor web app), [ADR-0011](./0011-bao-mat-session-va-noi-dung-khong-tin-cay.md) (mô hình lưu bí mật ở app-data), [ADR-0017](./0017-grammers-cho-cong-cu-ingest-desktop.md) (để ngỏ TMDB), [ADR-0018](./0018-task-id-lam-khoa-tuong-quan-ipc-ingest-desktop.md) (tiền lệ command điều khiển không thuộc `IngestRpc`), [ADR-0020](./0020-ma-hoa-bi-mat-app-data-qua-os-keyring.md) (mã hoá `tmdb_api_key.json` qua OS keyring)
 
 ## Bối cảnh
 
@@ -96,4 +96,54 @@ Gỡ đúng mục "Giới hạn thật của quyết định này — chưa ki�
 
 - Verify bằng API key TMDB thật (admin tự làm, có key riêng).
 - Cân nhắc thêm `'tmdb'` vào `metaSource` enum nếu sau này cần phân biệt nguồn gốc metadata rõ hơn — cần version-bump Catalog Spec, ADR riêng.
-- `genres`/`cast`/`director`/poster từ TMDB — PR sau nếu cần, đòi thêm endpoint `credits` + luồng upload poster thành message Telegram.
+- ~~`genres`/`cast`/`director`/poster từ TMDB — PR sau nếu cần, đòi thêm endpoint `credits` + luồng upload poster thành message Telegram.~~ Đã code, xem addendum 2026-09-17 bên dưới.
+
+## Cập nhật sau khi Accepted (2026-09-17, TMDB nâng cao — genres/cast/director/poster)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững** (vẫn phương án B "gọi TMDB từ Rust" + D "nút Tra TMDB, admin tự chọn kết quả") — mục này đóng nốt "Việc để ngỏ" cuối cùng của ADR.
+
+### Genres/cast/director — MỘT lệnh gọi, không phải endpoint `credits` riêng như dự tính
+
+Khác giả định lúc viết ADR gốc ("đòi thêm endpoint `credits` riêng"), thực tế dùng `/movie/{id}?append_to_response=credits` hoặc `/tv/{id}?append_to_response=credits` — **một** lệnh HTTP trả về cả `genres` (tên đầy đủ có sẵn, khỏi cần bảng tra `id`→tên riêng như phác thảo ban đầu ở brainstorm) lẫn `credits` (cast/crew). Tauri command mới `tmdb_details(app, id, kind)` (`src-tauri/src/tmdb.rs`) — gọi SAU khi admin đã chọn một kết quả `tmdb_search()` cụ thể (cần `id` thật, không suy luận lại theo tên).
+
+- **Movie:** `director` = phần tử đầu của `credits.crew` có `job == "Director"`.
+- **Phim bộ (`kind: 'episode'`):** TMDB không có "director" một người cho cả series — dùng `created_by` (field CHỈ có ở `/tv/{id}`, KHÔNG nằm trong `credits`) làm tương đương gần nhất, lấy người **đầu tiên** nếu có nhiều hơn một đồng sáng tác (field `director` trong catalog schema là `string` đơn, không phải mảng — quyết định brainstorm 2026-09-17, chấp nhận mất thông tin nếu có ≥2 người).
+- `cast`: cắt về top 10 theo đúng thứ tự `order` (billing order) TMDB trả sẵn, không tự sắp lại.
+
+### Poster — quyết định quan trọng nhất: Document, không phải Photo
+
+`apps/web` hiện **chưa có** pipeline tải Telegram Photo — `poster-tile.ts` chỉ hiện gradient placeholder, chưa từng đọc `item.poster.msgId` (xem doc comment component đó). Pipeline Photo là một mục roadmap riêng ("Poster ảnh thật"), còn `[Chưa bắt đầu]`, có rủi ro `FLOOD_WAIT` khi tải hàng loạt lúc duyệt danh sách lớn. Nếu poster ghi dưới dạng Telegram Photo thật, `catalog.json` sẽ có `poster.msgId` hợp lệ nhưng **không ai đọc được** — dữ liệu chết cho tới khi pipeline Photo kia xong, không biết bao giờ.
+
+**Né bằng cách upload poster dưới dạng Document** (`InputMessage::new().document(...)`, không có attribute `Video`/`Photo` nào) — tái dùng **nguyên vẹn** pipeline download Document đã verify thật (subtitle/video, cùng RPC `download_document`), không cần code mới ở tầng đọc để có poster hiển thị được ngay.
+
+Thực thi:
+- `IngestRpc` (`ingest-rpc-trait/src/lib.rs`) thêm thao tác thứ 14, `upload_poster(channel, file_name, bytes: Vec<u8>)` — NGOẠI LỆ thứ bảy không tương ứng 1-1 phía TS (`gateway-ingest.ts` không có khái niệm poster, tính năng mới chỉ ở ingest-desktop). Nhận `bytes` trực tiếp (khác `upload_subtitle` nhận `file_path`) vì nguồn là HTTP response tải về, không phải file sẵn trên đĩa — implement bằng `upload_stream()` (cùng khuôn `publish_catalog()`, stream thẳng từ bộ nhớ, không ghi file tạm).
+- Tauri command `upload_tmdb_poster(state, poster_path, file_name)` (`upload.rs`) **gộp** cả bước tải ảnh (`reqwest::get()`, cỡ `w500` — hằng số `TMDB_IMAGE_BASE_LARGE`, khác cỡ `w92` dùng cho thumbnail nhỏ ở dialog tìm kiếm) và bước ghi Telegram (`rpc.upload_poster()`) trong MỘT command, vì bước ghi cần `state.selected_channel`/`rpc` mà `tmdb.rs` (nơi có `tmdb_search`/`tmdb_details`) cố tình không có — giữ đúng ranh giới "gọi TMDB" tách khỏi "ghi Telegram" của Quyết định gốc.
+- `TmdbSearchResultDto` thêm field `poster_path` (đường dẫn THÔ, vd `/abc.jpg`) tách khỏi `poster_url` (đã ghép sẵn base URL NHỎ cho dialog) — Angular truyền `poster_path` nguyên văn qua IPC, Rust tự ghép base URL LỚN lúc upload thật.
+- **Thời điểm upload:** KHÔNG upload ngay lúc admin chọn kết quả TMDB (khác Title/Năm/genres/cast/director — thuần điền metadata, không I/O mạng). Chỉ lưu `pendingPosterPath` vào `QueueItem` (Draft, `draft-store.ts`) lúc chọn, upload THẬT dời tới `processItem()` — lúc bấm "Upload", cùng lúc với video/subtitle của dòng đó — tránh message poster mồ côi trên kênh nếu admin chọn TMDB rồi xoá dòng khỏi bảng trước khi upload. Threading qua `UploadQueueItem.pendingPosterPath` (`queue-store.ts`), thêm stage `uploading_poster` vào `UploadStage`.
+
+### Hashtag vào caption — chi tiết kỹ thuật (quyết định "vì sao chỉ ở ingest-desktop" đã ghi riêng ở [ADR-0014 § addendum 2026-09-17](./0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md#cập-nhật-sau-khi-accepted-2026-09-17-đóng-băng-phạm-vi-ingest-editor--hai-đường-ghi-catalog-không-còn-ngang-hàng), không lặp lại ở đây)
+
+Hàm thuần mới `composeCaption(item: CatalogItemV1): string` (`libs/core-ingest/src/caption-hashtags.ts`) — ghép title + hashtag suy từ season/episode (`#S01E02`, luôn 2 chữ số), năm (`#2024`), genres (chuẩn hoá bỏ khoảng trắng/dấu câu, vd "Science Fiction" → `#ScienceFiction`, Telegram không chấp nhận khoảng trắng trong hashtag). Thay `caption: item.metadata.title` cũ (`processItem()`, `workspace.ts`) bằng `caption: composeCaption(item.metadata)` — ghi **một lần** lúc `upload_video()`, không đồng bộ lại sau.
+
+Format cố ý khớp **đúng** pattern mà `libs/core-index/src/hashtag-parser.ts` (tầng ĐỌC, quét kênh cộng đồng bất kỳ) đã kỳ vọng — verify bằng test round-trip (`caption-hashtags.spec.ts`): hashtag do `composeCaption()` sinh ra được `deriveFallbackMetadata()` đọc lại **đúng** season/episode/year/genres, khép kín vòng ghi→đọc bằng test, không chỉ bằng đọc code bằng mắt.
+
+### Trạng thái kiểm chứng
+
+`cargo build`/`cargo clippy --workspace -- -D warnings` sạch, `ng build`/`npm run lint`/`npm run test:libs` (302 test, gồm 7 test mới ở `caption-hashtags.spec.ts`) sạch. **CHƯA verify bằng API key TMDB thật/tài khoản Telegram thật** — chưa gọi `tmdb_details()`/`upload_tmdb_poster()` với dữ liệu thật, field response (`credits`/`created_by`/`genres` ở endpoint details) dựa trên tài liệu TMDB v3 công khai, **giả định chưa đo** — cùng tình trạng ban đầu của PR3 gốc trước khi user tự verify bằng key thật (xem addendum 2026-09-13 ở trên).
+
+## Cập nhật sau khi Accepted (2026-09-17, verify TMDB nâng cao bằng tài khoản/API key thật — ĐẠT)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**.
+
+User xác nhận qua `cargo tauri dev` + API key TMDB thật + tài khoản Telegram thật: **ĐẠT** toàn bộ checklist ở [docs/pending-device-tests.md](../pending-device-tests.md) (nay đã xoá khỏi đó theo đúng quy ước "xong thì xoá, chuyển kết quả vào changelog") —
+
+- Chọn kết quả TMDB có poster → Title/Năm điền ngay, `genres`/`cast`/`director` tự điền theo sau qua `tmdb_details()`.
+- Nhánh `kind: 'episode'` (phim bộ) → `director` ra đúng tên từ `created_by`, không lỗi/rỗng.
+- Chọn TMDB rồi xoá dòng trước khi Upload → không tạo message poster mồ côi (xác nhận đúng thiết kế "upload thật dời tới `processItem()`").
+- Upload thành công → `catalog.json` có `poster: { msgId }`, caption message video có hashtag đúng định dạng, tap hashtag lọc đúng trong kênh (Telegram Desktop).
+- TMDB key sai/hết hạn giữa chừng (sau search, lúc gọi `tmdb_details()`) → báo lỗi rõ ràng, không xoá mất Title/Năm đã điền trước đó.
+
+**Một giới hạn observability đã biết, không phải lệch thiết kế:** không phân biệt được bằng mắt Photo hay Document qua Telegram Desktop — client hiện cả hai dạng tương tự nhau khi là ảnh (preview inline). Đây **không** phải lỗ hổng verify: `.document(uploaded)` (không có nhánh code nào khác có thể tạo ra Photo) đã được xác nhận bằng đọc mã nguồn `upload_poster()` (`ingest-grammers/src/rpc.rs`) + `cargo clippy` sạch, và mục đích thật của quyết định "Document không phải Photo" là để tái dùng pipeline `download_document()` đã verify — không phải để tạo ra khác biệt nhìn thấy được bằng mắt trên Telegram Desktop. Không cần thêm bước verify nào khác cho điểm này.
+
+Không phát sinh thay đổi thiết kế nào — mọi giả định field response TMDB (`genres`/`credits.cast`/`credits.crew`/`created_by`) khớp đúng dữ liệu thật, không cần sửa `tmdb.rs`.

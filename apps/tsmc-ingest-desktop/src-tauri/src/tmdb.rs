@@ -18,11 +18,21 @@
 use serde::Deserialize;
 use tauri::{AppHandle, Manager};
 
-use crate::dto::{TmdbErrorDto, TmdbKindDto, TmdbSearchResultDto};
+use crate::dto::{TmdbDetailsDto, TmdbErrorDto, TmdbKindDto, TmdbSearchResultDto};
 use crate::secret_store;
 
 const TMDB_API_BASE: &str = "https://api.themoviedb.org/3";
 const TMDB_IMAGE_BASE: &str = "https://image.tmdb.org/t/p/w92";
+/// Cỡ ảnh dùng cho poster THẬT lưu vào kênh (`upload_tmdb_poster`,
+/// `upload.rs`) — lớn hơn hẳn `TMDB_IMAGE_BASE` (chỉ dùng cho thumbnail nhỏ
+/// trong dialog tìm kiếm). `w500` là cỡ chuẩn TMDB khuyến nghị cho poster
+/// hiển thị đầy đủ (tài liệu TMDB v3 công khai), không phải `original` (nặng
+/// không cần thiết cho một poster hiển thị trong lưới Browse).
+pub const TMDB_IMAGE_BASE_LARGE: &str = "https://image.tmdb.org/t/p/w500";
+/// Số diễn viên tối đa lấy vào `cast` — `credits.cast` TMDB trả sẵn theo
+/// đúng thứ tự billing (`order` tăng dần), cắt thẳng theo vị trí, không cần
+/// tự sắp lại.
+const MAX_CAST: usize = 10;
 
 /// "account" trong `secret_store` (namespace riêng với `"credentials"` ở
 /// `commands.rs`, cùng `SERVICE` OS keyring) — cũng là tên file FALLBACK nếu
@@ -143,7 +153,7 @@ pub async fn tmdb_search(app: AppHandle, query: String, kind: TmdbKindDto) -> Re
             Ok(resp
                 .results
                 .into_iter()
-                .map(|r| TmdbSearchResultDto { id: r.id, title: r.name.unwrap_or_default(), year: year_from_date(&r.first_air_date), poster_url: poster_url(&r.poster_path) })
+                .map(|r| TmdbSearchResultDto { id: r.id, title: r.name.unwrap_or_default(), year: year_from_date(&r.first_air_date), poster_url: poster_url(&r.poster_path), poster_path: r.poster_path })
                 .collect())
         }
         TmdbKindDto::Movie => {
@@ -151,8 +161,113 @@ pub async fn tmdb_search(app: AppHandle, query: String, kind: TmdbKindDto) -> Re
             Ok(resp
                 .results
                 .into_iter()
-                .map(|r| TmdbSearchResultDto { id: r.id, title: r.title.unwrap_or_default(), year: year_from_date(&r.release_date), poster_url: poster_url(&r.poster_path) })
+                .map(|r| TmdbSearchResultDto { id: r.id, title: r.title.unwrap_or_default(), year: year_from_date(&r.release_date), poster_url: poster_url(&r.poster_path), poster_path: r.poster_path })
                 .collect())
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct TmdbGenre {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct TmdbCastMember {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct TmdbCrewMember {
+    name: String,
+    job: String,
+}
+
+#[derive(Deserialize, Default)]
+struct TmdbCredits {
+    #[serde(default)]
+    cast: Vec<TmdbCastMember>,
+    #[serde(default)]
+    crew: Vec<TmdbCrewMember>,
+}
+
+#[derive(Deserialize)]
+struct TmdbCreatedBy {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct TmdbMovieDetails {
+    #[serde(default)]
+    genres: Vec<TmdbGenre>,
+    credits: Option<TmdbCredits>,
+}
+
+#[derive(Deserialize)]
+struct TmdbTvDetails {
+    #[serde(default)]
+    genres: Vec<TmdbGenre>,
+    credits: Option<TmdbCredits>,
+    #[serde(default)]
+    created_by: Vec<TmdbCreatedBy>,
+}
+
+/// Đọc chi tiết MỘT object (`/movie/{id}` hay `/tv/{id}`) kèm
+/// `append_to_response=credits` — MỘT lệnh gọi HTTP duy nhất trả về CẢ
+/// `genres` (tên đầy đủ, khỏi cần cache riêng bảng id→tên) LẪN `credits`
+/// (cast/crew), thay vì hai lệnh gọi rời (`/genre/movie/list` +
+/// `/{id}/credits`) như cân nhắc ban đầu — tài liệu TMDB v3 công khai xác
+/// nhận `append_to_response` áp dụng được cho `credits` ở cả hai endpoint
+/// `movie`/`tv`. Khác `fetch_tmdb()` (dùng cho `search/*`, có tham số
+/// `query` và trả object bọc trong `{ results: [...] }`) — endpoint details
+/// trả THẲNG object, không bọc.
+async fn fetch_tmdb_details<T: serde::de::DeserializeOwned>(url: &str, api_key: &str) -> Result<T, TmdbErrorDto> {
+    let response = reqwest::Client::new()
+        .get(url)
+        .query(&[("api_key", api_key), ("append_to_response", "credits")])
+        .send()
+        .await
+        .map_err(|e| TmdbErrorDto::Network(e.to_string()))?;
+
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return Err(TmdbErrorDto::InvalidKey);
+    }
+    let response = response.error_for_status().map_err(|e| TmdbErrorDto::Network(e.to_string()))?;
+    response.json::<T>().await.map_err(|e| TmdbErrorDto::Other(e.to_string()))
+}
+
+/// TMDB nâng cao (genres/cast/director) — nút "Tra TMDB" gọi tiếp SAU khi
+/// admin đã chọn một kết quả `tmdb_search()` (cần `id` thật của lựa chọn đó,
+/// không suy luận lại từ tên). Không có "credits" riêng cho việc gọi API —
+/// gộp cả genres/cast/director vào một lần gọi `fetch_tmdb_details()` (xem
+/// doc comment ở đó).
+#[tauri::command]
+pub async fn tmdb_details(app: AppHandle, id: i64, kind: TmdbKindDto) -> Result<TmdbDetailsDto, TmdbErrorDto> {
+    let api_key = load_key(&app).ok_or(TmdbErrorDto::NoApiKey)?;
+
+    match kind {
+        TmdbKindDto::Movie => {
+            let details: TmdbMovieDetails = fetch_tmdb_details(&format!("{TMDB_API_BASE}/movie/{id}"), &api_key).await?;
+            let credits = details.credits.unwrap_or_default();
+            Ok(TmdbDetailsDto {
+                genres: details.genres.into_iter().map(|g| g.name).collect(),
+                cast: credits.cast.into_iter().take(MAX_CAST).map(|c| c.name).collect(),
+                director: credits.crew.into_iter().find(|c| c.job == "Director").map(|c| c.name),
+            })
+        }
+        // TMDB không có "director" một người cho cả series — `created_by`
+        // (chỉ có ở `/tv/{id}`, KHÔNG có trong `credits`) là tương đương gần
+        // nhất. Lấy người ĐẦU TIÊN nếu có nhiều hơn một đồng sáng tác (quyết
+        // định brainstorm 2026-09-17 — field `director` trong catalog schema
+        // là `string` đơn, không phải mảng).
+        TmdbKindDto::Episode => {
+            let details: TmdbTvDetails = fetch_tmdb_details(&format!("{TMDB_API_BASE}/tv/{id}"), &api_key).await?;
+            let cast = details.credits.map(|c| c.cast.into_iter().take(MAX_CAST).map(|m| m.name).collect()).unwrap_or_default();
+            Ok(TmdbDetailsDto {
+                genres: details.genres.into_iter().map(|g| g.name).collect(),
+                cast,
+                director: details.created_by.into_iter().next().map(|c| c.name),
+            })
         }
     }
 }

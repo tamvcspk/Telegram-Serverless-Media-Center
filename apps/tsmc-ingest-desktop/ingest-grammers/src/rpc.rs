@@ -452,6 +452,23 @@ impl IngestRpc for GrammersIngestRpc {
         }
         Ok(results)
     }
+
+    /// Upload poster (bytes đã tải sẵn ở tầng gọi, thường từ TMDB) — cùng
+    /// khuôn `publish_catalog()` (stream thẳng từ bộ nhớ qua `upload_stream`,
+    /// không ghi file tạm), nhưng KHÔNG pin/không xoá bản cũ (một message
+    /// độc lập, không phải catalog). `.document(...)` (không có attribute
+    /// `Video`) giữ nguyên dạng Document — xem doc comment đầu file.
+    async fn upload_poster(&self, channel: &ResolvedChannel, file_name: String, bytes: Vec<u8>) -> Result<UploadedRef, IngestRpcError> {
+        let peer = self.peer_for(channel)?;
+        let peer_ref = peer.to_ref().await.map_err(|e| IngestRpcError::Other(e.to_string()))?.ok_or_else(|| IngestRpcError::Other("không lấy được PeerRef".into()))?;
+
+        let len = bytes.len();
+        let mut cursor = std::io::Cursor::new(bytes);
+        let uploaded = self.client.upload_stream(&mut cursor, len, file_name.clone()).await.map_err(|e| IngestRpcError::Other(e.to_string()))?;
+        let msg = InputMessage::new().document(uploaded).attribute(Attribute::FileName(file_name));
+        let sent = self.client.send_message(peer_ref, msg).await.map_err(to_rpc_error)?;
+        Ok(UploadedRef { msg_id: sent.id() as i64 })
+    }
 }
 
 impl GrammersIngestRpc {

@@ -14,6 +14,7 @@ import type {
   ResolvedChannelDto,
   SavedCredentialsDto,
   SubtitleTrackDto,
+  TmdbDetailsDto,
   TmdbErrorDto,
   TmdbKind,
   TmdbSearchResultDto,
@@ -209,6 +210,16 @@ export function uploadSubtitle(filePath: string, fileName: string): Promise<Uplo
   return invoke<UploadedRefDto>('upload_subtitle', { filePath, fileName });
 }
 
+/** Tải poster TMDB (`posterPath` THÔ — `TmdbSearchResultDto.poster_path`,
+ * KHÔNG phải `poster_url` cỡ nhỏ của dialog tìm kiếm) rồi upload dạng
+ * Document vào kênh đang chọn — gộp cả bước tải ảnh trong MỘT command Rust
+ * (`upload_tmdb_poster`, ADR-0019 § addendum 2026-09-17). Reject bằng
+ * `IngestRpcErrorDto` giống mọi thao tác `IngestRpc` khác (`toIngestRpcError()`),
+ * KHÔNG phải `TmdbErrorDto` — bước ghi Telegram dùng chung lỗi RPC MTProto. */
+export function uploadTmdbPoster(posterPath: string, fileName: string): Promise<UploadedRefDto> {
+  return invoke<UploadedRefDto>('upload_tmdb_poster', { posterPath, fileName });
+}
+
 /** Gọi ĐÚNG MỘT LẦN cho cả batch, sau khi mọi item đã upload xong — giảm cửa
  * sổ `FLOOD_WAIT` giữa 3 RPC (`sendFile → pinMessage → deleteMessages`) so
  * với publish từng item một. `json` là `catalog.v1.json` ĐÃ build bằng
@@ -313,6 +324,13 @@ export function tmdbDeleteKey(): Promise<void> {
  * reject bằng `{ kind: 'NoApiKey' }`. */
 export function tmdbSearch(query: string, kind: TmdbKind): Promise<TmdbSearchResultDto[]> {
   return invoke<TmdbSearchResultDto[]>('tmdb_search', { query, kind });
+}
+
+/** TMDB nâng cao (genres/cast/director, ADR-0019 § addendum 2026-09-17) —
+ * gọi SAU KHI admin đã bấm chọn một `TmdbSearchResultDto` cụ thể (cần `id`
+ * thật của lựa chọn đó, `tmdb_details` không tự tìm lại theo tên). */
+export function tmdbDetails(id: number, kind: TmdbKind): Promise<TmdbDetailsDto> {
+  return invoke<TmdbDetailsDto>('tmdb_details', { id, kind });
 }
 
 /** Cùng vai trò `toIngestRpcError()` nhưng cho `TmdbErrorDto` — TMDB là

@@ -73,6 +73,7 @@ pub fn run() {
             pipeline::cleanup_temp_dir,
             upload::upload_video,
             upload::upload_subtitle,
+            upload::upload_tmdb_poster,
             upload::publish_catalog,
             upload::cancel_upload,
             upload::get_current_task,
@@ -81,6 +82,7 @@ pub fn run() {
             tmdb::tmdb_save_key,
             tmdb::tmdb_delete_key,
             tmdb::tmdb_search,
+            tmdb::tmdb_details,
             logs::read_app_log,
         ])
         .run(tauri::generate_context!())

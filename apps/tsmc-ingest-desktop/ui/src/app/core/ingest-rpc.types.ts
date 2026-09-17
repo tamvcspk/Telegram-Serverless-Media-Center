@@ -162,13 +162,26 @@ export interface PreparedUploadDto {
 export type TmdbKind = 'movie' | 'episode';
 
 /** Khớp `TmdbSearchResultDto` — một kết quả tìm kiếm TMDB đã chuẩn hoá
- * (movie/tv gộp về cùng shape). `poster_url` đã ghép sẵn base URL ảnh TMDB,
- * gán thẳng vào `<img src>` được, `null` nếu TMDB không có poster. */
+ * (movie/tv gộp về cùng shape). `poster_url` đã ghép sẵn base URL ảnh TMDB
+ * CỠ NHỎ (`w92`), gán thẳng vào `<img src>` được, `null` nếu TMDB không có
+ * poster. `poster_path` là đường dẫn THÔ — truyền lại nguyên văn cho
+ * `uploadTmdbPoster()` khi admin chọn kết quả này (Rust tự ghép base URL CỠ
+ * LỚN, không tái dùng `poster_url` cỡ nhỏ cho poster thật lưu vào kênh). */
 export interface TmdbSearchResultDto {
   id: number;
   title: string;
   year: number | null;
   poster_url: string | null;
+  poster_path: string | null;
+}
+
+/** Khớp `TmdbDetailsDto` (ADR-0019 § addendum 2026-09-17, TMDB nâng cao) —
+ * genres/cast/director gọi tiếp SAU khi admin đã chọn một
+ * `TmdbSearchResultDto` cụ thể (cần `id` thật của lựa chọn đó). */
+export interface TmdbDetailsDto {
+  genres: string[];
+  cast: string[];
+  director: string | null;
 }
 
 /** Khớp `#[serde(tag = "kind", content = "detail")] TmdbErrorDto`. `NoApiKey`
