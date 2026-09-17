@@ -1,11 +1,13 @@
-//! Ba Tauri command cho "Trình quản lý catalog" (A.4, ADR-0017 § addendum
+//! Bốn Tauri command cho "Trình quản lý catalog" (A.4, ADR-0017 § addendum
 //! "Trình quản lý catalog") — `check_deleted_messages`/`delete_message`
-//! (đối soát chiều xuôi + xoá message), cộng `scan_channel_videos` (đối
-//! soát chiều ngược lại, 2026-09-16) — ba ngoại lệ `IngestRpc` không có
-//! tương ứng 1-1 phía TS (xem doc comment `ingest-rpc-trait/src/lib.rs`). Cả
-//! ba luôn thao tác trên `state.selected_channel` (không nhận
-//! `ResolvedChannel` qua IPC), cùng quy ước với
-//! `check_write_permission`/`read_pinned_catalog` ở `commands.rs`.
+//! (đối soát chiều xuôi + xoá message), `scan_channel_videos` (đối soát
+//! chiều ngược lại, 2026-09-16), cộng `edit_message_caption` (sync hashtag
+//! caption khi sửa metadata sau publish, 2026-09-18, ADR-0019 § addendum
+//! 2026-09-18) — bốn ngoại lệ `IngestRpc` không có tương ứng 1-1 phía TS
+//! (xem doc comment `ingest-rpc-trait/src/lib.rs`). Cả bốn luôn thao tác
+//! trên `state.selected_channel` (không nhận `ResolvedChannel` qua IPC),
+//! cùng quy ước với `check_write_permission`/`read_pinned_catalog` ở
+//! `commands.rs`.
 //!
 //! `download_document` (đã có implementation ở `ingest-grammers`) VẪN
 //! chưa wire — đối soát ở màn này chỉ cần biết message còn tồn tại hay
@@ -61,4 +63,21 @@ pub async fn scan_channel_videos(state: State<'_, AppState>) -> Result<Vec<Chann
     let channel = selected.as_ref().ok_or_else(|| IngestRpcErrorDto::other("chưa resolve_channel() — gọi trước scan_channel_videos()"))?;
     let docs = rpc.scan_channel_videos(channel).await.map_err(IngestRpcErrorDto::from)?;
     Ok(docs.into_iter().map(Into::into).collect())
+}
+
+/// Sửa lại caption của MỘT message đã upload — dùng để đồng bộ lại hashtag
+/// khi admin sửa Title/Season/Ep/Năm ở bảng catalog SAU lúc publish ban đầu
+/// (ADR-0019 § addendum 2026-09-18). Angular tự quyết dòng nào cần gọi
+/// (diff `composeCaption()` cũ/mới theo `msgId`, không phải mọi lần Lưu đều
+/// gọi cho toàn catalog) — command này chỉ thực thi ĐÚNG một lần sửa, không
+/// tự so sánh gì.
+#[tauri::command]
+pub async fn edit_message_caption(state: State<'_, AppState>, msg_id: i64, caption: String) -> Result<(), IngestRpcErrorDto> {
+    let conn = state.conn.lock().await;
+    let ConnState::Ready { rpc, .. } = &*conn else {
+        return Err(IngestRpcErrorDto::other("chưa đăng nhập xong"));
+    };
+    let selected = state.selected_channel.lock().await;
+    let channel = selected.as_ref().ok_or_else(|| IngestRpcErrorDto::other("chưa resolve_channel() — gọi trước edit_message_caption()"))?;
+    rpc.edit_message_caption(channel, msg_id, caption).await.map_err(IngestRpcErrorDto::from)
 }

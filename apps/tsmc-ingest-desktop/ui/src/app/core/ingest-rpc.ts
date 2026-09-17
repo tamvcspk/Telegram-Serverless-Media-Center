@@ -121,6 +121,15 @@ export function scanChannelVideos(): Promise<ChannelVideoDocumentDto[]> {
   return invoke<ChannelVideoDocumentDto[]>('scan_channel_videos');
 }
 
+/** Sync hashtag caption (Trình quản lý catalog, ADR-0019 § addendum
+ * 2026-09-18) — sửa lại TEXT/caption của MỘT message đã upload, giữ nguyên
+ * media hiện có. Caller tự quyết dòng nào cần gọi (diff `composeCaption()`
+ * cũ/mới theo `msgId` ngay trước khi publish — không phải mọi lần Lưu đều
+ * gọi cho toàn catalog, xem `catalog-manager.ts::onPublish()`). */
+export function editMessageCaption(msgId: number, caption: string): Promise<void> {
+  return invoke<void>('edit_message_caption', { msgId, caption });
+}
+
 /** Đăng xuất (màn Cài đặt, ADR-0017 § addendum 2026-09-14) — gọi
  * `auth.LogOut` thật phía server TRƯỚC khi xoá `session.sqlite3` cục bộ
  * (thứ tự do phía Rust tự đảm bảo, xem `commands.rs::sign_out()`). Reject

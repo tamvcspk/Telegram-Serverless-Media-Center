@@ -66,6 +66,7 @@ pub fn run() {
             catalog::check_deleted_messages,
             catalog::delete_message,
             catalog::scan_channel_videos,
+            catalog::edit_message_caption,
             probe::list_media_files,
             probe::probe_media,
             probe::list_dir_entries,

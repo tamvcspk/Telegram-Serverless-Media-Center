@@ -469,6 +469,18 @@ impl IngestRpc for GrammersIngestRpc {
         let sent = self.client.send_message(peer_ref, msg).await.map_err(to_rpc_error)?;
         Ok(UploadedRef { msg_id: sent.id() as i64 })
     }
+
+    /// `messages.editMessage` với `media: None` (không truyền media mới) —
+    /// theo tài liệu TL công khai, bỏ trống `media` giữ NGUYÊN media hiện có
+    /// của message, chỉ đổi `message`/text (= caption với message có
+    /// document/photo đính kèm). `InputMessage::new().text(caption)` không
+    /// gắn media nào nên đúng ý — KHÔNG dùng để đổi file đính kèm.
+    async fn edit_message_caption(&self, channel: &ResolvedChannel, msg_id: i64, caption: String) -> Result<(), IngestRpcError> {
+        let peer = self.peer_for(channel)?;
+        let peer_ref = peer.to_ref().await.map_err(|e| IngestRpcError::Other(e.to_string()))?.ok_or_else(|| IngestRpcError::Other("không lấy được PeerRef".into()))?;
+        self.client.edit_message(peer_ref, msg_id as i32, InputMessage::new().text(caption)).await.map_err(to_rpc_error)?;
+        Ok(())
+    }
 }
 
 impl GrammersIngestRpc {

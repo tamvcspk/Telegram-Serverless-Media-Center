@@ -596,3 +596,28 @@ Liên quan: [ADR-0010 § Cập nhật 2026-08-29](./adr/0010-catalog-spec-v1-va-
 - Item không có `topic` dù đã post đúng vào topic → kiểm tra `indexMeta.forumTopics` trước (map có đúng key không, TTL 1h có hết hạn giữa chừng không) rồi mới nghi ngờ `extractTopicId()`.
 - Hashtag không tách được → kiểm tra `message.entities` có thật sự chứa `MessageEntityHashtag` hay Telegram gộp chung vào entity khác (client Telegram khác nhau có thể tạo entity khác nhau cho cùng một caption).
 - Bất kỳ hành vi nào lệch thiết kế → ghi vào addendum ADR-0010 (không phải sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
+
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — sync hashtag caption khi "Lưu catalog" (2026-09-18)
+
+Liên quan: [ADR-0019 § addendum 2026-09-18](./adr/0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md#cập-nhật-sau-khi-accepted-2026-09-18-sync-hashtag-caption-khi-lưu-catalog-sửa-metadata-sau-publish), [docs/roadmap.md § Ingest](./roadmap.md#ingest). Cần **tài khoản Telegram thật** (sửa caption là ghi thật lên kênh) — không cần API key TMDB (tính năng này không đụng TMDB).
+
+**KHÔNG chạy hộ bằng agent/Claude.** Admin tự chạy `cargo tauri dev` (đóng phiên `cargo tauri dev` cũ trước — đang khoá file `ffmpeg-runtime/avcodec-61.dll`, chặn cả `cargo clippy`).
+
+### Chuẩn bị
+
+- [x] `cargo build`/`ng build`/`npm run lint`/`npm run test:libs` (302 test) sạch — verify 2026-09-18.
+- [ ] `cargo clippy --workspace -- -D warnings` sạch — CHƯA chạy được (file lock từ phiên `cargo tauri dev` khác), cần đóng phiên cũ rồi chạy lại.
+
+### Các bước
+
+- [x] Mở "Trình quản lý catalog" cho một kênh đã có item với hashtag caption sẵn (từ lần upload trước) → sửa Title/Season/Ep/Năm của MỘT dòng → bấm "Lưu catalog" → catalog publish xong → mở caption message video đó bằng Telegram thường → xác nhận hashtag đã đổi đúng theo giá trị MỚI (không phải giá trị cũ lúc upload).
+- [x] Sửa MỘT dòng nhưng để nguyên field ảnh hưởng hashtag (chỉ đổi field khác, vd không có field nào khác để sửa ở màn này — hoặc sửa rồi sửa lại về giá trị cũ trước khi Lưu) → bấm "Lưu catalog" → xác nhận KHÔNG có `editMessageCaption()` nào được gọi cho dòng đó (kiểm bằng Nhật ký — không thấy log RPC edit tương ứng, hoặc đơn giản là caption message đó không đổi `edit date` trên Telegram).
+- [x] Sửa NHIỀU dòng cùng lúc rồi Lưu MỘT LẦN → xác nhận đúng số dòng đổi có caption cập nhật, dòng KHÔNG đổi giữ nguyên caption cũ.
+- [ ] Dùng "Tìm file mồ côi" thêm một item MỚI vào bảng rồi Lưu → xác nhận caption GỐC của message mồ côi đó (viết tay từ trước, không phải do app sinh) **KHÔNG bị ghi đè** — đúng thiết kế "bỏ qua có chủ đích" item không có trong `remoteItems`.
+- [ ] Cố tình sửa một dòng rồi rút mạng/đóng app giữa lúc "Lưu catalog" đang chạy caption sync (sau khi catalog đã publish xong) → mở lại app, xác nhận catalog.json vẫn đúng (không hỏng) dù một vài caption có thể chưa kịp sync — đúng thiết kế "best-effort, không rollback catalog".
+
+### Nếu có gì vỡ
+
+- `edit_message_caption()` lỗi "message không tồn tại/không có quyền" → kiểm đúng `msg_id` truyền vào là message VIDEO gốc (không phải nhầm sang message poster/subtitle của cùng item — ba message khác `msgId` nhau).
+- Caption bị XOÁ SẠCH (rỗng) thay vì cập nhật đúng → kiểm `composeCaption()` có đang nhận đúng `item` đầy đủ field (title/series/year/genres) hay bị truyền nhầm object rỗng/thiếu field.
+- Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0019 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.

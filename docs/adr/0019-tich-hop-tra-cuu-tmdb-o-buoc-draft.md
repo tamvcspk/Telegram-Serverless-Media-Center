@@ -147,3 +147,40 @@ User xác nhận qua `cargo tauri dev` + API key TMDB thật + tài khoản Tele
 **Một giới hạn observability đã biết, không phải lệch thiết kế:** không phân biệt được bằng mắt Photo hay Document qua Telegram Desktop — client hiện cả hai dạng tương tự nhau khi là ảnh (preview inline). Đây **không** phải lỗ hổng verify: `.document(uploaded)` (không có nhánh code nào khác có thể tạo ra Photo) đã được xác nhận bằng đọc mã nguồn `upload_poster()` (`ingest-grammers/src/rpc.rs`) + `cargo clippy` sạch, và mục đích thật của quyết định "Document không phải Photo" là để tái dùng pipeline `download_document()` đã verify — không phải để tạo ra khác biệt nhìn thấy được bằng mắt trên Telegram Desktop. Không cần thêm bước verify nào khác cho điểm này.
 
 Không phát sinh thay đổi thiết kế nào — mọi giả định field response TMDB (`genres`/`credits.cast`/`credits.crew`/`created_by`) khớp đúng dữ liệu thật, không cần sửa `tmdb.rs`.
+
+## Cập nhật sau khi Accepted (2026-09-18, sync hashtag caption khi "Lưu catalog" sửa metadata sau publish)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**.
+
+Đóng nốt việc còn để dành ở addendum 2026-09-17 (`docs/roadmap.md` § Ingest): hashtag ghi lúc upload lần đầu đã xong, nhưng nếu admin sửa Title/Season/Ep/Năm ở "Trình quản lý catalog" SAU publish ban đầu, caption cũ vẫn giữ hashtag lệch với `catalog.json` mới — logic đối soát diff theo `msgId` đã chốt lúc brainstorm 2026-09-17 (xem [ADR-0014 § addendum 2026-09-17](./0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md#cập-nhật-sau-khi-accepted-2026-09-17-đóng-băng-phạm-vi-ingest-editor--hai-đường-ghi-catalog-không-còn-ngang-hàng)) nay đã code.
+
+### Thực thi
+
+- `IngestRpc` thêm thao tác thứ 15, `edit_message_caption(channel, msg_id, caption: String)` (`ingest-rpc-trait/src/lib.rs`) — NGOẠI LỆ thứ tám không tương ứng 1-1 phía TS (`gateway-index.ts` không có nhu cầu sửa caption message video, chỉ ghi/xoá nguyên khối `catalog.json`). Implement (`ingest-grammers/src/rpc.rs`) bằng `Client::edit_message(peer, msg_id, InputMessage::new().text(caption))` — đã đối chiếu trực tiếp mã nguồn `grammers-client` 0.10.0 (`client/messages.rs::edit_message()`) trước khi code: `messages.editMessage` bỏ trống field `media` giữ NGUYÊN media hiện có của message, chỉ đổi text/caption — không phải đoán từ tài liệu TL suông (cùng kỷ luật đã áp dụng cho `upload_poster()` ở addendum trước).
+- Tauri command `edit_message_caption(state, msg_id, caption)` mới ở `catalog.rs`, cùng nhóm bốn ngoại lệ Trình quản lý catalog (`check_deleted_messages`/`delete_message`/`scan_channel_videos`/`edit_message_caption`), đều thao tác trên `state.selected_channel`.
+- `catalog-manager.ts::onPublish()` — SAU khi `publishCatalog()` ghi catalog THÀNH CÔNG, gọi thêm `syncHashtagCaptions(remoteItems)` mới:
+  - `remoteItems` là catalog vừa đọc lại NGAY TRƯỚC lúc publish (biến đã có sẵn sẵn trong `onPublish()` để merge) — dùng bản này thay vì bản nạp lúc mount màn hình, tránh so sánh nhầm với dữ liệu có thể đã cũ nếu màn hình mở lâu.
+  - Diff bằng `composeCaption(remote) !== composeCaption(current)` theo từng `msgId` — KHÔNG liệt kê field thủ công (title/season/episode/year/genres): `composeCaption()` (addendum trước) là hàm thuần xác định, so sánh OUTPUT của nó tự động bắt đúng mọi field ảnh hưởng hashtag.
+  - **Chỉ đồng bộ item CÓ trong `remoteItems`** (đã tồn tại từ trước khi mở màn) — item MỚI thêm qua "Tìm file mồ côi" (hoặc mới upload từ Workspace trong lúc màn đang mở) bị **bỏ qua có chủ đích**: không biết/không kiểm soát caption gốc của message đó (có thể ai đó viết tay trước khi có app) — ghi đè mù bằng `composeCaption()` mới có thể xoá mất nội dung caption thật không phải do app sinh ra.
+  - Best-effort theo từng item, bọc `withFloodWaitRetry()` — một caption sync lỗi KHÔNG rollback/làm hỏng catalog vừa publish thành công (catalog.json đã ghi xong TRƯỚC bước này); lỗi gom lại rồi báo MỘT `alert()` duy nhất liệt kê `msgId` chưa đồng bộ được, không chặn luồng.
+
+### Trạng thái kiểm chứng
+
+`cargo build` sạch. **`cargo clippy --workspace -- -D warnings` chưa chạy được trong phiên viết addendum này** — máy dev có sẵn `cargo tauri dev` đang chạy (phiên verify TMDB nâng cao ngay trước đó), khoá file `ffmpeg-runtime/avcodec-61.dll` khiến build script của `cargo clippy` lỗi `os error 32` (file đang dùng bởi tiến trình khác) — xác nhận là file lock, không phải lỗi code (`cargo build` không đụng build script đó theo cùng cách nên vẫn qua). `ng build`/`npm run lint`/`npm run test:libs` (302 test, không đổi — logic diff nằm ở component `catalog-manager.ts`, không phải hàm thuần mới trong `libs/`) sạch. **CHƯA verify bằng tài khoản Telegram thật** — chưa gọi `edit_message_caption()` với dữ liệu thật, cần đóng phiên `cargo tauri dev` đang treo rồi admin tự chạy lại để verify + chạy `cargo clippy` sạch.
+
+## Cập nhật sau khi Accepted (2026-09-18, verify sync hashtag caption — ĐẠT một phần)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**.
+
+User xác nhận qua `cargo tauri dev` + tài khoản Telegram thật, đánh dấu trực tiếp trong [docs/pending-device-tests.md](../pending-device-tests.md) — **3/5 bước ĐẠT**:
+
+- Sửa Title/Season/Ep/Năm một dòng rồi "Lưu catalog" → caption message video đó cập nhật đúng hashtag MỚI.
+- Sửa một dòng nhưng field ảnh hưởng hashtag không đổi thực chất → không gọi `editMessageCaption()` thừa (diff bằng `composeCaption()` hoạt động đúng, không phải cứ "Lưu" là sync mọi dòng).
+- Sửa nhiều dòng cùng lúc rồi Lưu một lần → đúng số dòng đổi được cập nhật caption, dòng không đổi giữ nguyên.
+
+**Còn mở, chưa test (không chặn — đã ghi trong checklist):**
+- Item mới thêm qua "Tìm file mồ côi" → xác nhận caption gốc KHÔNG bị ghi đè (nhánh "bỏ qua có chủ đích").
+- Ngắt kết nối/đóng app giữa lúc đang chạy caption sync (sau khi catalog đã publish xong) → catalog.json không hỏng dù caption có thể chưa kịp đồng bộ hết.
+- `cargo clippy --workspace -- -D warnings` — vẫn chưa chạy được do file `ffmpeg-runtime` bị khoá bởi phiên `cargo tauri dev` khác trên máy dev.
+
+Không phát sinh lệch thiết kế nào ở 3 nhánh đã verify — `edit_message_caption()`/diff `composeCaption()` chạy đúng như addendum trên mô tả.

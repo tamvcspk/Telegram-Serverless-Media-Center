@@ -150,7 +150,7 @@ pub struct ChannelVideoDocument {
     pub duration_sec: Option<f64>,
 }
 
-/// Mười bốn thao tác RPC mà implementation MTProto phải đáp ứng — bọc cổng
+/// Mười lăm thao tác RPC mà implementation MTProto phải đáp ứng — bọc cổng
 /// theo đúng nguyên tắc `TelegramGateway` của ADR-0003: đổi thư viện MTProto
 /// sau này (nếu cần) là đổi implementation của trait này, không lan ra toàn
 /// bộ app (điều kiện bắt buộc #2, ADR-0017). Bảy thao tác đầu khớp 1-1 với
@@ -158,9 +158,10 @@ pub struct ChannelVideoDocument {
 /// comment gốc của module này) — `list_own_channels`/`create_channel`
 /// (2026-09-11), `sign_out` (2026-09-14), `check_deleted_messages`/
 /// `delete_message` (2026-09-15, Trình quản lý catalog),
-/// `scan_channel_videos` (2026-09-16, đối soát chiều ngược lại) và
-/// `upload_poster` (2026-09-17, TMDB nâng cao) là NGOẠI LỆ có chủ đích: bảy
-/// thao tác desktop-only, không có tương ứng 1-1 phía TS.
+/// `scan_channel_videos` (2026-09-16, đối soát chiều ngược lại),
+/// `upload_poster` (2026-09-17, TMDB nâng cao) và `edit_message_caption`
+/// (2026-09-18, sync hashtag caption) là NGOẠI LỆ có chủ đích: tám thao tác
+/// desktop-only, không có tương ứng 1-1 phía TS.
 /// `sign_out` khác về bản chất so với hai cái đầu (những cái đó là "kênh",
 /// cái này là "tài khoản") — `apps/web` có đăng xuất riêng
 /// (`logout-confirm-sheet.ts`) nhưng đó là một luồng client-heavy phức tạp
@@ -282,4 +283,15 @@ pub trait IngestRpc: Send + Sync {
     /// mới, chỉ ở ingest-desktop từ TMDB nâng cao) — xem [ADR-0014 § addendum
     /// 2026-09-17](../../../docs/adr/0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md#cập-nhật-sau-khi-accepted-2026-09-17-đóng-băng-phạm-vi-ingest-editor--hai-đường-ghi-catalog-không-còn-ngang-hàng).
     async fn upload_poster(&self, channel: &ResolvedChannel, file_name: String, bytes: Vec<u8>) -> Result<UploadedRef, IngestRpcError>;
+
+    /// 13. Sửa lại TEXT/caption của một message ĐANG CÓ (`messages.editMessage`
+    /// với `media: None` — giữ nguyên media hiện có, chỉ đổi text/caption) —
+    /// dùng để đồng bộ lại hashtag trong caption khi admin sửa metadata ở
+    /// "Trình quản lý catalog" SAU lúc publish ban đầu (brainstorm
+    /// 2026-09-17, xem [ADR-0019 § addendum
+    /// 2026-09-18](../../../docs/adr/0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md)).
+    /// NGOẠI LỆ thứ tám không tương ứng 1-1 phía TS — `gateway-index.ts`
+    /// không có nhu cầu sửa caption message video, chỉ ghi/xoá nguyên khối
+    /// `catalog.json`.
+    async fn edit_message_caption(&self, channel: &ResolvedChannel, msg_id: i64, caption: String) -> Result<(), IngestRpcError>;
 }

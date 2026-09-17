@@ -5,13 +5,14 @@ import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { Router } from '@angular/router';
-import { buildCatalogEnvelope, mergeCatalogItems, parseExistingCatalogItems, seedMetadataFromFilename } from '@tsmc/core-ingest';
+import { buildCatalogEnvelope, composeCaption, mergeCatalogItems, parseExistingCatalogItems, seedMetadataFromFilename } from '@tsmc/core-ingest';
 import type { CatalogItemV1 } from '@tsmc/shared-models';
 import { withFloodWaitRetry } from '../core/flood-wait-retry';
 import {
   checkDeletedMessages,
   deleteMessage,
   describeIngestError,
+  editMessageCaption,
   publishCatalog,
   readPinnedCatalog,
   scanChannelVideos,
@@ -55,6 +56,13 @@ import type { OrphanReviewDialogItem } from '../shared/dialog/orphan-review-dial
  * `DialogService.confirm()` tone warn — xác nhận xong gọi `deleteMessage()`
  * NGAY LẬP TỨC vì đây là hành động mạng không hoàn tác được, rồi MỚI gỡ khỏi
  * mảng đang sửa cùng cách trên).
+ *
+ * **Sync hashtag caption (2026-09-18, ADR-0019 § addendum):** `onPublish()`
+ * xong catalog thì gọi thêm `syncHashtagCaptions()` — diff `composeCaption()`
+ * cũ/mới theo `msgId` (so với `remoteItems` vừa đọc lại NGAY TRƯỚC lúc
+ * publish), chỉ `editMessageCaption()` đúng dòng thực sự đổi. Item mới thêm
+ * qua "Tìm file mồ côi" bị BỎ QUA có chủ đích — không biết/không kiểm soát
+ * caption gốc của message đó, xem doc comment `syncHashtagCaptions()`.
  */
 @Component({
   selector: 'app-catalog-manager',
@@ -296,10 +304,51 @@ export class CatalogManager implements OnInit {
       this.selectedChannelStore.set(channel, `${merged.length} item`);
       this.publishResult.set({ msgId: result.msg_id, totalItems: merged.length });
       this.dirty.set(false);
+
+      await this.syncHashtagCaptions(remoteItems);
     } catch (err) {
       this.publishError.set(describeIngestError(toIngestRpcError(err)));
     } finally {
       this.publishing.set(false);
+    }
+  }
+
+  /** Sync hashtag caption (ADR-0019 § addendum 2026-09-18) — SAU khi catalog
+   * đã publish thành công. Diff `composeCaption()` cũ (`remoteItems`, vừa
+   * đọc lại ngay trước publish — không dùng bản nạp lúc mount, có thể đã cũ)
+   * với bản đang sửa, chỉ `editMessageCaption()` đúng những `msgId` thực sự
+   * đổi — KHÔNG phải quét lại/sửa cả catalog mỗi lần Lưu. Cố ý bỏ qua item
+   * KHÔNG có trong `remoteItems` (mới thêm qua "Tìm file mồ côi" hoặc mới
+   * upload từ Workspace) — không biết/không kiểm soát caption gốc của
+   * message đó, ghi đè mù có thể xoá mất nội dung caption thật admin đã viết
+   * tay trước khi có app. Best-effort: một caption lỗi KHÔNG làm hỏng catalog
+   * vừa publish thành công (đã lưu xong), chỉ báo riêng cho admin biết. */
+  private async syncHashtagCaptions(remoteItems: CatalogItemV1[]): Promise<void> {
+    const remoteByMsgId = new Map(remoteItems.map((item) => [item.msgId, item]));
+    const changed = this.items().filter((item) => {
+      const remote = remoteByMsgId.get(item.msgId);
+      return remote !== undefined && composeCaption(remote) !== composeCaption(item);
+    });
+    if (changed.length === 0) {
+      return;
+    }
+
+    const failures: string[] = [];
+    for (const item of changed) {
+      try {
+        await withFloodWaitRetry(
+          (s) => this.publishFloodWaitSeconds.set(s),
+          () => editMessageCaption(item.msgId, composeCaption(item))
+        );
+      } catch (err) {
+        failures.push(`#${item.msgId}: ${describeIngestError(toIngestRpcError(err))}`);
+      }
+    }
+    if (failures.length > 0) {
+      await this.dialogService.alert({
+        title: 'Đồng bộ hashtag caption',
+        message: `Catalog đã lưu, nhưng ${failures.length} caption chưa đồng bộ được:\n${failures.join('\n')}`
+      });
     }
   }
 
