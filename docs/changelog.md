@@ -4,6 +4,16 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-09-17 — `ingest-ffmpeg`: verify vá "invalid argument" re-encode video packed B-frames — ĐẠT
+
+User xác nhận đã chạy `cargo tauri dev` + tài khoản thật, fix ở mục ngay dưới hoạt động đúng ("đã work") — đúng file `The Big Bang Theory S01E15.avi` từng gây lỗi giờ re-encode/upload thành công. Checklist: [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--workspace-ba-vùng-bắt-đầu-upload-2026-09-12).
+
+## 2026-09-17 — `ingest-ffmpeg`: vá lỗi thật "invalid argument" khi re-encode video Hạng D có "packed B-frames" (Xvid/DivX cũ)
+
+User báo lỗi thật `prepare_upload` fail với "remux/re-encode lỗi: Invalid argument" trên `The Big Bang Theory S01E15.avi` (Xvid/mp3, 640×368) — lần TÁI DIỄN thứ 3 của cùng thông báo lỗi, nhưng lần này ở VIDEO chứ không phải audio (2 lần trước, xem mục 2026-09-12/2026-09-15, đều ở audio). Tái hiện bằng ví dụ chạy tay (`ingest-ffmpeg/examples/debug_reencode.rs`, đã xoá sau debug): file dùng "packed B-frames" (ffmpeg tự cảnh báo) — một packet đóng gói cả P-frame lẫn B-frame trễ, decoder tách ra 2 frame từ 1 `send_packet()` nhưng frame tách ra kế thừa trùng pts với frame kế tiếp, sau khi encode lại H.264 tạo ra 2 packet output liên tiếp trùng dts → mp4 muxer chặn cứng `AVERROR(EINVAL)`.
+
+Vá bằng cách theo dõi dts cuối đã mux ở `reencode.rs::drain_video_encoder`, bơm dts packet mới lên tối thiểu `last_dts + 1` nếu không tăng nghiêm ngặt sau `rescale_ts` — đúng cách `ffmpeg` CLI chính thức tự làm (`ffmpeg.c::bump_dts`) thay vì để native API trả lỗi cứng. `cargo build`/`cargo clippy -p ingest-ffmpeg` (0 warning) sạch. Verify tay ngoài Tauri: build lại đúng file gây lỗi → hết lỗi, `ffprobe` đọc output OK (frame count khớp gốc), `ffmpeg -c copy` remux lại output không lỗi (xác nhận dts embedded hợp lệ qua muxer strict), sau đó verify qua `cargo tauri dev` + tài khoản thật — xem mục "verify ĐẠT" ngay trên. Checklist: [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--workspace-ba-vùng-bắt-đầu-upload-2026-09-12).
+
 ## 2026-09-17 — GUI ingest desktop: verify TMDB nâng cao (genres/cast/director/poster + hashtag) — ĐẠT
 
 User xác nhận qua `cargo tauri dev` + API key TMDB thật + tài khoản Telegram thật: toàn bộ checklist ĐẠT — genres/cast/director tự điền đúng (gồm nhánh `kind: 'episode'` dùng `created_by`), không tạo message poster mồ côi khi xoá dòng trước Upload, `catalog.json` ra đúng `poster: { msgId }`, caption có hashtag đúng định dạng và lọc được trong Telegram Desktop, lỗi key sai giữa chừng không làm mất Title/Năm đã điền. Không phát sinh lệch thiết kế nào — mọi field response TMDB khớp giả định, không cần sửa `tmdb.rs`. Chi tiết: [ADR-0019 § addendum 2026-09-17, verify ĐẠT](./adr/0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md#cập-nhật-sau-khi-accepted-2026-09-17-verify-tmdb-nâng-cao-bằng-tài-khoảnapi-key-thật--đạt).

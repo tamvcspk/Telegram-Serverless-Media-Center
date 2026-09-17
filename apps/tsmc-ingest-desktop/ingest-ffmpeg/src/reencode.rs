@@ -90,6 +90,20 @@ pub fn reencode_to_mp4(input_path: &str, output_path: &str) -> Result<(), ffmpeg
     const ENC_PIXEL_FORMAT: Pixel = Pixel::YUV420P;
     let enc_width = round_down_even(video_decoder.width()).max(2);
     let enc_height = round_down_even(video_decoder.height()).max(2);
+    // Bắt buộc theo dõi dts cuối đã mux của VIDEO (khác chuẩn hoá format/pts
+    // của audio ở trên) — phát hiện thật 2026-09-17, file AVI Xvid "packed
+    // B-frames" (`ffmpeg` tự cảnh báo "non-standard and wasteful way to
+    // store B-frames"): một packet đóng gói CẢ P-frame lẫn B-frame trễ,
+    // decoder tách ra 2 `receive_frame()` từ 1 `send_packet()` nhưng B-frame
+    // tách ra kế thừa TRÙNG pts với frame kế tiếp → sau khi encode lại
+    // H.264, hai packet output liên tiếp trùng dts → mp4 muxer chặn cứng
+    // ("Application provided invalid, non monotonically increasing dts",
+    // `AVERROR(EINVAL)` = "Invalid argument" đúng như user báo, khác hẳn bug
+    // AC3 audio đã vá — đây là VIDEO, không phải audio). CLI `ffmpeg` chính
+    // thức tự bơm dts lên `last_mux_dts + 1` khi gặp case này thay vì lỗi
+    // cứng (`ffmpeg.c::bump_dts`) — API native không tự làm hộ, phải làm tay
+    // ở `drain_video_encoder`.
+    let mut last_video_dts: Option<i64> = None;
     let mut video_scaler = scaling::Context::get(
         video_decoder.format(),
         video_decoder.width(),
@@ -195,7 +209,7 @@ pub fn reencode_to_mp4(input_path: &str, output_path: &str) -> Result<(), ffmpeg
         let in_index = stream.index();
         if in_index == video_in_index {
             video_decoder.send_packet(&packet)?;
-            drain_video(&mut video_decoder, &mut video_scaler, &mut video_encoder, &mut octx, video_ist_time_base, video_out_index)?;
+            drain_video(&mut video_decoder, &mut video_scaler, &mut video_encoder, &mut octx, video_ist_time_base, video_out_index, &mut last_video_dts)?;
         } else if in_index == audio_in_index {
             let mut packet = packet;
             packet.rescale_ts(audio_ist_time_base, audio_dec_time_base);
@@ -206,9 +220,9 @@ pub fn reencode_to_mp4(input_path: &str, output_path: &str) -> Result<(), ffmpeg
 
     // Flush video: decoder -> scaler -> encoder.
     video_decoder.send_eof()?;
-    drain_video(&mut video_decoder, &mut video_scaler, &mut video_encoder, &mut octx, video_ist_time_base, video_out_index)?;
+    drain_video(&mut video_decoder, &mut video_scaler, &mut video_encoder, &mut octx, video_ist_time_base, video_out_index, &mut last_video_dts)?;
     video_encoder.send_eof()?;
-    drain_video_encoder(&mut video_encoder, &mut octx, video_ist_time_base, video_out_index)?;
+    drain_video_encoder(&mut video_encoder, &mut octx, video_ist_time_base, video_out_index, &mut last_video_dts)?;
 
     // Flush audio: decoder -> filter -> encoder.
     audio_decoder.send_eof()?;
@@ -229,6 +243,7 @@ fn drain_video(
     octx: &mut format::context::Output,
     ist_time_base: Rational,
     out_index: i32,
+    last_dts: &mut Option<i64>,
 ) -> Result<(), ffmpeg::Error> {
     let mut decoded = frame::Video::empty();
     while decoder.receive_frame(&mut decoded).is_ok() {
@@ -239,17 +254,42 @@ fn drain_video(
         scaler.run(&decoded, &mut scaled)?;
         scaled.set_pts(ts);
         encoder_ctx.send_frame(&scaled)?;
-        drain_video_encoder(encoder_ctx, octx, ist_time_base, out_index)?;
+        drain_video_encoder(encoder_ctx, octx, ist_time_base, out_index, last_dts)?;
     }
     Ok(())
 }
 
-fn drain_video_encoder(encoder_ctx: &mut encoder::Video, octx: &mut format::context::Output, ist_time_base: Rational, out_index: i32) -> Result<(), ffmpeg::Error> {
+fn drain_video_encoder(
+    encoder_ctx: &mut encoder::Video,
+    octx: &mut format::context::Output,
+    ist_time_base: Rational,
+    out_index: i32,
+    last_dts: &mut Option<i64>,
+) -> Result<(), ffmpeg::Error> {
     let out_tb = octx.stream(out_index as usize).unwrap().time_base();
     let mut encoded = ffmpeg::Packet::empty();
     while encoder_ctx.receive_packet(&mut encoded).is_ok() {
         encoded.set_stream(out_index as usize);
         encoded.rescale_ts(ist_time_base, out_tb);
+        // Xem doc comment ở `reencode_to_mp4` (khai báo `last_video_dts`) —
+        // "packed B-frames" của Xvid/DivX cũ có thể khiến 2 packet output
+        // liên tiếp trùng dts sau rescale. Bơm dts lên tối thiểu
+        // `last_dts + 1` (giữ nguyên bất biến dts <= pts của H.264) đúng
+        // cách `ffmpeg` CLI chính thức tự làm, thay vì để muxer trả
+        // `AVERROR(EINVAL)`.
+        if let Some(dts) = encoded.dts() {
+            let fixed_dts = match *last_dts {
+                Some(prev) if dts <= prev => prev + 1,
+                _ => dts,
+            };
+            if fixed_dts != dts {
+                encoded.set_dts(Some(fixed_dts));
+                if encoded.pts().is_none_or(|pts| pts < fixed_dts) {
+                    encoded.set_pts(Some(fixed_dts));
+                }
+            }
+            *last_dts = Some(fixed_dts);
+        }
         encoded.write_interleaved(octx)?;
     }
     Ok(())
