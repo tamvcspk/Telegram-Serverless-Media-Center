@@ -213,6 +213,18 @@ export function cleanupTempDir(dirPath: string): Promise<void> {
   return invoke<void>('cleanup_temp_dir', { dirPath });
 }
 
+/** Trần upload thật (byte) của tài khoản đang đăng nhập — đọc lại số ĐÃ cache
+ * phía Rust (`GrammersIngestRpc::max_upload_bytes`, KHÔNG có RPC nào chạy).
+ * Gọi MỘT LẦN mỗi batch (`startUpload()`) rồi tự so với
+ * `PreparedUploadDto.file_size_bytes` của từng file TRƯỚC KHI gọi
+ * `uploadVideo()` — chuẩn hoá size, option A (brainstorm 2026-09-18): chặn
+ * sớm thay vì để lỗi `FileTooLarge` bắn muộn sau khi remux/re-encode đã tốn
+ * xong thời gian (mockup `docs/ux-design.md` dòng "Remux xong vượt trần
+ * kích thước"). */
+export function getMaxUploadBytes(): Promise<number> {
+  return invoke<number>('get_max_upload_bytes');
+}
+
 /** Upload video kèm thumbnail — thao tác DUY NHẤT bắn sự kiện `"upload-
  * progress"` trong lúc chạy (dùng `onUploadProgress()` bên dưới để lắng
  * nghe), và DUY NHẤT huỷ được giữa chừng (`cancelUpload(taskId)`). `taskId`
@@ -320,6 +332,18 @@ export function describeIngestError(err: IngestRpcErrorDto): string {
     case 'Other':
       return err.detail;
   }
+}
+
+/** Thông báo tiếng Việt cho case "remux xong vượt trần kích thước" (chuẩn hoá
+ * size, option A, brainstorm 2026-09-18) — CÙNG cách diễn đạt với case
+ * `FileTooLarge` của `describeIngestError()` (đây là phát hiện SỚM hơn của
+ * đúng cùng một trần, trước khi thử upload) nhưng gợi ý cụ thể hơn vì phát
+ * hiện lúc này còn cơ hội sửa (giảm bitrate video/độ phân giải hoặc cắt tập —
+ * chưa tự động hoá, xem `docs/roadmap.md` § Ingest). */
+export function describeSizeCapExceeded(actualBytes: number, maxBytes: number): string {
+  const actualGb = (actualBytes / 1_000_000_000).toFixed(2);
+  const maxGb = (maxBytes / 1_000_000_000).toFixed(2);
+  return `File sau khi remux nặng ${actualGb} GB, vượt trần ${maxGb} GB của tài khoản — Telegram sẽ từ chối nếu vẫn upload. Cần giảm bitrate video/độ phân giải bằng công cụ khác rồi kéo lại vào đây, hoặc cắt thành nhiều tập nhỏ hơn trước khi ingest (app chưa tự làm được việc này).`;
 }
 
 /** Tra cứu TMDB (ADR-0019) — bốn command KHÔNG thuộc `IngestRpc` (không phải

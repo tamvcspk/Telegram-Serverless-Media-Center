@@ -481,6 +481,10 @@ impl IngestRpc for GrammersIngestRpc {
         self.client.edit_message(peer_ref, msg_id as i32, InputMessage::new().text(caption)).await.map_err(to_rpc_error)?;
         Ok(())
     }
+
+    fn max_upload_bytes(&self) -> u64 {
+        self.max_upload_bytes
+    }
 }
 
 impl GrammersIngestRpc {

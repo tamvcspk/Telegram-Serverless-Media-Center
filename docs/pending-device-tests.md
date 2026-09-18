@@ -680,3 +680,27 @@ Liên quan: [ADR-0019 § addendum 2026-09-18, dạng cây/nhóm](./adr/0019-tich
 - Virtual scroll giật/tính sai vị trí cuộn → kiểm header nhóm có đang render đúng CHIỀU CAO 48px (CSS `.group-header` phải dùng chung class `.metadata-row`/`.table-row`, không tự ý đổi `height`/`padding` làm lệch khỏi 48px).
 - Nhóm "series" hoặc "season" không đúng thứ tự alphabet/số → kiểm `flattenMetadataTree()` (`libs/core-ingest/src/metadata-tree.ts`) bằng test case tương ứng trong `metadata-tree.spec.ts` trước khi nghi ngờ code UI.
 - Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0019 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
+
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — chuẩn hoá size, chặn sớm TRƯỚC upload (2026-09-19)
+
+Liên quan: [ADR-0017 § addendum 2026-09-19, chặn sớm TRƯỚC upload](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-19-chuẩn-hoá-size--chặn-sớm-trước-upload-ingestrpc-thêm-1-thao-tác), [docs/roadmap.md § Ingest](./roadmap.md#ingest) (option C/D/E + progress/cancel còn `[Chưa bắt đầu]`, không thuộc phạm vi slice này). Cần MỘT file thật mà sau khi remux/re-encode xong vẫn vượt trần tài khoản (2GB thường / 4GB Premium) — dễ tái tạo nhất bằng file gốc đã to sẵn gần trần (vd file 4K bitrate cao) trên tài khoản thường (trần 2GB thấp hơn, dễ vượt hơn).
+
+**KHÔNG chạy hộ bằng agent/Claude.** Admin tự chạy `cargo tauri dev`.
+
+### Chuẩn bị
+
+- [x] `cargo build`/`cargo clippy --workspace -- -D warnings`/`ng build`/`npm run lint`/`npm run docs:check`/`npm run test:libs` (320 test, không đổi) sạch — verify 2026-09-19.
+
+### Các bước
+
+- [x] Kéo một file mà sau remux/re-encode vượt trần (2GB/4GB tuỳ tài khoản) vào Workspace, bấm Upload → item đó dừng ở stage lỗi NGAY SAU remux/re-encode (không chuyển sang `uploading_video`), thông báo đúng `describeSizeCapExceeded()` (hiện đúng số GB thật cả hai chiều), batch vẫn chạy tiếp cho các file khác trong cùng lượt Upload.
+- [x] Cùng batch, có file KHÔNG vượt trần → file đó upload bình thường, không bị ảnh hưởng bởi file lỗi ở trên.
+- [x] Xác nhận KHÔNG có RPC `upload_video()` nào được gọi cho file vượt trần (kiểm log `cargo tauri dev`/Nhật ký — không thấy dòng bắt đầu upload cho file đó) — khác hành vi cũ (addendum 2026-09-13) là mở kết nối rồi mới bị chặn.
+- [ ] Thư mục tạm (`temp_dir`) của file bị chặn vẫn được dọn (`cleanupTempDir()` chạy trong `finally`) — không để lại rác lớn (file .mp4 đã remux) trong temp của HĐH.
+- [ ] `getMaxUploadBytes()` gọi lỗi (vd mất đăng nhập giữa lúc mở Workspace, hiếm) → hiện lỗi rõ ở banner, `uploading` không bị kẹt ở `true` mãi (nút Upload dùng lại được sau khi đăng nhập lại).
+
+### Nếu có gì vỡ
+
+- Thông báo hiện sai số GB → kiểm `PreparedUploadDto.file_size_bytes` (Rust, `std::fs::metadata` đọc `remuxed_path`) có đúng bằng dung lượng thật của file `.mp4` tạm không, đối chiếu `get_max_upload_bytes()` trả đúng field cache `GrammersIngestRpc.max_upload_bytes` (4GB Premium/2GB thường, đọc lúc đăng nhập).
+- File vượt trần vẫn thấy gọi `upload_video()`/vẫn dính `FileTooLarge` ở tầng cũ → kiểm thứ tự trong `processItem()` (`workspace.ts`) — so sánh `file_size_bytes` phải nằm NGAY ĐẦU khối `try` sau `prepareUpload()`, trước dòng `updateQueueItem(..., { stage: 'uploading_video' })`.
+- Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0017 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.

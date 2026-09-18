@@ -19,6 +19,23 @@ use crate::dto::{CurrentTaskDto, IngestRpcErrorDto, UploadProgressDto, UploadedR
 use crate::state::{AppState, ConnState};
 use crate::tmdb::TMDB_IMAGE_BASE_LARGE;
 
+/// Trần upload thật (byte) của tài khoản đang đăng nhập — đọc lại field ĐÃ
+/// cache trong `GrammersIngestRpc` (`IngestRpc::max_upload_bytes()`, KHÔNG
+/// RPC nào chạy). Angular gọi command này MỘT LẦN mỗi batch (`startUpload()`)
+/// rồi tự so với `PreparedUploadDto.file_size_bytes` của từng file TRƯỚC khi
+/// gọi `upload_video()` — chuẩn hoá size, option A (brainstorm 2026-09-18):
+/// chặn TRƯỚC khi mở kết nối upload thay vì để `FileTooLarge` bắn muộn SAU
+/// khi remux/re-encode đã tốn xong thời gian (mockup `docs/ux-design.md`
+/// dòng "Remux xong vượt trần kích thước").
+#[tauri::command]
+pub async fn get_max_upload_bytes(state: State<'_, AppState>) -> Result<u64, IngestRpcErrorDto> {
+    let conn = state.conn.lock().await;
+    let ConnState::Ready { rpc, .. } = &*conn else {
+        return Err(IngestRpcErrorDto::other("chưa đăng nhập xong"));
+    };
+    Ok(rpc.max_upload_bytes())
+}
+
 /// Upload video kèm `DocumentAttributeVideo`/thumbnail — thao tác DUY NHẤT
 /// cần tiến trình/huỷ (đủ lớn/đủ lâu để cần, SPIKE-10 M4/M5). Tiến trình bắn
 /// qua sự kiện `"upload-progress"` (không phải giá trị trả về — một lần gọi

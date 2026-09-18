@@ -386,3 +386,35 @@ Addendum 2026-09-15 chốt phạm vi đối soát CHỈ một chiều (catalog i
 User xác nhận qua `cargo tauri dev` + tài khoản thật: 4/7 bước checklist của addendum 2026-09-16 đã ĐẠT — kênh có video ngoài catalog → "Tìm file mồ côi" hiện ĐÚNG đúng file đó; kênh lành mạnh → báo đúng "không tìm thấy"; bỏ tick một phần trong `OrphanReviewDialog` rồi "Thêm vào catalog" → chỉ đúng dòng còn tick được thêm, "Lưu catalog" ra đúng số item; đóng dialog không bấm "Thêm vào catalog" → không thêm gì. Xác nhận `scan_channel_videos()` (lọc bằng `DocumentAttribute::Video`, không dùng server-side `MessagesFilter`) hoạt động đúng như thiết kế trên dữ liệu kênh thật.
 
 **Còn mở, không chặn (để đó theo yêu cầu user):** file mồ côi không có `DocumentAttributeFilename` (fallback hiển thị `#msgId`) chưa test bằng file thật kiểu này; thời gian quét thật trên kênh có vài trăm/nghìn message chưa đo (v1 không có progress bar); FLOOD_WAIT rơi vào lúc quét chưa gặp tự nhiên (không chủ động ép, CLAUDE.md). Checklist đầy đủ ở [docs/pending-device-tests.md](../pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--trình-quản-lý-catalog-đối-soát-chiều-ngược-lại-2026-09-16) — ba mục này vẫn còn `[ ]` chưa tick, mục còn lại đã `[x]`.
+
+## Cập nhật sau khi Accepted (2026-09-19, chuẩn hoá size — chặn sớm TRƯỚC upload, `IngestRpc` thêm 1 thao tác)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết
+> định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó —
+> quyết định gốc **vẫn đứng vững**.
+
+Brainstorm 2026-09-18 (không code) về "chuẩn hoá size bằng ffmpeg" đưa ra 5 hướng (chặn sớm/hạ audio/re-encode theo bitrate/downscale/split file). User chọn 4 hướng A/C/D/E (bỏ hướng hạ riêng audio bitrate — tiết kiệm được quá ít để đáng một slice riêng), quyết định 2026-09-19: **chỉ code option A trong session này**, ba hướng còn lại (C/D/E) cộng "progress event + cancel cho `remux()`/`reencode_to_mp4()`" đưa vào [docs/roadmap.md § Ingest](../roadmap.md#ingest) cho các session sau — mỗi hướng đổi hành vi remux/reencode ở mức khác nhau, không verify chung một lượt.
+
+**Gap thật, khác addendum 2026-09-13 ở trên:** addendum đó chặn size **REACTIVELY** — đúng lúc `upload_video()` mở kết nối, SAU KHI remux/re-encode đã tốn xong thời gian. Mockup [docs/ux-design.md § A.5](../ux-design.md), dòng "Remux xong vượt trần kích thước", ghi ý định khác: "chặn TRƯỚC khi upload kèm gợi ý... thà biết sớm còn hơn hỏng ở part cuối sau 40 phút" — ý định này chưa từng được code, tới addendum này mới đóng.
+
+**Quyết định (bổ sung, không đổi 4 điều kiện bắt buộc gốc):** thêm method thứ 14 vào `IngestRpc` — `fn max_upload_bytes(&self) -> u64` (`ingest-rpc-trait/src/lib.rs`). Cố ý **KHÔNG async** — không có I/O nào để chờ, chỉ đọc lại field `GrammersIngestRpc::max_upload_bytes` đã cache lúc `new()` (addendum 2026-09-14, tier-aware threshold). Đây là **ngoại lệ thứ chín** không tương ứng 1-1 phía TS.
+
+**Implementation:**
+- `GrammersIngestRpc::max_upload_bytes()` — trả thẳng field, không RPC.
+- Command Tauri mới `get_max_upload_bytes` (`src-tauri/src/upload.rs`) — khoá `state.conn`, đọc qua `IngestRpc`, lỗi `NotAuthorized`-kiểu nếu chưa `ConnState::Ready`.
+- `PreparedUploadDto` (`dto.rs`) thêm field `file_size_bytes: u64` — `pipeline.rs::prepare_upload_blocking()` đọc bằng `std::fs::metadata(&remuxed_path_str)` NGAY SAU remux/re-encode (trước khi trả kết quả về Angular). Lỗi đọc metadata (bất thường thật — file vừa ghi xong) trả lỗi rõ, KHÔNG che bằng giá trị mặc định 0 (0 sẽ vô tình luôn "qua" mọi trần).
+- Angular (`workspace.ts::startUpload()`): gọi `getMaxUploadBytes()` MỘT LẦN mỗi batch, TRƯỚC KHI đặt `uploading` (một lỗi hiếm ở đây không kẹt UI ở trạng thái "đang upload" mãi). `processItem()` so `prepared.file_size_bytes` với trần đó NGAY SAU `prepareUpload()`, ném lỗi (`describeSizeCapExceeded()`, `ingest-rpc.ts` — cùng cách diễn đạt GB với case `FileTooLarge` cũ, nhưng gợi ý cụ thể hơn vì phát hiện lúc này còn cơ hội sửa) nếu vượt. Lỗi ném **BÊN TRONG** `try` (không trước) để `finally` hiện có vẫn dọn `temp_dir` như mọi lỗi khác — batch tiếp tục cho các file còn lại, cùng triết lý "một file lỗi không chặn batch" đã có ở mọi bước khác của pipeline này.
+
+**Giới hạn có chủ đích — chỉ "biết sớm hơn", KHÔNG tự sửa gì:** không hạ bitrate audio/video, không tự re-encode lại, không cắt file. Ba hướng chủ động hơn đó nằm ở roadmap, mỗi hướng cần quyết định riêng (re-encode theo bitrate mục tiêu buộc Hạng A/B/C phải decode/encode thật giống Hạng D — cần hỏi xác nhận riêng + một SPIKE nhỏ verify `h264_mf` có tôn trọng `set_bit_rate()`; cắt file cần một ADR riêng vì đụng catalog-spec + player).
+
+`cargo build`/`cargo clippy --workspace -- -D warnings`/`ng build`/`npm run lint`/`npm run docs:check`/`npm run test:libs` (320 test, không đổi) sạch. **CHƯA verify bằng tài khoản Telegram thật** — chưa có file thật vượt trần sau remux để thử qua `cargo tauri dev`. Checklist ở [docs/pending-device-tests.md](../pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--chuẩn-hoá-size-chặn-sớm-trước-upload-2026-09-19).
+
+## Cập nhật sau khi Accepted (2026-09-19, verify chặn sớm TRƯỚC upload — ĐẠT một phần)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết
+> định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó —
+> quyết định gốc **vẫn đứng vững**.
+
+User xác nhận qua `cargo tauri dev` + tài khoản thật, 3/5 bước checklist của addendum ngay trên đã ĐẠT: (1) file vượt trần sau remux dừng đúng NGAY SAU remux/re-encode, KHÔNG chuyển sang `uploading_video`, thông báo `describeSizeCapExceeded()` hiện đúng số GB thật; (2) cùng batch, file không vượt trần vẫn upload bình thường, không bị ảnh hưởng; (3) xác nhận KHÔNG có RPC `upload_video()` nào được gọi cho file vượt trần — đúng hành vi "chặn TRƯỚC" khác hẳn addendum 2026-09-13 (mở kết nối rồi mới bị chặn).
+
+**Còn mở, không chặn (chưa test, không phải phát hiện lỗi):** dọn `temp_dir` của file bị chặn (`cleanupTempDir()` trong `finally`) chưa xác nhận riêng; nhánh `getMaxUploadBytes()` lỗi (vd mất đăng nhập giữa lúc mở Workspace) chưa tái hiện được để test. Checklist ở [docs/pending-device-tests.md](../pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--chuẩn-hoá-size-chặn-sớm-trước-upload-2026-09-19) — hai mục này vẫn còn `[ ]` chưa tick, ba mục còn lại đã `[x]`.

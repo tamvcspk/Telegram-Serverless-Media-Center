@@ -36,8 +36,10 @@ import {
   cleanupTempDir,
   clearCurrentTask,
   describeIngestError,
+  describeSizeCapExceeded,
   describeTmdbError,
   getCurrentTask,
+  getMaxUploadBytes,
   listDirEntries,
   listMediaFiles,
   onPipelineStage,
@@ -724,6 +726,21 @@ export class Workspace implements OnInit {
       return;
     }
 
+    // Chuẩn hoá size, option A (brainstorm 2026-09-18) — đọc trần MỘT LẦN
+    // cho cả batch (không đổi giữa các file, cùng tài khoản/phiên đăng nhập)
+    // TRƯỚC KHI đặt `uploading`, để một lỗi hiếm ở đây (vd mất đăng nhập giữa
+    // lúc mở Workspace) không kẹt UI ở trạng thái "đang upload" mãi.
+    // `processItem()` tự so với `file_size_bytes` của từng file NGAY SAU
+    // remux, trước khi tốn thêm một RPC `uploadVideo()` chắc chắn bị Telegram
+    // từ chối.
+    let maxUploadBytes: number;
+    try {
+      maxUploadBytes = await getMaxUploadBytes();
+    } catch (err) {
+      this.publishError.set(describeIngestError(toIngestRpcError(err)));
+      return;
+    }
+
     // Hạng D — re-encode video THẬT, đắt hơn hẳn remux. MỘT dialog tổng hợp
     // cho CẢ BATCH, toggle riêng từng file (mặc định checked) — thay bản
     // trước hỏi TỪNG FILE một dialog riêng (ADR-0018 § "Quyết định kèm
@@ -772,7 +789,7 @@ export class Workspace implements OnInit {
 
       this.currentUploadTaskId.set(taskId);
       try {
-        const finalMetadata = await this.processItem(queued);
+        const finalMetadata = await this.processItem(queued, maxUploadBytes);
         newItems.push(finalMetadata);
         this.updateQueueItem(taskId, { stage: 'done' });
       } catch (err) {
@@ -809,7 +826,7 @@ export class Workspace implements OnInit {
    * compat/subs thật) — ném lỗi nếu bất kỳ bước nào thất bại, để
    * `startUpload()` đánh dấu đúng item đó Lỗi mà KHÔNG dừng các item còn lại
    * trong batch. */
-  private async processItem(item: UploadQueueItem): Promise<CatalogItemV1> {
+  private async processItem(item: UploadQueueItem, maxUploadBytes: number): Promise<CatalogItemV1> {
     const mode: RemuxModeDto = item.rank === 'D' ? 'reencode_all' : item.rank === 'C' ? 'reencode_audio' : 'copy';
 
     const probeDto = await probeMedia(item.path);
@@ -821,6 +838,15 @@ export class Workspace implements OnInit {
     const prepared: PreparedUploadDto = await prepareUpload(item.taskId, item.path, mode, subtitleTracks);
 
     try {
+      // Chuẩn hoá size, option A (brainstorm 2026-09-18) — chặn TRƯỚC khi mở
+      // kết nối `uploadVideo()` (mockup `docs/ux-design.md` dòng "Remux xong
+      // vượt trần kích thước"), thay vì để `FileTooLarge` bắn muộn sau khi
+      // remux/re-encode đã tốn xong thời gian. Ném lỗi bên trong `try` (không
+      // trước nó) để `finally` dưới vẫn dọn `temp_dir` như mọi lỗi khác.
+      if (prepared.file_size_bytes > maxUploadBytes) {
+        throw new Error(describeSizeCapExceeded(prepared.file_size_bytes, maxUploadBytes));
+      }
+
       this.updateQueueItem(item.taskId, { stage: 'uploading_video', progress: undefined });
       const compat = deriveCompat(
         prepared.final_probe.video ?? undefined,

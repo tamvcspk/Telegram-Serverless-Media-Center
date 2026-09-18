@@ -277,7 +277,11 @@ pub struct PreparedSubtitleDto {
 /// sàng cho `upload_video()`/`upload_subtitle()`. `final_probe` là probe LẠI
 /// file ĐÃ remux (không phải file gốc) — Angular tự `deriveCompat()` từ đây
 /// để biết nhãn `compat` thật ghi vào catalog (ADR-0017 điều kiện bắt buộc
-/// #4: crate/command không tự quyết compat).
+/// #4: crate/command không tự quyết compat). `file_size_bytes` (thêm
+/// 2026-09-19, chuẩn hoá size) là dung lượng THẬT của `remuxed_path` trên
+/// đĩa — Angular tự so với `get_max_upload_bytes()` TRƯỚC khi gọi
+/// `upload_video()`, không tự quyết trần ở tầng Rust (ADR-0017 điều kiện bắt
+/// buộc #4, cùng nguyên tắc `compat`).
 #[derive(Debug, Serialize)]
 pub struct PreparedUploadDto {
     pub temp_dir: String,
@@ -285,6 +289,7 @@ pub struct PreparedUploadDto {
     pub thumbnail_path: String,
     pub subtitles: Vec<PreparedSubtitleDto>,
     pub final_probe: ProbeResultDto,
+    pub file_size_bytes: u64,
 }
 
 /// Snapshot của task upload/pipeline ĐANG chạy — dùng để hydrate lại UI khi

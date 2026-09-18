@@ -73,6 +73,7 @@ pub fn run() {
             probe::list_dir_entries,
             pipeline::prepare_upload,
             pipeline::cleanup_temp_dir,
+            upload::get_max_upload_bytes,
             upload::upload_video,
             upload::upload_subtitle,
             upload::upload_tmdb_poster,

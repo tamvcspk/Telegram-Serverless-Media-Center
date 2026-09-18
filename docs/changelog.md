@@ -4,6 +4,18 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-09-19 — GUI ingest desktop: verify chuẩn hoá size (option A) — ĐẠT 3/5 bước qua tài khoản thật
+
+User xác nhận qua `cargo tauri dev` + tài khoản thật: file vượt trần sau remux bị chặn ĐÚNG NGAY sau remux/re-encode (không chuyển sang `uploading_video`, không gọi `upload_video()`), thông báo đúng số GB thật, batch vẫn chạy tiếp cho file khác không vượt trần. Còn mở, chưa test (không phải lỗi phát hiện): dọn `temp_dir` của file bị chặn, nhánh `getMaxUploadBytes()` lỗi. Chi tiết: [ADR-0017 § addendum 2026-09-19, verify ĐẠT một phần](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-19-verify-chặn-sớm-trước-upload--đạt-một-phần).
+
+## 2026-09-19 — GUI ingest desktop: chuẩn hoá size — chặn sớm TRƯỚC upload (option A)
+
+Brainstorm 2026-09-18 (5 hướng chuẩn hoá size bằng ffmpeg) → user chọn 4 hướng A/C/D/E, quyết định chỉ code option A trong session này — C/D/E + progress event/cancel cho `remux()`/`reencode_to_mp4()` đưa vào [docs/roadmap.md § Ingest](./roadmap.md#ingest) cho các session sau. Đóng đúng gap đã ghi ở mockup `docs/ux-design.md` § A.5 ("Remux xong vượt trần kích thước → chặn TRƯỚC khi upload") mà addendum "đóng gap M7" (2026-09-13) chưa từng làm — bản đó chỉ chặn REACTIVELY lúc `upload_video()` mở kết nối, sau khi đã tốn thời gian remux/re-encode.
+
+`IngestRpc` thêm method thứ 14 `max_upload_bytes()` (không async, chỉ đọc field cache) + command Tauri mới `get_max_upload_bytes`; `PreparedUploadDto` thêm `file_size_bytes` (đọc bằng `std::fs::metadata` ngay sau remux). Angular so hai giá trị này NGAY SAU `prepareUpload()`, trước khi gọi `uploadVideo()` — vượt trần thì đánh dấu item lỗi ngay (thông báo `describeSizeCapExceeded()`), batch vẫn chạy tiếp. Chỉ "biết sớm hơn" — không tự hạ bitrate/re-encode/cắt file gì cả.
+
+`cargo build`/`cargo clippy --workspace -- -D warnings`/`ng build`/`npm run lint`/`npm run docs:check`/`npm run test:libs` (320 test, không đổi) sạch. CHƯA verify bằng tài khoản Telegram thật. Chi tiết: [ADR-0017 § addendum 2026-09-19](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-19-chuẩn-hoá-size--chặn-sớm-trước-upload-ingestrpc-thêm-1-thao-tác).
+
 ## 2026-09-18 — GUI ingest desktop: verify "Thêm vào series" — ĐẠT 7/7 bước, gồm cả bản vá checkbox
 
 User xác nhận qua tài khoản Telegram thật: 7/7 bước ĐẠT — series có sẵn (kế thừa genres/cast/director đúng), series mới xác nhận ĐÚNG sau bản vá checkbox (mục dưới), cross-reference catalog đã publish từ Workspace, và cả nhánh hàng loạt (season/episode tăng dần, tạo series mới từ nhiều phim, huỷ dialog không đổi gì). Chi tiết: [ADR-0019 § addendum 2026-09-18, verify ĐẠT 7/7](./adr/0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md#cập-nhật-sau-khi-accepted-2026-09-18-verify-thêm-vào-series--đạt-77-bước-gồm-cả-bản-vá-checkbox).

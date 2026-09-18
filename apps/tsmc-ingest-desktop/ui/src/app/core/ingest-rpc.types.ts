@@ -148,13 +148,17 @@ export interface PreparedSubtitleDto {
   path: string;
 }
 
-/** Khớp `PreparedUploadDto` — kết quả `prepare_upload()`. */
+/** Khớp `PreparedUploadDto` — kết quả `prepare_upload()`. `file_size_bytes`
+ * (thêm 2026-09-19, chuẩn hoá size) là dung lượng THẬT của `remuxed_path` —
+ * so với `getMaxUploadBytes()` TRƯỚC khi gọi `uploadVideo()` (xem
+ * `workspace.ts::processItem()`). */
 export interface PreparedUploadDto {
   temp_dir: string;
   remuxed_path: string;
   thumbnail_path: string;
   subtitles: PreparedSubtitleDto[];
   final_probe: ProbeResultDto;
+  file_size_bytes: number;
 }
 
 /** Khớp `TmdbKindDto` (ADR-0019) — `'episode'` → `search/tv`, `'movie'` →

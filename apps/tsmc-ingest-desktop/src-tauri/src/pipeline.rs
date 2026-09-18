@@ -72,6 +72,13 @@ fn prepare_upload_blocking(app: &AppHandle, task_id: &str, input_path: &str, mod
     .map_err(|e| IngestRpcErrorDto::other(format!("remux/re-encode lỗi: {e}")))?;
 
     let final_probe = ingest_ffmpeg::probe(&remuxed_path_str).map_err(|e| IngestRpcErrorDto::other(format!("probe lại sau remux lỗi: {e}")))?;
+    // Chuẩn hoá size (2026-09-19, option A của brainstorm) — đọc dung lượng
+    // THẬT ngay sau remux/re-encode, để Angular so với `get_max_upload_bytes()`
+    // TRƯỚC khi gọi `upload_video()` (chặn sớm, không đợi tới lúc Telegram từ
+    // chối `FileTooLarge` sau khi đã tốn thời gian remux). `std::fs::metadata`
+    // lỗi ở đây là bất thường thật (vừa ghi xong `remuxed_path_str`), không
+    // che bằng giá trị mặc định 0 (0 sẽ vô tình luôn "qua" mọi trần).
+    let file_size_bytes = std::fs::metadata(&remuxed_path_str).map_err(|e| IngestRpcErrorDto::other(format!("đọc dung lượng file sau remux lỗi: {e}")))?.len();
 
     emit_stage(app, task_id, input_path, "generating_thumbnail");
     let seek_secs = (final_probe.duration_sec / 2.0).floor().max(1.0);
@@ -95,7 +102,8 @@ fn prepare_upload_blocking(app: &AppHandle, task_id: &str, input_path: &str, mod
         remuxed_path: remuxed_path_str,
         thumbnail_path: thumbnail_path_str,
         subtitles,
-        final_probe: ProbeResultDto::from(final_probe)
+        final_probe: ProbeResultDto::from(final_probe),
+        file_size_bytes
     })
 }
 

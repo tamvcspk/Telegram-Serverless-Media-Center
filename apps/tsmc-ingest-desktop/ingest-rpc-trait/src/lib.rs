@@ -150,7 +150,7 @@ pub struct ChannelVideoDocument {
     pub duration_sec: Option<f64>,
 }
 
-/// Mười lăm thao tác RPC mà implementation MTProto phải đáp ứng — bọc cổng
+/// Mười sáu thao tác RPC mà implementation MTProto phải đáp ứng — bọc cổng
 /// theo đúng nguyên tắc `TelegramGateway` của ADR-0003: đổi thư viện MTProto
 /// sau này (nếu cần) là đổi implementation của trait này, không lan ra toàn
 /// bộ app (điều kiện bắt buộc #2, ADR-0017). Bảy thao tác đầu khớp 1-1 với
@@ -159,9 +159,10 @@ pub struct ChannelVideoDocument {
 /// (2026-09-11), `sign_out` (2026-09-14), `check_deleted_messages`/
 /// `delete_message` (2026-09-15, Trình quản lý catalog),
 /// `scan_channel_videos` (2026-09-16, đối soát chiều ngược lại),
-/// `upload_poster` (2026-09-17, TMDB nâng cao) và `edit_message_caption`
-/// (2026-09-18, sync hashtag caption) là NGOẠI LỆ có chủ đích: tám thao tác
-/// desktop-only, không có tương ứng 1-1 phía TS.
+/// `upload_poster` (2026-09-17, TMDB nâng cao), `edit_message_caption`
+/// (2026-09-18, sync hashtag caption) và `max_upload_bytes` (2026-09-19,
+/// chuẩn hoá size — chặn sớm trước upload) là NGOẠI LỆ có chủ đích: chín
+/// thao tác desktop-only, không có tương ứng 1-1 phía TS.
 /// `sign_out` khác về bản chất so với hai cái đầu (những cái đó là "kênh",
 /// cái này là "tài khoản") — `apps/web` có đăng xuất riêng
 /// (`logout-confirm-sheet.ts`) nhưng đó là một luồng client-heavy phức tạp
@@ -294,4 +295,16 @@ pub trait IngestRpc: Send + Sync {
     /// không có nhu cầu sửa caption message video, chỉ ghi/xoá nguyên khối
     /// `catalog.json`.
     async fn edit_message_caption(&self, channel: &ResolvedChannel, msg_id: i64, caption: String) -> Result<(), IngestRpcError>;
+
+    /// 14. Trần upload thật (byte) của tài khoản đang đăng nhập — đọc một
+    /// lần lúc dựng implementation (`GrammersIngestRpc::new()`, qua
+    /// `get_me()`/`is_premium()`), hàm này chỉ trả lại số ĐÃ cache, KHÔNG tự
+    /// gọi RPC. Cho tầng gọi (Angular) so dung lượng file ĐÃ remux xong với
+    /// trần này TRƯỚC khi gọi `upload_video()` — tránh phát hiện muộn qua lỗi
+    /// `FileTooLarge` SAU KHI remux/re-encode đã tốn xong thời gian (mockup
+    /// [docs/ux-design.md § A.5](../../../docs/ux-design.md), dòng "Remux
+    /// xong vượt trần kích thước": "chặn TRƯỚC khi upload"). Cố ý KHÔNG
+    /// `async` — không có I/O nào để chờ. NGOẠI LỆ thứ chín không tương ứng
+    /// 1-1 phía TS.
+    fn max_upload_bytes(&self) -> u64;
 }
