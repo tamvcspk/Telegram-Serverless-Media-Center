@@ -12,10 +12,12 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import type { CompatRank } from '@tsmc/core-ingest';
 import {
   assertChannelWritable,
+  assignToSeries,
   buildCatalogEnvelope,
   classifyCompatRank,
   composeCaption,
   deriveCompat,
+  findRepresentativeEpisode,
   flattenMetadataTree,
   inheritMetadata,
   matchSidecarSubtitles,
@@ -530,7 +532,8 @@ export class Workspace implements OnInit {
    * nào trên kênh (chưa có message nào để xoá). */
   protected async onEditAdvanced(item: QueueItem): Promise<void> {
     const kind = item.metadata.kind === 'episode' ? 'episode' : 'movie';
-    const result = await this.dialogService.editAdvancedMetadata(item.metadata, kind);
+    const knownItems = await this.fetchKnownItems();
+    const result = await this.dialogService.editAdvancedMetadata(item.metadata, kind, knownItems);
     if (!result) {
       return;
     }
@@ -540,6 +543,43 @@ export class Workspace implements OnInit {
     } else if (result.posterChange?.type === 'remove') {
       this.updateItem(item.path, { pendingPosterPath: undefined });
     }
+  }
+
+  /** Item ĐÃ BIẾT cho "Thêm vào series"/"Sửa nâng cao" — GHÉP catalog ĐÃ
+   * PUBLISH (đọc lại pinned catalog, brainstorm 2026-09-18: "cross-reference
+   * catalog đã publish") với item trong Draft đang sửa. Best-effort: đọc
+   * pinned catalog lỗi (chưa chọn kênh, mất mạng) → chỉ dùng Draft, KHÔNG
+   * chặn việc mở dialog vì đây là danh sách GỢI Ý, không phải điều kiện bắt
+   * buộc. */
+  private async fetchKnownItems(): Promise<CatalogItemV1[]> {
+    const draftItems = this.queue().map((i) => i.metadata);
+    try {
+      const pinned = await readPinnedCatalog();
+      const published = pinned ? parseExistingCatalogItems(pinned.raw) : [];
+      return [...published, ...draftItems];
+    } catch {
+      return draftItems;
+    }
+  }
+
+  /** "Thêm vào series" hàng loạt (brainstorm 2026-09-18) — chiều NGƯỢC LẠI
+   * `convertSelectedToMovie()`. Gợi ý tên series mới bằng title (hoặc tên
+   * file) của dòng ĐẦU TIÊN đã chọn, cùng tinh thần `fillDown()`. */
+  protected async addSelectedToSeries(): Promise<void> {
+    const selected = this.queue().filter((i) => i.selected);
+    if (selected.length === 0) {
+      return;
+    }
+    const knownItems = await this.fetchKnownItems();
+    const suggestedName = selected[0].metadata.title ?? selected[0].name;
+    const result = await this.dialogService.assignSeries(selected.length, suggestedName, knownItems);
+    if (!result) {
+      return;
+    }
+    const inheritFrom = result.inheritFromExisting ? findRepresentativeEpisode(knownItems, result.seriesName) : undefined;
+    selected.forEach((item, i) => {
+      this.updateMetadata(item.path, (m) => assignToSeries(m, result.seriesName, result.season, result.startEpisode + i, inheritFrom));
+    });
   }
 
   // --- Bảng metadata: thao tác hàng loạt trên các dòng đã chọn ---

@@ -1,0 +1,45 @@
+<h2 mat-dialog-title>Thêm {{ data.count }} dòng vào series</h2>
+<mat-dialog-content class="assign-series-content">
+  <mat-radio-group [value]="mode()" (change)="mode.set($any($event.value))">
+    <mat-radio-button value="existing" [disabled]="existingSeriesNames.length === 0">Series có sẵn</mat-radio-button>
+    <mat-radio-button value="new">Series mới</mat-radio-button>
+  </mat-radio-group>
+
+  @if (mode() === 'existing') {
+    <mat-form-field appearance="outline" class="full-width">
+      <mat-label>Chọn series</mat-label>
+      <select matNativeControl [value]="selectedExisting()" (change)="onSelectExisting($any($event.target).value)">
+        @for (name of existingSeriesNames; track name) {
+          <option [value]="name">{{ name }}</option>
+        }
+      </select>
+    </mat-form-field>
+    <mat-checkbox [checked]="inheritFromExisting()" (change)="inheritFromExisting.set($event.checked)">
+      Kế thừa thể loại/diễn viên/đạo diễn từ tập khác trong series
+    </mat-checkbox>
+  } @else {
+    <mat-form-field appearance="outline" class="full-width">
+      <mat-label>Tên series mới</mat-label>
+      <input matInput type="text" [value]="newName()" (input)="newName.set($any($event.target).value)" />
+    </mat-form-field>
+  }
+
+  <div class="season-episode-row">
+    <mat-form-field appearance="outline">
+      <mat-label>Season</mat-label>
+      <input matInput type="number" [value]="season()" (input)="season.set($any($event.target).valueAsNumber)" />
+    </mat-form-field>
+    <mat-form-field appearance="outline">
+      <mat-label>Episode bắt đầu</mat-label>
+      <input matInput type="number" [value]="startEpisode()" (input)="startEpisode.set($any($event.target).valueAsNumber)" />
+    </mat-form-field>
+  </div>
+
+  @if (data.count > 1) {
+    <p class="hint">{{ data.count }} dòng sẽ đánh số episode tăng dần bắt đầu từ {{ startEpisode() }}, cùng Season {{ season() }}.</p>
+  }
+</mat-dialog-content>
+<mat-dialog-actions align="end">
+  <button mat-button type="button" (click)="onCancel()">Huỷ</button>
+  <button mat-flat-button type="button" color="primary" (click)="onConfirm()">Gán</button>
+</mat-dialog-actions>

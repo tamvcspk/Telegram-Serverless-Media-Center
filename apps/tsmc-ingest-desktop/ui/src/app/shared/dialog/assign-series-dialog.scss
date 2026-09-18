@@ -1,0 +1,29 @@
+:host {
+  display: block;
+  max-width: 28rem;
+}
+
+.assign-series-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.full-width {
+  width: 100%;
+}
+
+.season-episode-row {
+  display: flex;
+  gap: 1rem;
+
+  mat-form-field {
+    flex: 1 1 0;
+  }
+}
+
+.hint {
+  margin: 0;
+  opacity: 0.7;
+  font-size: 0.85rem;
+}

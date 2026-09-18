@@ -7,8 +7,10 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { Router } from '@angular/router';
 import {
+  assignToSeries,
   buildCatalogEnvelope,
   composeCaption,
+  findRepresentativeEpisode,
   flattenMetadataTree,
   mergeCatalogItems,
   parseExistingCatalogItems,
@@ -268,7 +270,7 @@ export class CatalogManager implements OnInit {
    * vốn không thuộc nội dung catalog nên sync được sau khi publish xong). */
   protected async onEditAdvanced(item: CatalogItemV1): Promise<void> {
     const kind: TmdbKind = item.kind === 'episode' ? 'episode' : 'movie';
-    const result = await this.dialogService.editAdvancedMetadata(item, kind, item.poster?.msgId);
+    const result = await this.dialogService.editAdvancedMetadata(item, kind, this.items(), item.poster?.msgId);
     if (!result) {
       return;
     }
@@ -289,6 +291,29 @@ export class CatalogManager implements OnInit {
         this.patchItem(item.msgId, { kind: 'movie', series: undefined });
       }
     }
+  }
+
+  /** "Thêm vào series" hàng loạt (brainstorm 2026-09-18) — chiều NGƯỢC LẠI
+   * `convertSelectedToMovie()`. Gợi ý tên series mới bằng title của dòng
+   * ĐẦU TIÊN đã chọn (cùng tinh thần `fillDown()`/`autoNumberEpisodes()` ở
+   * Workspace: "dòng đầu tiên đã chọn" làm nguồn gợi ý). Episode tăng dần
+   * theo thứ tự `items()` (không phải thứ tự hiển thị trên cây — cùng giới
+   * hạn đã ghi ở ADR-0019 cho `autoNumberEpisodes()`). */
+  protected async addSelectedToSeries(): Promise<void> {
+    const ids = this.selectedIds();
+    const selected = this.items().filter((item) => ids.has(item.msgId));
+    if (selected.length === 0) {
+      return;
+    }
+    const suggestedName = selected[0].title ?? `#${selected[0].msgId}`;
+    const result = await this.dialogService.assignSeries(selected.length, suggestedName, this.items());
+    if (!result) {
+      return;
+    }
+    const inheritFrom = result.inheritFromExisting ? findRepresentativeEpisode(this.items(), result.seriesName) : undefined;
+    selected.forEach((item, i) => {
+      this.patchItem(item.msgId, assignToSeries(item, result.seriesName, result.season, result.startEpisode + i, inheritFrom));
+    });
   }
 
   private patchItem(msgId: number, patch: Partial<CatalogItemV1>): void {

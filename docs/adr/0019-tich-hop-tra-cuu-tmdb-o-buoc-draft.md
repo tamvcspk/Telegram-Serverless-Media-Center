@@ -295,3 +295,73 @@ User xác nhận qua `cargo tauri dev` + tài khoản Telegram thật + API key 
 **Còn mở, chưa test (không chặn):** "Cố tình làm upload poster mới THẤT BẠI giữa chừng (rút mạng)" — khó chủ động tạo điều kiện lỗi mạng đúng lúc, để ngỏ tới khi có cơ hội tự nhiên (cùng tinh thần CLAUDE.md: không né/kích `FLOOD_WAIT`/lỗi mạng một cách nhân tạo).
 
 Không phát sinh lệch thiết kế nào — mọi hành vi khớp đúng addendum "Sửa nâng cao" và bản vá "Chuyển thành phim lẻ" ở trên.
+
+## Cập nhật sau khi Accepted (2026-09-18, "Thêm vào series" / "Tạo series mới")
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**.
+
+### Bối cảnh
+
+Chiều NGƯỢC LẠI "Chuyển thành phim lẻ" (addendum trước): đưa một phim lẻ (hoặc nhiều phim lẻ đã chọn) vào một series, có sẵn hoặc mới tạo.
+
+### Bốn hàm thuần mới (`libs/core-ingest/src/series-registry.ts`, 10 test case)
+
+- `listSeriesNames(items)`: tên series phân biệt đã có trong `items` (chỉ tính `kind === 'episode'`, bỏ tên rỗng), sort alphabet — nguồn cho picker "Series có sẵn", **KHÔNG cho gõ tay** để tránh lệch chữ hoa/thường tạo nhóm trùng lặp trong `flattenMetadataTree()` (nhóm theo string CHÍNH XÁC).
+- `findRepresentativeEpisode(items, seriesName)`: item ĐẦU TIÊN khớp series — nguồn "kế thừa" genres/cast/director.
+- `suggestNextEpisode(items, seriesName)`: season = season LỚN NHẤT đã dùng trong series (season mới hầu như luôn là "season đang chiếu tiếp", không phải season 1), episode = tập LỚN NHẤT trong đúng season đó + 1. Series chưa tồn tại → `{ season: 1, episode: 1 }`.
+- `assignToSeries(target, seriesName, season, episode, inheritFrom?)`: đổi `kind`/`series`, kế thừa **CÓ CHỌN LỌC** chỉ `genres`/`cast`/`director` từ `inheritFrom` nếu có — cố ý không đụng `title`/`year`/`msgId` của `target`. Khác `inheritMetadata()` (kế thừa TOÀN BỘ field, dùng cho "tập KẾ TIẾP của CÙNG MỘT phim" lúc seed tuần tự từ tên file) — ở đây `target` là MỘT PHIM LẺ CÓ SẴN với tên/năm riêng của chính nó, ghi đè toàn bộ sẽ mất dữ liệu thật.
+
+### Hai đường vào, dùng chung các hàm thuần trên
+
+- **Đơn lẻ** (`AdvancedMetadataDialog`, dùng chung Workspace + Catalog Manager): nhánh mới cho item ĐANG LÀ phim lẻ (`kind !== 'episode'`) — radio "Series có sẵn" (dropdown, tự gợi ý season/episode kế tiếp khi chọn, checkbox kế thừa mặc định BẬT) / "Series mới" (gõ tay, season/episode mặc định 1/1). Bấm "Thêm vào series" chỉ ĐÁNH DẤU ý định (`addedToSeries` signal), áp dụng thật (`assignToSeries()`) khi bấm "Lưu" của chính dialog — cùng nguyên tắc "Lưu/Huỷ là điểm xác nhận" đã áp dụng cho "Chuyển thành phim lẻ".
+- **Hàng loạt** (`AssignSeriesDialog` mới, `shared/dialog/`): chọn N dòng phim lẻ → một dialog chọn series (có sẵn/mới) MỘT LẦN cho cả batch → season cố định, episode tăng dần theo `startEpisode + index` (thứ tự `items()`/`queue()`, không phải thứ tự hiển thị cây — cùng giới hạn đã ghi cho `autoNumberEpisodes()`). Gợi ý tên series mới = title của dòng ĐẦU TIÊN đã chọn (cùng tinh thần `fillDown()`).
+
+`DialogService` thêm `assignSeries(count, suggestedName, knownItems)`. `editAdvancedMetadata()` đổi chữ ký, thêm tham số `knownItems: CatalogItemV1[]` (trước `posterMsgId`).
+
+### "Cross-reference catalog đã publish" (quyết định brainstorm)
+
+`knownItems` truyền vào không chỉ là bảng đang sửa, mà GHÉP thêm catalog ĐÃ PUBLISH:
+
+- **Catalog Manager:** đơn giản, `knownItems = this.items()` (đã load sẵn toàn bộ catalog, không cần đọc gì thêm).
+- **Workspace:** cần đọc THÊM — hàm mới `fetchKnownItems()` gọi `readPinnedCatalog()` + `parseExistingCatalogItems()` ghép với `queue()` hiện tại. Best-effort: đọc lỗi (chưa chọn kênh, mất mạng) → fallback chỉ dùng Draft, KHÔNG chặn mở dialog (đây là danh sách GỢI Ý, không phải điều kiện bắt buộc).
+
+### Trạng thái kiểm chứng
+
+`ng build` (không cảnh báo ngân sách)/`npm run lint`/`npm run test:libs` (320 test, 10 mới) sạch. Không đụng Rust — không cần `cargo build`/`clippy`. **CHƯA verify bằng tài khoản Telegram thật.**
+
+## Cập nhật sau khi Accepted (2026-09-18, vá bug "thêm series mới không hoạt động")
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**.
+
+### Bug thật phát hiện qua báo cáo user
+
+*"Thêm series mới không hoạt động, bấm Lưu mà không có series mới được tạo."*
+
+**Nguyên nhân gốc:** yêu cầu ngay trước đó (cùng ngày) là đặt nút "Thêm vào series" cạnh nút "Tra TMDB" ở ĐẦU dialog, thay vì ở cuối form chọn series/season/episode như thiết kế gốc. Khi thực hiện, nút này vẫn là một nút **bấm-một-lần**: bấm là chốt NGAY giá trị các signal (`seriesAssignMode`/`seriesAssignExisting`/`seriesAssignNewName`/`seriesAssignSeason`/`seriesAssignEpisode`) đang có TẠI THỜI ĐIỂM ĐÓ vào `addedToSeries.set(true)`, rồi ẩn hẳn toàn bộ form — thay bằng một dòng hint tĩnh + nút "Huỷ".
+
+Vì nút đặt Ở ĐẦU dialog (trước form), admin bấm nó ngay khi thấy (phản xạ tự nhiên với một nút nổi bật ở đầu) TRƯỚC KHI kịp chọn radio "Series mới" và gõ tên — form biến mất ngay lúc đó, admin không bao giờ có cơ hội gõ tên series mới. "Lưu" sau đó dùng giá trị MẶC ĐỊNH đã chốt nhầm (mode mặc định `'existing'` nếu catalog có sẵn series khác, hoặc nếu mặc định `'new'` thì `seriesAssignNewName` mặc định = title của chính bộ phim) — không phải điều admin định gõ, nên không có series mới nào theo ý admin được tạo.
+
+### Sửa: checkbox thay nút bấm-một-lần
+
+Đổi thành `<mat-checkbox [checked]="addedToSeries()" (change)="addedToSeries.set($event.checked)">` — **giữ nguyên vị trí** (cạnh "Tra TMDB", đúng yêu cầu bố cục ban đầu), nhưng giờ tick chỉ HIỆN form, form ở lại **hiển thị và chỉnh sửa được** cho tới khi thật sự bấm "Lưu" — không còn bước "chốt sớm" tách rời khỏi lúc Lưu. Bỏ nút "Huỷ thêm vào series" riêng (bỏ tick checkbox đã đủ, cùng ngữ nghĩa) và hai method thừa `confirmAddToSeries()`/`cancelAddToSeries()` (thay bằng set thẳng signal từ template, cùng cách checkbox `seriesAssignInherit` trong dialog này đã làm từ đầu).
+
+### Bài học (nối tiếp bài học "vá bug Chuyển thành phim lẻ" cùng ngày)
+
+Một nút chỉ có ĐÚNG MỘT hành động không cần điền thêm gì (như "Chuyển thành phim lẻ") đặt ở đầu dialog bên cạnh nút khác là an toàn — bấm là xong. Nhưng một hành động cần **điền thêm dữ liệu** trước khi áp dụng (như "Thêm vào series" — chọn/gõ tên, season, episode) thì nút "bấm để chốt" không được đứng TRƯỚC form nó chốt. Muốn đặt gần nút khác ở đầu dialog vì lý do bố cục, nó phải là một **toggle** (checkbox) mở form ra ở dưới và GIỮ NGUYÊN form đó cho tới khi thật sự "Lưu" — không phải một hành động chốt-ngay-rồi-ẩn.
+
+### Trạng thái kiểm chứng
+
+`ng build`/`npm run lint`/`npm run test:libs` (320 test, không đổi — sửa nằm ở logic/template component, không phải hàm thuần) sạch. Không đụng Rust. **CHƯA verify lại bằng tài khoản thật** — checklist đã cập nhật đúng bước trong [docs/pending-device-tests.md](../pending-device-tests.md) (mục "Thêm vào series", nhánh "Series mới" đơn lẻ).
+
+## Cập nhật sau khi Accepted (2026-09-18, verify "Thêm vào series" — ĐẠT 7/7 bước, gồm cả bản vá checkbox)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**.
+
+User xác nhận qua `cargo tauri dev` + tài khoản Telegram thật, đánh dấu trực tiếp trong [docs/pending-device-tests.md](../pending-device-tests.md) — **7/7 bước ĐẠT**, cả đơn lẻ lẫn hàng loạt, cả Workspace lẫn Trình quản lý catalog:
+
+- Series có sẵn: chọn từ dropdown, season/episode tự gợi ý đúng, kế thừa genres/cast/director từ tập đại diện đúng (không mất title/năm riêng của phim).
+- **Series mới xác nhận ĐÚNG sau bản vá checkbox** — form không còn tự ẩn, gõ tên mới bình thường, "Lưu" tạo đúng series theo tên đã gõ (không còn rơi vào series có sẵn hay tên trùng phim như bug gốc).
+- Cross-reference catalog đã publish từ Workspace hoạt động đúng (series chỉ có trong catalog đã publish vẫn xuất hiện trong dropdown khi đang ở Draft).
+- Hàng loạt: season cố định + episode tăng dần đúng thứ tự, tạo series mới từ nhiều phim đã chọn với tên gợi ý đúng, đóng dialog không xác nhận đúng là không đổi gì.
+
+Không phát sinh lệch thiết kế nào ngoài bug checkbox đã vá ở addendum ngay trên.

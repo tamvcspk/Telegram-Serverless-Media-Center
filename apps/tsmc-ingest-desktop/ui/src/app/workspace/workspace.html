@@ -130,6 +130,7 @@
         </mat-menu>
         <button mat-button type="button" [disabled]="selectedCount() === 0" (click)="autoNumberEpisodes()">Đánh số tập tự động</button>
         <button mat-button type="button" [disabled]="selectedCount() === 0" (click)="convertSelectedToMovie()">Chuyển thành phim lẻ</button>
+        <button mat-button type="button" [disabled]="selectedCount() === 0" (click)="addSelectedToSeries()">Thêm vào series</button>
         <button
           mat-icon-button
           type="button"

@@ -4,6 +4,22 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-09-18 — GUI ingest desktop: verify "Thêm vào series" — ĐẠT 7/7 bước, gồm cả bản vá checkbox
+
+User xác nhận qua tài khoản Telegram thật: 7/7 bước ĐẠT — series có sẵn (kế thừa genres/cast/director đúng), series mới xác nhận ĐÚNG sau bản vá checkbox (mục dưới), cross-reference catalog đã publish từ Workspace, và cả nhánh hàng loạt (season/episode tăng dần, tạo series mới từ nhiều phim, huỷ dialog không đổi gì). Chi tiết: [ADR-0019 § addendum 2026-09-18, verify ĐẠT 7/7](./adr/0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md#cập-nhật-sau-khi-accepted-2026-09-18-verify-thêm-vào-series--đạt-77-bước-gồm-cả-bản-vá-checkbox).
+
+## 2026-09-18 — GUI ingest desktop: vá bug "thêm series mới không hoạt động"
+
+User báo: bấm "Lưu" mà không có series mới được tạo. Nguyên nhân: nút "Thêm vào series" (mới đưa lên đầu dialog cạnh "Tra TMDB" theo yêu cầu ngay trước đó) là nút bấm-một-lần — bấm là chốt NGAY giá trị mặc định rồi ẩn form, nên admin bấm trước khi kịp chọn "Series mới"/gõ tên sẽ mất luôn cơ hội gõ. Sửa bằng đổi thành checkbox — tick chỉ MỞ form, form ở lại chỉnh sửa được tới khi bấm "Lưu" thật sự, không còn bước chốt sớm.
+
+`ng build`/`npm run lint`/`npm run test:libs` (320 test, không đổi) sạch — không đụng Rust. CHƯA verify lại. Chi tiết: [ADR-0019 § addendum 2026-09-18, vá bug thêm series mới](./adr/0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md#cập-nhật-sau-khi-accepted-2026-09-18-vá-bug-thêm-series-mới-không-hoạt-động).
+
+## 2026-09-18 — GUI ingest desktop: "Thêm vào series" / "Tạo series mới"
+
+Chiều ngược lại "Chuyển thành phim lẻ" — đưa phim lẻ (đơn hoặc hàng loạt) vào series có sẵn hoặc mới tạo, cả Workspace lẫn Trình quản lý catalog. Bốn hàm thuần mới (`libs/core-ingest/src/series-registry.ts`, 10 test): `listSeriesNames()` (picker, tránh gõ tay lệch chữ hoa/thường tạo nhóm trùng lặp), `findRepresentativeEpisode()`, `suggestNextEpisode()` (season/episode kế tiếp), `assignToSeries()` (kế thừa CÓ CHỌN LỌC genres/cast/director, không đụng title/năm của chính item). Dialog mới `AssignSeriesDialog` (hàng loạt) + nhánh mới trong `AdvancedMetadataDialog` (đơn lẻ). Danh sách "series có sẵn" ghép cả catalog đã publish (Workspace đọc thêm pinned catalog, best-effort) lẫn bảng đang sửa.
+
+`ng build` (không cảnh báo ngân sách)/`npm run lint`/`npm run test:libs` (320 test, 10 mới) sạch — không đụng Rust. CHƯA verify bằng tài khoản thật. Chi tiết: [ADR-0019 § addendum 2026-09-18, Thêm vào series](./adr/0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md#cập-nhật-sau-khi-accepted-2026-09-18-thêm-vào-series--tạo-series-mới).
+
 ## 2026-09-18 — GUI ingest desktop: verify "Sửa nâng cao" — ĐẠT 10/11 bước, gồm cả bản vá "Chuyển thành phim lẻ"
 
 User xác nhận qua tài khoản Telegram thật + API key TMDB thật: 10/11 bước ĐẠT ở cả Workspace lẫn Trình quản lý catalog — dialog "Sửa nâng cao" (genres picker, "Tra TMDB", poster), và quan trọng nhất, bản vá "Chuyển thành phim lẻ" (mục dưới) hoạt động đúng ở cả bulk lẫn dialog, cả hai màn. Còn mở, không chặn: mô phỏng upload poster thất bại giữa chừng (khó chủ động tạo lỗi mạng đúng lúc). Chi tiết: [ADR-0019 § addendum 2026-09-18, verify ĐẠT 10/11](./adr/0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md#cập-nhật-sau-khi-accepted-2026-09-18-verify-sửa-nâng-cao--đạt-1011-bước-gồm-cả-bản-vá-chuyển-thành-phim-lẻ).

@@ -4,6 +4,7 @@ import type { CatalogItemV1 } from '@tsmc/shared-models';
 import { firstValueFrom } from 'rxjs';
 import type { TmdbKind, TmdbSearchResultDto } from '../../core/ingest-rpc.types';
 import { AdvancedMetadataDialog, type AdvancedMetadataDialogData, type AdvancedMetadataResult } from './advanced-metadata-dialog';
+import { AssignSeriesDialog, type AssignSeriesDialogData, type AssignSeriesResult } from './assign-series-dialog';
 import { ConfirmDialog, type ConfirmDialogData } from './confirm-dialog';
 import { GradeDDialog, type GradeDDialogItem } from './grade-d-dialog';
 import { OrphanReviewDialog, type OrphanReviewDialogItem } from './orphan-review-dialog';
@@ -110,10 +111,21 @@ export class DialogService {
    * vì tự `inject(DialogService)`, né import vòng (file này phải import
    * `AdvancedMetadataDialog` để mở nó). Đóng không bấm "Lưu" → `null`, cùng
    * nguyên tắc "đóng không phải xác nhận = từ chối". */
-  async editAdvancedMetadata(item: CatalogItemV1, kind: TmdbKind, posterMsgId?: number): Promise<AdvancedMetadataResult | null> {
+  async editAdvancedMetadata(item: CatalogItemV1, kind: TmdbKind, knownItems: CatalogItemV1[], posterMsgId?: number): Promise<AdvancedMetadataResult | null> {
     const ref = this.dialog.open<AdvancedMetadataDialog, AdvancedMetadataDialogData, AdvancedMetadataResult>(AdvancedMetadataDialog, {
-      data: { item, kind, posterMsgId, searchTmdb: (query: string, k: TmdbKind) => this.searchTmdb(query, k) },
+      data: { item, kind, posterMsgId, knownItems, searchTmdb: (query: string, k: TmdbKind) => this.searchTmdb(query, k) },
       width: '34rem'
+    });
+    const result = await firstValueFrom(ref.afterClosed());
+    return result ?? null;
+  }
+
+  /** "Thêm vào series" hàng loạt (brainstorm 2026-09-18) — dùng chung cho
+   * `workspace.ts`/`catalog-manager.ts`. Đóng không bấm "Gán" → `null`. */
+  async assignSeries(count: number, suggestedName: string, knownItems: CatalogItemV1[]): Promise<AssignSeriesResult | null> {
+    const ref = this.dialog.open<AssignSeriesDialog, AssignSeriesDialogData, AssignSeriesResult>(AssignSeriesDialog, {
+      data: { count, suggestedName, knownItems },
+      width: '28rem'
     });
     const result = await firstValueFrom(ref.afterClosed());
     return result ?? null;

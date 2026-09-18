@@ -2,6 +2,12 @@
 <mat-dialog-content class="advanced-metadata-content">
   <div class="tmdb-row">
     <button mat-button type="button" [disabled]="tmdbSearching()" (click)="onSearchTmdb()">Tra TMDB</button>
+    @if (data.item.kind === 'episode' && !convertedToMovie()) {
+      <button mat-button type="button" (click)="convertToMovie()">Chuyển thành phim lẻ</button>
+    }
+    @if (data.item.kind !== 'episode') {
+      <mat-checkbox [checked]="addedToSeries()" (change)="addedToSeries.set($event.checked)">Thêm vào series</mat-checkbox>
+    }
     @if (tmdbSearching()) {
       <mat-progress-spinner mode="indeterminate" diameter="20" />
     }
@@ -18,9 +24,42 @@
         <mat-label>Tên series</mat-label>
         <input matInput type="text" [value]="seriesName()" (input)="seriesName.set($any($event.target).value)" />
       </mat-form-field>
-
-      <button mat-button type="button" (click)="convertToMovie()">Chuyển thành phim lẻ</button>
     }
+  } @else if (addedToSeries()) {
+    <mat-radio-group [value]="seriesAssignMode()" (change)="seriesAssignMode.set($any($event.value))">
+      <mat-radio-button value="existing" [disabled]="existingSeriesNames.length === 0">Series có sẵn</mat-radio-button>
+      <mat-radio-button value="new">Series mới</mat-radio-button>
+    </mat-radio-group>
+
+    @if (seriesAssignMode() === 'existing') {
+      <mat-form-field appearance="outline" class="full-width">
+        <mat-label>Chọn series</mat-label>
+        <select matNativeControl [value]="seriesAssignExisting()" (change)="onSelectExistingSeriesToAssign($any($event.target).value)">
+          @for (name of existingSeriesNames; track name) {
+            <option [value]="name">{{ name }}</option>
+          }
+        </select>
+      </mat-form-field>
+      <mat-checkbox [checked]="seriesAssignInherit()" (change)="seriesAssignInherit.set($event.checked)">
+        Kế thừa thể loại/diễn viên/đạo diễn từ tập khác trong series
+      </mat-checkbox>
+    } @else {
+      <mat-form-field appearance="outline" class="full-width">
+        <mat-label>Tên series mới</mat-label>
+        <input matInput type="text" [value]="seriesAssignNewName()" (input)="seriesAssignNewName.set($any($event.target).value)" />
+      </mat-form-field>
+    }
+
+    <div class="season-episode-row">
+      <mat-form-field appearance="outline">
+        <mat-label>Season</mat-label>
+        <input matInput type="number" [value]="seriesAssignSeason()" (input)="seriesAssignSeason.set($any($event.target).valueAsNumber)" />
+      </mat-form-field>
+      <mat-form-field appearance="outline">
+        <mat-label>Episode</mat-label>
+        <input matInput type="number" [value]="seriesAssignEpisode()" (input)="seriesAssignEpisode.set($any($event.target).valueAsNumber)" />
+      </mat-form-field>
+    </div>
   }
 
   <mat-form-field appearance="outline" class="full-width">

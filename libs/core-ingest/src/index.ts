@@ -23,3 +23,5 @@ export { composeCaption } from './caption-hashtags';
 
 export { flattenMetadataTree, seasonGroupKey, seriesGroupKey } from './metadata-tree';
 export type { FlatMetadataRow } from './metadata-tree';
+
+export { assignToSeries, findRepresentativeEpisode, listSeriesNames, suggestNextEpisode } from './series-registry';
