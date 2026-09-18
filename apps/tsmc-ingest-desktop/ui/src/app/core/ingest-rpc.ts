@@ -130,6 +130,23 @@ export function editMessageCaption(msgId: number, caption: string): Promise<void
   return invoke<void>('edit_message_caption', { msgId, caption });
 }
 
+/** Tải nguyên byte của một document theo `msgId` — dùng để hiện ảnh xem
+ * trước poster ở dialog "Sửa nâng cao" (item ĐÃ có `poster.msgId` từ một lần
+ * upload trước). Trả về base64 (không phải `ArrayBuffer`) — Rust encode sẵn
+ * để né việc Tauri serialize `Vec<u8>` thành mảng số JSON phình to; Angular
+ * tự ghép `data:` URI (`toPosterDataUri()`) trước khi gán vào `<img src>`. */
+export function downloadDocument(msgId: number): Promise<string> {
+  return invoke<string>('download_document', { msgId });
+}
+
+/** Ghép chuỗi base64 từ `downloadDocument()` thành `data:` URI gán thẳng vào
+ * `<img src>` — mime cố định `image/jpeg` (poster TMDB luôn JPEG, xem
+ * `tmdb.rs::TMDB_IMAGE_BASE_LARGE`), không phải mime tổng quát cho MỌI
+ * document (hàm này chỉ dùng cho ảnh xem trước poster). */
+export function toPosterDataUri(base64: string): string {
+  return `data:image/jpeg;base64,${base64}`;
+}
+
 /** Đăng xuất (màn Cài đặt, ADR-0017 § addendum 2026-09-14) — gọi
  * `auth.LogOut` thật phía server TRƯỚC khi xoá `session.sqlite3` cục bộ
  * (thứ tự do phía Rust tự đảm bảo, xem `commands.rs::sign_out()`). Reject
@@ -340,6 +357,14 @@ export function tmdbSearch(query: string, kind: TmdbKind): Promise<TmdbSearchRes
  * thật của lựa chọn đó, `tmdb_details` không tự tìm lại theo tên). */
 export function tmdbDetails(id: number, kind: TmdbKind): Promise<TmdbDetailsDto> {
   return invoke<TmdbDetailsDto>('tmdb_details', { id, kind });
+}
+
+/** Danh sách thể loại CHUẨN TMDB (~19 phim/~16 tv, gần như không đổi) — dùng
+ * cho picker chip ở dialog "Sửa nâng cao" (brainstorm 2026-09-18: picker +
+ * nhập tay, không CHỈ picker). Không cache phía Angular — payload nhỏ, gọi
+ * lại mỗi lần mở dialog đơn giản hơn quản lý vòng đời cache. */
+export function tmdbGenreList(kind: TmdbKind): Promise<string[]> {
+  return invoke<string[]>('tmdb_genre_list', { kind });
 }
 
 /** Cùng vai trò `toIngestRpcError()` nhưng cho `TmdbErrorDto` — TMDB là

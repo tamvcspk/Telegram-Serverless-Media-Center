@@ -4,6 +4,30 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-09-18 — GUI ingest desktop: verify "Sửa nâng cao" — ĐẠT 10/11 bước, gồm cả bản vá "Chuyển thành phim lẻ"
+
+User xác nhận qua tài khoản Telegram thật + API key TMDB thật: 10/11 bước ĐẠT ở cả Workspace lẫn Trình quản lý catalog — dialog "Sửa nâng cao" (genres picker, "Tra TMDB", poster), và quan trọng nhất, bản vá "Chuyển thành phim lẻ" (mục dưới) hoạt động đúng ở cả bulk lẫn dialog, cả hai màn. Còn mở, không chặn: mô phỏng upload poster thất bại giữa chừng (khó chủ động tạo lỗi mạng đúng lúc). Chi tiết: [ADR-0019 § addendum 2026-09-18, verify ĐẠT 10/11](./adr/0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md#cập-nhật-sau-khi-accepted-2026-09-18-verify-sửa-nâng-cao--đạt-1011-bước-gồm-cả-bản-vá-chuyển-thành-phim-lẻ).
+
+## 2026-09-18 — GUI ingest desktop: vá bug "Chuyển thành phim lẻ" không phản hồi
+
+User báo: bấm "Chuyển thành phim lẻ" không hoạt động, không biểu hiện gì. Nguyên nhân: chính cổng an toàn của addendum trước ("chỉ bật khi đã xoá số Ep") là bug — trường hợp cần dùng nhiều nhất là item ĐANG CÓ Ep (đúng lý do cần chuyển), nên cổng đó disable âm thầm đúng ở trường hợp phổ biến nhất, bulk action bỏ qua lặng lẽ không báo gì. Sửa: bỏ hẳn cổng an toàn — bulk action chuyển THẲNG mọi dòng `kind: 'episode'` đã chọn; dialog "Sửa nâng cao" luôn bật nút, dùng "Lưu"/"Huỷ" sẵn có của dialog làm điểm xác nhận thay vì disable trước đó.
+
+`ng build`/`npm run lint`/`npm run test:libs` (310 test, không đổi) sạch — không đụng Rust. CHƯA verify lại bằng tài khoản thật. Chi tiết: [ADR-0019 § addendum 2026-09-18, vá bug "Chuyển thành phim lẻ"](./adr/0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md#cập-nhật-sau-khi-accepted-2026-09-18-vá-bug-chuyển-thành-phim-lẻ-không-phản-hồi).
+
+## 2026-09-18 — GUI ingest desktop: bảng metadata dạng cây/nhóm (Workspace + Trình quản lý catalog)
+
+Phim lẻ một dòng, phim bộ nhóm `series.name` > `season` > dòng tập, cả hai màn. Hàm thuần mới `flattenMetadataTree()` (`libs/core-ingest`, 8 test) trả mảng PHẲNG có discriminant (`movie`/`series-header`/`season-header`/`episode`) — cố ý không phải cây lồng nhau thật, giữ nguyên `cdk-virtual-scroll-viewport` đã có (CDK không có virtual-scroll-tree chính thức, viết cây thật sẽ mất hiệu năng với catalog nhiều item). Header nhóm bấm để expand/collapse, mặc định mở rộng hết; tìm kiếm áp dụng trước khi nhóm nên tự thu gọn về đúng nhánh khớp.
+
+Bug ngân sách thật gặp lúc build: CSS mới đẩy `workspace.scss` vượt ngân sách `anyComponentStyle` (6kB) — sửa bằng tách file `workspace-tree.scss` riêng (Angular tính ngân sách theo từng file), không cắt bớt style đang dùng.
+
+`cargo build`/`cargo clippy --workspace -- -D warnings`/`ng build`/`npm run lint`/`npm run test:libs` (310 test, 8 mới) sạch. CHƯA verify bằng catalog thật nhiều item. Chi tiết: [ADR-0019 § addendum 2026-09-18, dạng cây/nhóm](./adr/0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md#cập-nhật-sau-khi-accepted-2026-09-18-dạng-câynhóm-cho-bảng-metadata).
+
+## 2026-09-18 — GUI ingest desktop: "Sửa nâng cao" (Advanced Metadata Edit) — genres/cast/director/poster/kind cho cả Workspace lẫn Trình quản lý catalog
+
+Đóng gap: Trình quản lý catalog (post-publish) trước đó không sửa được genres/cast/director/poster, chỉ TMDB nâng cao ở Workspace mới có. Một `AdvancedMetadataDialog` dùng chung cho cả hai màn — genres picker TMDB (`tmdb_genre_list()` mới) + nhập tay, cast/director nhập tay, "Chuyển thành phim lẻ" (đơn + hàng loạt, vá luôn bug thật phát hiện lúc thiết kế: `onSeasonInput`/`onEpisodeInput` trước đây không có đường lùi episode→movie), ảnh xem trước poster (wire nốt `download_document()` tồn đọng từ lâu). Đổi poster ở Catalog Manager xoá message cũ trên kênh — thứ tự bắt buộc: upload/xoá poster MỚI trước khi build envelope catalog (khác hashtag caption sync, vốn sync được sau publish). Catalog Manager thêm checkbox multi-select (trước đây không có).
+
+`cargo build`/`cargo clippy --workspace -- -D warnings`/`ng build`/`npm run lint`/`npm run test:libs` (302 test) sạch. CHƯA verify bằng tài khoản Telegram thật/API key TMDB thật. Chi tiết: [ADR-0019 § addendum 2026-09-18, Advanced Metadata Edit](./adr/0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md#cập-nhật-sau-khi-accepted-2026-09-18-sửa-nâng-cao--advanced-metadata-edit), checklist ở [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--sửa-nâng-cao-advanced-metadata-edit-2026-09-18).
+
 ## 2026-09-17 — `ingest-ffmpeg`: verify vá "invalid argument" re-encode video packed B-frames — ĐẠT
 
 User xác nhận đã chạy `cargo tauri dev` + tài khoản thật, fix ở mục ngay dưới hoạt động đúng ("đã work") — đúng file `The Big Bang Theory S01E15.avi` từng gây lỗi giờ re-encode/upload thành công. Checklist: [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--workspace-ba-vùng-bắt-đầu-upload-2026-09-12).
@@ -22,7 +46,7 @@ User xác nhận qua `cargo tauri dev` + tài khoản Telegram thật: 3/5 bư�
 
 Đóng nốt việc để dành ở addendum 2026-09-17. `IngestRpc` thêm thao tác thứ 15 `edit_message_caption()` (`messages.editMessage` với `media: None` — giữ nguyên media, chỉ đổi caption, đã đối chiếu mã nguồn `grammers-client` trước khi code). `catalog-manager.ts::onPublish()` SAU khi publish catalog thành công, diff `composeCaption()` cũ/mới theo `msgId` (so với catalog vừa đọc lại ngay trước publish, không phải bản nạp lúc mount) — chỉ sửa caption đúng dòng thực sự đổi, bỏ qua có chủ đích item mới thêm qua "Tìm file mồ côi" (không kiểm soát caption gốc của message đó). Best-effort từng item, một caption lỗi không rollback catalog đã lưu thành công.
 
-`cargo build`/`ng build`/`npm run lint`/`npm run test:libs` (302 test, không đổi) sạch — `cargo clippy` chưa chạy được (file `ffmpeg-runtime` bị khoá bởi phiên `cargo tauri dev` khác đang chạy). CHƯA verify bằng tài khoản Telegram thật. Chi tiết: [ADR-0019 § addendum 2026-09-18](./adr/0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md#cập-nhật-sau-khi-accepted-2026-09-18-sync-hashtag-caption-khi-lưu-catalog-sửa-metadata-sau-publish), checklist ở [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--sync-hashtag-caption-khi-lưu-catalog-2026-09-18).
+`cargo build`/`cargo clippy --workspace -- -D warnings`/`ng build`/`npm run lint`/`npm run test:libs` (302 test, không đổi) sạch. Verify ĐẠT một phần ngay sau đó, xem mục changelog phía trên. Chi tiết: [ADR-0019 § addendum 2026-09-18](./adr/0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md#cập-nhật-sau-khi-accepted-2026-09-18-sync-hashtag-caption-khi-lưu-catalog-sửa-metadata-sau-publish), checklist ở [docs/pending-device-tests.md](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--sync-hashtag-caption-khi-lưu-catalog-2026-09-18).
 
 ## 2026-09-17 — GUI ingest desktop: verify TMDB nâng cao (genres/cast/director/poster + hashtag) — ĐẠT
 

@@ -184,3 +184,114 @@ User xác nhận qua `cargo tauri dev` + tài khoản Telegram thật, đánh d�
 - `cargo clippy --workspace -- -D warnings` — vẫn chưa chạy được do file `ffmpeg-runtime` bị khoá bởi phiên `cargo tauri dev` khác trên máy dev.
 
 Không phát sinh lệch thiết kế nào ở 3 nhánh đã verify — `edit_message_caption()`/diff `composeCaption()` chạy đúng như addendum trên mô tả.
+
+## Cập nhật sau khi Accepted (2026-09-18, "Sửa nâng cao" — Advanced Metadata Edit)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**.
+
+### Bối cảnh phát sinh
+
+Sau khi TMDB nâng cao (genres/cast/director/poster, addendum 2026-09-17) chạy được ở bước ingest (Workspace, "Tra TMDB"), phát hiện gap: **Trình quản lý catalog** (post-publish) không có cách nào sửa các field này cho item ĐÃ publish — chỉ sửa được Title/Năm/Season/Ep. Brainstorm 2026-09-18 chốt: một dialog dùng chung cho cả hai màn, thêm `series.name`/`genres`/`cast`/`director`/poster, cộng một hành động "Chuyển thành phim lẻ".
+
+### Một dialog dùng chung, không phải hai lần
+
+`AdvancedMetadataDialog` mới (`apps/tsmc-ingest-desktop/ui/src/app/shared/dialog/advanced-metadata-dialog.ts`) — dùng CHUNG cho `workspace.ts` (Draft, trước upload) và `catalog-manager.ts` (đã publish), tránh viết hai lần (đúng bài học rút ra từ quyết định "đóng băng phạm vi Ingest Editor web" — [ADR-0014 § addendum 2026-09-17](./0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md#cập-nhật-sau-khi-accepted-2026-09-17-đóng-băng-phạm-vi-ingest-editor--hai-đường-ghi-catalog-không-còn-ngang-hàng): mọi field catalog nâng cao mới chỉ nên sửa MỘT chỗ).
+
+Nhận `CatalogItemV1` + `kind` + `posterMsgId?` (nếu item đã có poster từ trước) + một callback `searchTmdb` — truyền từ tầng gọi (đã có `DialogService`) thay vì dialog này tự `inject(DialogService)`, né import vòng (file đó phải import CHÍNH dialog này để mở nó). Trả về `CatalogItemV1` đã sửa + `posterChange?: {type:'replace', posterPath, posterUrl} | {type:'remove'}` — poster **chưa** upload/xoá gì cả ở bước này, chỉ trả Ý ĐỊNH; tầng gọi tự xử lý lúc publish/upload thật (tránh side-effect mạng ngay khi mới CHỌN trong dialog, cùng nguyên tắc `pendingPosterPath` đã dùng cho TMDB nâng cao).
+
+### Genres: picker VÀ nhập tay (không phải chỉ một trong hai)
+
+`mat-chip-grid`/`mat-chip-row` (Angular Material MDC, đã có sẵn trong `@angular/material` mà `ui/` đang dùng — **không** thêm dependency mới) cho chip tự do gõ tay, cộng danh sách nút "+ &lt;tên&gt;" lấy từ TMDB canonical genre list. Tauri command mới `tmdb_genre_list(kind)` (`GET /genre/movie/list` hoặc `/genre/tv/list`) — không cache phía Rust/Angular, payload nhỏ (~19/~16 mục), gọi lại mỗi lần mở dialog đơn giản hơn quản lý vòng đời cache. Cast dùng chip tự do tương tự (không có nguồn canonical để picker). Director là input text đơn (schema `string`, không phải mảng).
+
+### "Chuyển thành phim lẻ" — phát hiện gap thật lúc thiết kế
+
+Một chiều DUY NHẤT (episode → movie), chỉ BẬT khi `item.series?.episode` ĐANG rỗng — season/episode là Quick edit sửa NGOÀI dialog, admin phải tự xoá số Ep ở bảng TRƯỚC. Lý do gate này tồn tại: đọc lại `onSeasonInput()`/`onEpisodeInput()` (cả `workspace.ts` lẫn `catalog-manager.ts`) phát hiện cả hai hàm LUÔN set `kind: 'episode'` bất kể giá trị gõ vào rỗng hay không sau khi xoá — nghĩa là **trước addendum này, không có cách nào đảo ngược** một item bị parse nhầm thành episode trở lại movie, kể cả sau khi đã xoá sạch Season/Ep ở Quick edit. Đây là bug thật phát hiện qua đọc code khi thiết kế tính năng này, không phải giả định.
+
+Bulk action "Chuyển thành phim lẻ" (`convertSelectedToMovie()`) thêm ở CẢ HAI màn — chỉ áp dụng cho dòng đã chọn thoả điều kiện trên (không còn Ep), dòng còn Ep bị bỏ qua LẶNG LẼ (hành vi "áp dụng cho dòng đủ điều kiện", không phải all-or-nothing).
+
+**Hệ quả phụ:** `catalog-manager.ts` trước đây KHÔNG có checkbox multi-select (chỉ sửa từng dòng rời) — thêm mới `selectedIds` (cùng pattern Set riêng như `removedIds`/`brokenIds` đã có, không phải field trên item) để hỗ trợ bulk action này.
+
+### Poster — hai việc, một thứ tự bắt buộc
+
+**Ảnh xem trước:** wire nốt `download_document()` (`IngestRpc`, có implementation từ lâu — ghi rõ trong `commands.rs`/`catalog.rs` cũ là "chưa có UI nào cần tới" — nay cuối cùng có). Tauri command cùng tên trả **base64** (không phải `Vec<u8>` trần — Tauri serialize mảng byte thành mảng số JSON, phình gấp nhiều lần so với base64 cho ảnh vài trăm KB). Thêm dependency `base64 = "0.22"` (đã có sẵn transitively qua `reqwest`/`tauri`, promote lên direct dependency không tốn build size mới).
+
+**Đổi poster ở item ĐÃ CÓ poster từ trước (Catalog Manager)** — quyết định brainstorm: **xoá message poster CŨ trên kênh**, không để mồ côi. Thứ tự bắt buộc, quan trọng nhất của addendum này:
+
+1. `catalog-manager.ts::onPublish()` phải upload/xoá poster MỚI **TRƯỚC** khi build envelope — khác hashtag caption sync (addendum 2026-09-18 trước): caption KHÔNG nằm trong nội dung `catalog.json` nên sync được SAU khi publish, còn `poster.msgId` LÀ field trong `catalog.json`, phải có mặt TRƯỚC lúc publish.
+2. Nếu upload poster mới lỗi → **ABORT toàn bộ** `onPublish()` (không gọi `publishCatalog()` với poster thiếu) — khác cách hashtag caption sync xử lý lỗi (best-effort, không rollback), vì poster LÀ nội dung catalog thật, không nên publish nửa vời.
+3. Xoá message poster CŨ chỉ thực hiện **SAU KHI** catalog mới publish THÀNH CÔNG — nếu publish thất bại giữa chừng, không nên đã lỡ xoá poster cũ trong khi catalog vẫn còn trỏ tới nó.
+
+**Workspace (Draft, chưa publish gì):** `posterMsgId` luôn `undefined` (chưa có poster nào để xoá) — `posterChange: 'remove'` ở đây chỉ nghĩa "bỏ lựa chọn TMDB poster đã chọn trước đó lúc chưa upload", không đụng Telegram gì cả.
+
+### Trạng thái kiểm chứng
+
+`cargo build` sạch. `ng build`/`npm run lint`/`npm run test:libs` (302 test, không đổi — logic mới nằm ở component, không phải hàm thuần trong `libs/`) sạch. **`cargo clippy --workspace -- -D warnings` CHƯA chạy được** trong phiên viết addendum này — máy dev có sẵn `cargo tauri dev` đang chạy (phiên verify trước đó), khoá file `ffmpeg-runtime/avcodec-61.dll`. **CHƯA verify bằng tài khoản Telegram thật/API key TMDB thật.**
+
+## Cập nhật sau khi Accepted (2026-09-18, dạng cây/nhóm cho bảng metadata)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**.
+
+### Bối cảnh
+
+Brainstorm 2026-09-18 tiếp theo: bảng metadata (cả Workspace lẫn Trình quản lý catalog) là danh sách PHẲNG, khó duyệt khi có nhiều tập cùng series lẫn lộn với phim lẻ. Quyết định: hiện dạng cây/nhóm — phim lẻ một dòng, phim bộ nhóm `series.name` > `season` > dòng tập, áp dụng cho CẢ hai màn.
+
+### Mảng phẳng có discriminant, không phải cây lồng nhau thật
+
+Hàm thuần mới `flattenMetadataTree()` (`libs/core-ingest/src/metadata-tree.ts`, 8 test case) — generic theo `T` (khác nhau giữa hai màn: `QueueItem` bọc `CatalogItemV1` trong field `metadata` ở Workspace, Catalog Manager dùng thẳng `CatalogItemV1`), nhận `getMetadata: (row: T) => CatalogItemV1` để không cần biết shape `T`. Trả về **mảng phẳng** có discriminant `kind: 'movie' | 'series-header' | 'season-header' | 'episode'` — cố ý KHÔNG phải cấu trúc cây lồng nhau thật, vì cả hai màn dùng `cdk-virtual-scroll-viewport` với `itemSize` cố định (không `MatTree`/`mat-table` — cùng lựa chọn hand-rolled div+CDK đã ghi trong comment đầu hai file component từ trước). CDK không có "virtual scrolling tree" chính thức; viết cây lồng nhau thật sẽ phải tự dựng lại cơ chế virtual scroll từ đầu. Mảng phẳng feed thẳng vào `cdkVirtualFor` sẵn có, giữ nguyên hiệu năng với catalog nhiều trăm/nghìn item.
+
+**Sắp xếp:** nhóm cấp cao nhất (phim lẻ VÀ tên series) xen kẽ alphabet theo tên — không tách khối phim-lẻ-trước/phim-bộ-sau, dễ tìm theo tên hơn khi danh sách lớn. Season/episode tăng dần, giá trị không rõ số rơi xuống cuối. `series.name` rỗng/thiếu gộp vào một nhóm `"(Không tên)"` duy nhất, tránh nhiều nhóm rỗng trộn lẫn.
+
+**Collapse là UI state, không phải dữ liệu:** `collapsedGroups: Set<string>` (khoá qua `seriesGroupKey()`/`seasonGroupKey()`, cũng export từ file trên) sống RIÊNG ở từng component, mặc định RỖNG (mọi nhóm mở rộng — không ẩn gì bất ngờ lúc mới vào màn). Header nhóm dùng CHUNG class CSS `.metadata-row`/`.table-row` (giữ đúng 48px khớp `itemSize` — trộn chiều cao khác nhau sẽ làm sai scroll math của `FixedSizeVirtualScrollStrategy`), chỉ đổi `display: grid` nhiều cột thành `flex` một hàng (chevron + tên + số lượng). `trackByTreeRow()` viết riêng ở mỗi component (khác kiểu `T`, không share được) — header dùng khoá nhóm ổn định, leaf dùng khoá gốc đã có (`msgId`/`path`).
+
+Tìm kiếm áp dụng TRƯỚC khi nhóm cây (nhóm theo `filteredQueue()`/`filteredItems()`, không phải mảng gốc) — gõ tìm tự thu gọn cây về đúng nhánh khớp.
+
+### Chọn hàng loạt — giữ nguyên ở cấp leaf, một giới hạn đã biết
+
+Checkbox/`selectedIds`/`selected` KHÔNG đổi, vẫn ở cấp LEAF row (movie/episode) — không thêm checkbox ở header nhóm (chưa có ngữ nghĩa "chọn cả nhóm" lần này, để dành sau nếu cần).
+
+**Giới hạn chấp nhận:** `fillDown()`/`autoNumberEpisodes()` (Workspace) vẫn lấy "dòng ĐẦU TIÊN đã chọn" theo thứ tự MẢNG GỐC (`queue()`), không phải thứ tự hiển thị MỚI trên cây (đã sắp lại theo alphabet/season/episode) — có thể lệch trực giác nếu admin chọn nhiều dòng theo thứ tự nhìn thấy trên cây. Chưa sửa vì thường trùng nhau trong thực tế (file cùng series/season thả vào cùng lúc, thứ tự mảng gốc thường đã gần giống thứ tự season/episode) — không phải bỏ sót, là đánh đổi có cân nhắc.
+
+### Bug thật gặp lúc build — ngân sách `anyComponentStyle`
+
+CSS mới cho header nhóm đẩy `workspace.scss` vượt ngân sách `anyComponentStyle` của Angular CLI (6kB cảnh báo, đã cấu hình từ trước) — 6.32kB, vượt 318 byte. **Không sửa bằng cách cắt bớt style đang dùng** (sẽ mất tính năng có sẵn) — sửa bằng cách **tách CSS mới ra file riêng** `workspace-tree.scss` (`styleUrls: [...]` thay `styleUrl` đơn), vì Angular CLI tính ngân sách RIÊNG từng file stylesheet của một component — hợp lệ khi nội dung thật sự cần thêm, không phải né ngân sách bằng thủ thuật. `catalog-manager.scss` không vỡ ngân sách (dưới 6kB kể cả sau khi thêm), giữ nguyên một file.
+
+### Trạng thái kiểm chứng
+
+`cargo build`/`cargo clippy --workspace -- -D warnings` sạch (phiên `cargo tauri dev` treo từ addendum trước đã đóng, hết file lock — cũng xác nhận luôn phần "Sửa nâng cao" ở addendum trên sạch clippy). `ng build`/`npm run lint`/`npm run test:libs` (310 test, 8 mới ở `metadata-tree.spec.ts`) sạch, không còn cảnh báo ngân sách. **CHƯA verify bằng tài khoản Telegram thật/catalog thật nhiều item** — cây/nhóm mới test bằng fixture nhỏ trong unit test, chưa có dữ liệu thật hàng trăm/nghìn item để xác nhận hiệu năng virtual scroll không đổi.
+
+## Cập nhật sau khi Accepted (2026-09-18, vá bug "Chuyển thành phim lẻ" không phản hồi)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**, xem lý do bên dưới.
+
+### Bug thật phát hiện qua báo cáo user (chưa kịp verify thiết bị thật)
+
+Addendum "Sửa nâng cao" ở trên (2026-09-18) đặt cổng an toàn cho "Chuyển thành phim lẻ": chỉ bật khi `series?.episode` ĐANG rỗng, buộc admin tự xoá số Ep ở Quick edit TRƯỚC. User báo: *"Chuyển thành phim lẻ không hoạt động, cũng không biểu hiện gì"*.
+
+**Nguyên nhân gốc — chính cổng an toàn đó là bug:** trường hợp cần dùng tính năng này nhiều nhất là item ĐANG CÓ Ep (parse nhầm thành episode) — đúng lý do admin muốn chuyển. Cổng an toàn khiến nút bị disable ÂM THẦM (không có thông báo rõ ràng ngoài một `title` tooltip phải hover mới thấy) ở đúng trường hợp phổ biến nhất, và bulk action bỏ qua lặng lẽ mọi dòng còn Ep — nếu TẤT CẢ dòng đã chọn còn Ep (tình huống thường gặp khi thử lần đầu), bấm nút không có tác dụng gì và không có phản hồi nào giải thích lý do.
+
+### Sửa: bỏ cổng an toàn, dùng "Lưu"/xác nhận sẵn có làm điểm chốt
+
+- **Bulk action** (`convertSelectedToMovie()`, cả `workspace.ts` lẫn `catalog-manager.ts`): bỏ điều kiện `series?.episode === undefined` — giờ chuyển THẲNG mọi dòng đã chọn có `kind === 'episode'` thành `movie` (xoá `series`) trong cùng một lần bấm. Không cần cổng an toàn: dữ liệu chỉ đổi trong buffer đang sửa (Draft chưa upload / catalog chưa "Lưu"), chưa ghi Telegram — admin vẫn có thể huỷ bằng cách rời màn không lưu.
+- **Dialog "Sửa nâng cao"** (`AdvancedMetadataDialog`): bỏ hẳn `canConvertToMovie`/trạng thái disabled — nút luôn bật khi item là `kind: 'episode'`. Bấm chỉ ĐÁNH DẤU ý định (`convertedToMovie` signal, đổi UI hiện dòng "Sẽ chuyển thành phim lẻ khi Lưu"), áp dụng thật (xoá `series`) khi bấm "Lưu" của CHÍNH dialog — "Lưu"/"Huỷ" đã là bước xác nhận tự nhiên, không cần thêm cổng disable nào trước đó.
+
+### Bài học
+
+Một điều kiện tiên quyết ẩn (phải làm thao tác X ở nơi khác TRƯỚC khi nút Y sáng lên) mà không có thông báo tường minh ngay tại chỗ dễ bị hiểu nhầm là "tính năng hỏng" hơn là "tính năng có điều kiện" — đặc biệt khi điều kiện đó ngược với usecase phổ biến nhất. Xác nhận bằng dialog/điểm chốt đã có sẵn (Lưu/Huỷ) là cách an toàn tương đương mà không cần disable âm thầm.
+
+### Trạng thái kiểm chứng
+
+`ng build`/`npm run lint`/`npm run test:libs` (310 test, không đổi — sửa nằm ở logic component, không phải hàm thuần) sạch. Không đụng Rust, không cần build lại `cargo`. **CHƯA verify lại bằng tài khoản thật** — user cần xác nhận cả hai đường (bulk + dialog) hoạt động đúng sau bản vá.
+
+## Cập nhật sau khi Accepted (2026-09-18, verify "Sửa nâng cao" — ĐẠT 10/11 bước, gồm cả bản vá "Chuyển thành phim lẻ")
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó — quyết định gốc **vẫn đứng vững**.
+
+User xác nhận qua `cargo tauri dev` + tài khoản Telegram thật + API key TMDB thật, đánh dấu trực tiếp trong [docs/pending-device-tests.md](../pending-device-tests.md) — **10/11 bước ĐẠT** ở cả Workspace lẫn Trình quản lý catalog:
+
+- Dialog "Sửa nâng cao" mở đúng, hiện đúng field hiện có; genres picker (chip từ TMDB + nhập tay) hoạt động; "Tra TMDB" trong dialog tự điền title/năm/genres/cast/director/poster.
+- **Bản vá "Chuyển thành phim lẻ" (addendum ngay trên) xác nhận ĐÚNG** ở cả hai đường: dialog (nút luôn bật kể cả khi còn Ep, "Lưu" áp dụng đúng) và bulk toolbar (chuyển ngay mọi dòng `kind: 'episode'` đã chọn, không còn bị bỏ qua lặng lẽ) — ở cả Workspace và Catalog Manager.
+- Poster: upload mới khi bấm "Upload" (Workspace), đổi poster xoá đúng message cũ trên kênh, "Xoá poster" xoá đúng field + message (Catalog Manager). Checkbox chọn dòng/"Chọn tất cả" hoạt động đúng.
+
+**Còn mở, chưa test (không chặn):** "Cố tình làm upload poster mới THẤT BẠI giữa chừng (rút mạng)" — khó chủ động tạo điều kiện lỗi mạng đúng lúc, để ngỏ tới khi có cơ hội tự nhiên (cùng tinh thần CLAUDE.md: không né/kích `FLOOD_WAIT`/lỗi mạng một cách nhân tạo).
+
+Không phát sinh lệch thiết kế nào — mọi hành vi khớp đúng addendum "Sửa nâng cao" và bản vá "Chuyển thành phim lẻ" ở trên.

@@ -8,10 +8,9 @@
 //! `sign_out` (màn Cài đặt, ADR-0017 § addendum 2026-09-14). `upload_video`/
 //! `upload_subtitle`/`publish_catalog` wire ở `upload.rs`,
 //! `check_deleted_messages`/`delete_message` (màn "Trình quản lý catalog")
-//! wire ở `catalog.rs`. Còn đúng một thao tác `IngestRpc` chưa wire:
-//! `download_document` — ĐÃ có implementation đầy đủ ở `ingest-grammers`
-//! nhưng chưa có UI nào cần tới (đối soát ở "Trình quản lý catalog" chỉ cần
-//! biết message còn tồn tại hay không, không cần tải lại nội dung file).
+//! wire ở `catalog.rs`, cùng file với `edit_message_caption`/`download_document`
+//! (2026-09-18 — `download_document` cuối cùng cũng có UI cần tới: ảnh xem
+//! trước poster ở dialog "Sửa nâng cao").
 //!
 //! **Đơn giản hoá có chủ đích của khung sườn này:** nếu `submit_otp`/
 //! `submit_password` thất bại (sai mã/sai mật khẩu), state bị reset về

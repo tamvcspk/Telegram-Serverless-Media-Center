@@ -72,10 +72,11 @@
     }
   }
 
-  // Bảy cột: Title · Năm · Season · Ep · msgId · Trạng thái · hành động —
-  // header và mỗi hàng PHẢI dùng cùng `grid-template-columns` để cột thẳng
-  // hàng nhau (cùng kỹ thuật `workspace.scss`, header nằm ngoài viewport ảo).
-  $columns: minmax(0, 1.6fr) 4.5rem 4.5rem 3.5rem 5rem 8rem 2.5rem;
+  // Chín cột: checkbox (2026-09-18) · Title · Năm · Season · Ep · msgId ·
+  // Trạng thái · Sửa nâng cao (2026-09-18) · hành động — header và mỗi hàng
+  // PHẢI dùng cùng `grid-template-columns` để cột thẳng hàng nhau (cùng kỹ
+  // thuật `workspace.scss`, header nằm ngoài viewport ảo).
+  $columns: 2.5rem minmax(0, 1.6fr) 4.5rem 4.5rem 3.5rem 5rem 8rem 2.5rem 2.5rem;
 
   .table-header-row {
     display: grid;
@@ -143,6 +144,43 @@
       font-weight: 600;
       color: var(--mat-sys-error, #b3261e);
     }
+  }
+
+  // Dạng cây (2026-09-18) — header nhóm dùng CHUNG `.table-row` (giữ đúng
+  // 48px, khớp `itemSize` của cdk-virtual-scroll-viewport — trộn chiều cao
+  // khác nhau sẽ làm sai lệch scroll math của strategy fixed-size) nhưng bỏ
+  // hẳn `display: grid` nhiều cột, thay bằng flex một hàng đơn giản.
+  .group-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    font-weight: 600;
+    background: var(--cm-border-8);
+
+    &.season-header {
+      padding-left: 2.5rem;
+      font-weight: 500;
+      background: transparent;
+    }
+
+    .chevron {
+      display: inline-block;
+      transition: transform 0.15s ease;
+
+      &.collapsed {
+        transform: rotate(-90deg);
+      }
+    }
+
+    .group-count {
+      opacity: 0.6;
+      font-size: 0.8rem;
+    }
+  }
+
+  .episode-row {
+    padding-left: 3.5rem;
   }
 
   .table-footer {

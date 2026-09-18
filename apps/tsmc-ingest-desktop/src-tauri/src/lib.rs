@@ -67,6 +67,7 @@ pub fn run() {
             catalog::delete_message,
             catalog::scan_channel_videos,
             catalog::edit_message_caption,
+            catalog::download_document,
             probe::list_media_files,
             probe::probe_media,
             probe::list_dir_entries,
@@ -84,6 +85,7 @@ pub fn run() {
             tmdb::tmdb_delete_key,
             tmdb::tmdb_search,
             tmdb::tmdb_details,
+            tmdb::tmdb_genre_list,
             logs::read_app_log,
         ])
         .run(tauri::generate_context!())

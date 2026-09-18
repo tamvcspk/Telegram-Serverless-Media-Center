@@ -1,0 +1,33 @@
+// Dạng cây (2026-09-18, tách riêng khỏi workspace.scss để không vượt ngân
+// sách `anyComponentStyle` 6kB của Angular CLI — mỗi stylesheet của một
+// component được tính RIÊNG, tách file là cách hợp lệ khi nội dung thật sự
+// cần thêm, không phải cắt bớt style đang dùng). Header nhóm dùng CHUNG
+// `.metadata-row` (giữ đúng 48px khớp `itemSize` của cdk-virtual-scroll-viewport),
+// đổi sang flex một hàng thay vì grid nhiều cột.
+.workspace .metadata-pane .group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-weight: 600;
+  background: var(--ws-border-8);
+}
+
+.workspace .metadata-pane .group-header.season-header {
+  padding-left: 2.5rem;
+  font-weight: 500;
+  background: transparent;
+}
+
+.workspace .metadata-pane .chevron.collapsed {
+  transform: rotate(-90deg);
+}
+
+.workspace .metadata-pane .group-count {
+  opacity: 0.6;
+  font-size: 0.8rem;
+}
+
+.workspace .metadata-pane .episode-row {
+  padding-left: 2.25rem;
+}

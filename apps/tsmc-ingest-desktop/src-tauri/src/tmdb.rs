@@ -271,3 +271,30 @@ pub async fn tmdb_details(app: AppHandle, id: i64, kind: TmdbKindDto) -> Result<
         }
     }
 }
+
+#[derive(Deserialize)]
+struct TmdbGenreListResponse {
+    genres: Vec<TmdbGenre>,
+}
+
+/// Danh sách thể loại CHUẨN của TMDB (`/genre/movie/list`/`/genre/tv/list`,
+/// ~19/~16 mục, gần như không đổi) — dùng cho picker chip ở dialog "Sửa
+/// nâng cao" (bên cạnh nhập tay tự do, brainstorm 2026-09-18: "Picker và
+/// nhập tay"). KHÔNG cache phía Rust — payload nhỏ, gọi lại mỗi lần mở
+/// dialog đơn giản hơn quản lý vòng đời cache, cùng tinh thần
+/// `tmdb_search()` (không cache).
+#[tauri::command]
+pub async fn tmdb_genre_list(app: AppHandle, kind: TmdbKindDto) -> Result<Vec<String>, TmdbErrorDto> {
+    let api_key = load_key(&app).ok_or(TmdbErrorDto::NoApiKey)?;
+    let url = match kind {
+        TmdbKindDto::Movie => format!("{TMDB_API_BASE}/genre/movie/list"),
+        TmdbKindDto::Episode => format!("{TMDB_API_BASE}/genre/tv/list"),
+    };
+    let response = reqwest::Client::new().get(&url).query(&[("api_key", &api_key)]).send().await.map_err(|e| TmdbErrorDto::Network(e.to_string()))?;
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return Err(TmdbErrorDto::InvalidKey);
+    }
+    let response = response.error_for_status().map_err(|e| TmdbErrorDto::Network(e.to_string()))?;
+    let parsed: TmdbGenreListResponse = response.json().await.map_err(|e| TmdbErrorDto::Other(e.to_string()))?;
+    Ok(parsed.genres.into_iter().map(|g| g.name).collect())
+}

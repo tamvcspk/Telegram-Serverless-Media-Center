@@ -605,8 +605,7 @@ Liên quan: [ADR-0019 § addendum 2026-09-18](./adr/0019-tich-hop-tra-cuu-tmdb-o
 
 ### Chuẩn bị
 
-- [x] `cargo build`/`ng build`/`npm run lint`/`npm run test:libs` (302 test) sạch — verify 2026-09-18.
-- [ ] `cargo clippy --workspace -- -D warnings` sạch — CHƯA chạy được (file lock từ phiên `cargo tauri dev` khác), cần đóng phiên cũ rồi chạy lại.
+- [x] `cargo build`/`cargo clippy --workspace -- -D warnings`/`ng build`/`npm run lint`/`npm run test:libs` (302 test) sạch — verify 2026-09-18 (clippy verify 2026-09-18 sau khi phiên `cargo tauri dev` cũ đóng).
 
 ### Các bước
 
@@ -620,4 +619,64 @@ Liên quan: [ADR-0019 § addendum 2026-09-18](./adr/0019-tich-hop-tra-cuu-tmdb-o
 
 - `edit_message_caption()` lỗi "message không tồn tại/không có quyền" → kiểm đúng `msg_id` truyền vào là message VIDEO gốc (không phải nhầm sang message poster/subtitle của cùng item — ba message khác `msgId` nhau).
 - Caption bị XOÁ SẠCH (rỗng) thay vì cập nhật đúng → kiểm `composeCaption()` có đang nhận đúng `item` đầy đủ field (title/series/year/genres) hay bị truyền nhầm object rỗng/thiếu field.
+- Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0019 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
+
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — "Sửa nâng cao" (Advanced Metadata Edit, 2026-09-18)
+
+Liên quan: [ADR-0019 § addendum 2026-09-18, Advanced Metadata Edit](./adr/0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md#cập-nhật-sau-khi-accepted-2026-09-18-sửa-nâng-cao--advanced-metadata-edit), [docs/roadmap.md § Ingest](./roadmap.md#ingest). Cần **tài khoản Telegram thật** (đổi/xoá poster là ghi thật lên kênh) + **API key TMDB thật** (genres picker + "Tra TMDB" trong dialog).
+
+**KHÔNG chạy hộ bằng agent/Claude.** Admin tự chạy `cargo tauri dev` (đóng phiên `cargo tauri dev` cũ trước — đang khoá file `ffmpeg-runtime/avcodec-61.dll`, chặn cả `cargo clippy`).
+
+### Chuẩn bị
+
+- [x] `cargo build`/`cargo clippy --workspace -- -D warnings`/`ng build`/`npm run lint`/`npm run test:libs` (302 test) sạch — verify 2026-09-18 (clippy verify 2026-09-18 sau khi phiên `cargo tauri dev` cũ đóng).
+
+### Các bước — Workspace (Draft)
+
+- [x] Bấm icon "Sửa nâng cao" ở một dòng chưa upload → dialog mở, hiện đúng field hiện có (series.name nếu là episode, genres/cast/director nếu đã có từ "Tra TMDB" trước đó).
+- [x] Thêm genre bằng cách bấm nút "+ &lt;tên&gt;" từ danh sách TMDB VÀ gõ tay một tag tự do → cả hai xuất hiện thành chip, xoá được từng chip.
+- [x] Bấm "Tra TMDB" trong dialog → chọn kết quả → title/năm/genres/cast/director/poster (preview ảnh mới) tự điền — bấm "Lưu" → dòng ngoài bảng cập nhật đúng theo dialog.
+- [x] Item `kind: 'episode'` ĐANG CÒN số Ep → mở "Sửa nâng cao" → nút "Chuyển thành phim lẻ" LUÔN bật (vá 2026-09-18, không còn đòi xoá Ep trước) → bấm → hiện dòng "Sẽ chuyển thành phim lẻ khi Lưu" → "Lưu" → dòng chuyển đúng thành phim lẻ (không còn Season/Ep).
+- [x] Chọn nhiều dòng CÒN Ep → bấm toolbar "Chuyển thành phim lẻ" → TẤT CẢ dòng đã chọn (kind episode) chuyển ngay thành phim lẻ, Season/Ep trong bảng trống lại ngay lập tức (vá 2026-09-18 — trước đây bị bỏ qua lặng lẽ, đây chính là bug user báo "không hoạt động, không biểu hiện gì").
+- [x] Bấm "Upload" cho dòng có poster mới chọn qua dialog → hàng đợi hiện "Đang upload poster…", catalog.json ra đúng `poster: { msgId }`.
+
+### Các bước — Trình quản lý catalog (post-publish)
+
+- [x] Checkbox chọn từng dòng + "Chọn tất cả" hoạt động đúng (đếm "N đã chọn" ở footer khớp).
+- [x] Mở "Sửa nâng cao" cho item ĐÃ CÓ poster từ trước → ảnh xem trước tải và hiện đúng (qua `download_document()`).
+- [x] Đổi poster (Tra TMDB, chọn kết quả khác) → "Lưu catalog" → xác nhận: (a) catalog.json có `poster.msgId` MỚI, (b) message poster CŨ đã bị XOÁ HẲN trên kênh (mở bằng Telegram thường, không còn tồn tại).
+- [x] "Xoá poster" (không chọn TMDB) → "Lưu catalog" → catalog.json không còn field `poster`, message poster cũ bị xoá trên kênh.
+- [ ] Cố tình làm upload poster mới THẤT BẠI (vd rút mạng giữa chừng nếu dựng được) → xác nhận "Lưu catalog" KHÔNG publish gì cả (catalog cũ giữ nguyên), không phải publish thiếu poster.
+- [x] Bulk "Chuyển thành phim lẻ" chuyển ngay mọi dòng đã chọn có `kind: 'episode'` (vá 2026-09-18, không còn đòi xoá Ep trước), cùng hành vi Workspace.
+
+### Nếu có gì vỡ
+
+- Ảnh xem trước không hiện → kiểm `download_document()` trả về base64 hợp lệ, và `toPosterDataUri()` có đúng mime `image/jpeg` không (nếu TMDB trả PNG cho một số ảnh cũ, mime cứng sai sẽ vỡ `<img>`).
+- Poster cũ KHÔNG bị xoá sau khi đổi → kiểm `resolvePendingPosters()` có trả đúng `previousPosterMsgId` và `onPublish()` có gọi `deleteMessage()` cho đúng danh sách đó SAU khi publish thành công.
+- Catalog publish thiếu poster dù upload báo lỗi → SAI THIẾT KẾ nghiêm trọng — `resolvePendingPosters()` phải ném lỗi ra ngoài để `onPublish()` abort trước khi gọi `publishCatalog()`, không được nuốt lỗi.
+- Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0019 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
+
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — bảng metadata dạng cây/nhóm (2026-09-18)
+
+Liên quan: [ADR-0019 § addendum 2026-09-18, dạng cây/nhóm](./adr/0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md#cập-nhật-sau-khi-accepted-2026-09-18-dạng-câynhóm-cho-bảng-metadata), [docs/roadmap.md § Ingest](./roadmap.md#ingest). Không cần API key/tài khoản đặc biệt gì thêm — chỉ cần một catalog/batch có TRỘN phim lẻ và phim bộ nhiều tập để thấy rõ nhóm.
+
+**KHÔNG chạy hộ bằng agent/Claude.** Admin tự chạy `cargo tauri dev`.
+
+### Chuẩn bị
+
+- [x] `cargo build`/`cargo clippy --workspace -- -D warnings`/`ng build`/`npm run lint`/`npm run test:libs` (310 test) sạch, không cảnh báo ngân sách — verify 2026-09-18.
+
+### Các bước
+
+- [ ] Workspace: kéo thả một folder có cả phim lẻ lẫn nhiều tập của 1-2 series → bảng hiện đúng: phim lẻ một dòng, mỗi series có header riêng, bấm vào header collapse/expand đúng (season theo sau).
+- [ ] Catalog Manager: mở một kênh có catalog trộn phim lẻ/phim bộ → cùng hành vi nhóm, cộng: checkbox chọn dòng vẫn hoạt động đúng ở cấp lá (không có checkbox ở header nhóm).
+- [ ] Gõ tìm kiếm (search) → cây tự thu gọn đúng về nhánh khớp (series không có tập nào khớp biến mất hẳn, không hiện header rỗng).
+- [ ] Cuộn nhanh qua danh sách dài (catalog/batch nhiều item, trộn cả header lẫn leaf row) → xác nhận virtual scroll KHÔNG bị giật/nhảy vị trí (dấu hiệu ngân sách `itemSize=48` bị sai nếu header/leaf cao khác nhau).
+- [ ] Season/episode không rõ số (dữ liệu thật thiếu field) → rơi đúng xuống nhóm cuối "Không rõ season", không lỗi/vỡ layout.
+- [ ] Bulk "Chuyển thành phim lẻ" (Workspace lẫn Catalog Manager) vẫn hoạt động đúng sau khi đổi sang hiển thị cây (chọn nhiều dòng theo thứ tự NHÌN THẤY trên cây, xác nhận `autoNumberEpisodes()`/`fillDown()` — nếu có lệch với thứ tự hiển thị, đây là giới hạn đã biết ghi trong ADR, không phải bug mới).
+
+### Nếu có gì vỡ
+
+- Virtual scroll giật/tính sai vị trí cuộn → kiểm header nhóm có đang render đúng CHIỀU CAO 48px (CSS `.group-header` phải dùng chung class `.metadata-row`/`.table-row`, không tự ý đổi `height`/`padding` làm lệch khỏi 48px).
+- Nhóm "series" hoặc "season" không đúng thứ tự alphabet/số → kiểm `flattenMetadataTree()` (`libs/core-ingest/src/metadata-tree.ts`) bằng test case tương ứng trong `metadata-tree.spec.ts` trước khi nghi ngờ code UI.
 - Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0019 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.

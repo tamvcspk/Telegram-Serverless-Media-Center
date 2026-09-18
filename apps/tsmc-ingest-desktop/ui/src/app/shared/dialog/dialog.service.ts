@@ -1,7 +1,9 @@
 import { Injectable, inject } from '@angular/core';
 import { MatDialog } from '@angular/material/dialog';
+import type { CatalogItemV1 } from '@tsmc/shared-models';
 import { firstValueFrom } from 'rxjs';
 import type { TmdbKind, TmdbSearchResultDto } from '../../core/ingest-rpc.types';
+import { AdvancedMetadataDialog, type AdvancedMetadataDialogData, type AdvancedMetadataResult } from './advanced-metadata-dialog';
 import { ConfirmDialog, type ConfirmDialogData } from './confirm-dialog';
 import { GradeDDialog, type GradeDDialogItem } from './grade-d-dialog';
 import { OrphanReviewDialog, type OrphanReviewDialogItem } from './orphan-review-dialog';
@@ -97,6 +99,21 @@ export class DialogService {
     const ref = this.dialog.open<TmdbSearchDialog, TmdbSearchDialogData, TmdbSearchResultDto>(TmdbSearchDialog, {
       data: { initialQuery, kind },
       width: '28rem'
+    });
+    const result = await firstValueFrom(ref.afterClosed());
+    return result ?? null;
+  }
+
+  /** "Sửa nâng cao" (brainstorm 2026-09-18) — dùng chung cho `workspace.ts`
+   * (Draft) và `catalog-manager.ts` (đã publish). Truyền thẳng `searchTmdb`
+   * của CHÍNH service này vào `data` — dialog con gọi lại qua callback thay
+   * vì tự `inject(DialogService)`, né import vòng (file này phải import
+   * `AdvancedMetadataDialog` để mở nó). Đóng không bấm "Lưu" → `null`, cùng
+   * nguyên tắc "đóng không phải xác nhận = từ chối". */
+  async editAdvancedMetadata(item: CatalogItemV1, kind: TmdbKind, posterMsgId?: number): Promise<AdvancedMetadataResult | null> {
+    const ref = this.dialog.open<AdvancedMetadataDialog, AdvancedMetadataDialogData, AdvancedMetadataResult>(AdvancedMetadataDialog, {
+      data: { item, kind, posterMsgId, searchTmdb: (query: string, k: TmdbKind) => this.searchTmdb(query, k) },
+      width: '34rem'
     });
     const result = await firstValueFrom(ref.afterClosed());
     return result ?? null;

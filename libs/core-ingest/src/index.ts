@@ -20,3 +20,6 @@ export { matchSidecarSubtitles } from './sidecar-subtitles';
 export type { SidecarSubtitleMatch } from './sidecar-subtitles';
 
 export { composeCaption } from './caption-hashtags';
+
+export { flattenMetadataTree, seasonGroupKey, seriesGroupKey } from './metadata-tree';
+export type { FlatMetadataRow } from './metadata-tree';

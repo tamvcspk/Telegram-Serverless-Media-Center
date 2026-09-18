@@ -16,11 +16,15 @@ import {
   classifyCompatRank,
   composeCaption,
   deriveCompat,
+  flattenMetadataTree,
   inheritMetadata,
   matchSidecarSubtitles,
   mergeCatalogItems,
   parseExistingCatalogItems,
-  seedMetadataFromFilename
+  seasonGroupKey,
+  seedMetadataFromFilename,
+  seriesGroupKey,
+  type FlatMetadataRow
 } from '@tsmc/core-ingest';
 import type { CatalogItemV1 } from '@tsmc/shared-models';
 import { DraftStore, type QueueItem } from '../core/draft-store';
@@ -141,7 +145,9 @@ function parseOptionalInt(raw: string): number | undefined {
   selector: 'app-workspace',
   imports: [MatButtonModule, MatCheckboxModule, MatListModule, MatMenuModule, MatProgressSpinnerModule, MatToolbarModule, MatTooltipModule, ScrollingModule],
   templateUrl: './workspace.html',
-  styleUrl: './workspace.scss',
+  // Hai file — `workspace-tree.scss` tách riêng để không vượt ngân sách
+  // `anyComponentStyle` 6kB (Angular CLI tính RIÊNG từng stylesheet).
+  styleUrls: ['./workspace.scss', './workspace-tree.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class Workspace implements OnInit {
@@ -205,6 +211,15 @@ export class Workspace implements OnInit {
     }
     return this.queue().filter((item) => item.name.toLowerCase().includes(q) || (item.metadata.title ?? '').toLowerCase().includes(q));
   });
+
+  /** Nhóm (series/season) đang thu gọn — cùng cơ chế `catalog-manager.ts`. */
+  protected readonly collapsedGroups = signal<ReadonlySet<string>>(new Set());
+
+  /** Dạng cây (brainstorm 2026-09-18) — phim lẻ một dòng, phim bộ nhóm
+   * `series.name` > `season`, xem doc comment `flattenMetadataTree()`
+   * (`@tsmc/core-ingest`). Nhóm theo `filteredQueue()` (SAU tìm kiếm) —
+   * cùng lý do đã ghi ở đó, gõ tìm tự thu gọn cây về đúng nhánh khớp. */
+  protected readonly treeRows = computed(() => flattenMetadataTree(this.filteredQueue(), (item) => item.metadata, this.collapsedGroups()));
 
   ngOnInit(): void {
     // Vào thẳng URL /workspace mà chưa qua màn Chọn kênh (reload webview,
@@ -381,6 +396,39 @@ export class Workspace implements OnInit {
     return item.path;
   }
 
+  /** `trackBy` cho `treeRows()` — cùng cơ chế `catalog-manager.ts::trackByTreeRow()`. */
+  protected trackByTreeRow(_index: number, row: FlatMetadataRow<QueueItem>): string {
+    switch (row.kind) {
+      case 'series-header':
+        return seriesGroupKey(row.seriesName);
+      case 'season-header':
+        return seasonGroupKey(row.seriesName, row.season);
+      case 'movie':
+      case 'episode':
+        return `item:${row.row.path}`;
+    }
+  }
+
+  protected toggleSeriesCollapsed(seriesName: string): void {
+    this.toggleCollapsedGroup(seriesGroupKey(seriesName));
+  }
+
+  protected toggleSeasonCollapsed(seriesName: string, season: number | undefined): void {
+    this.toggleCollapsedGroup(seasonGroupKey(seriesName, season));
+  }
+
+  private toggleCollapsedGroup(key: string): void {
+    this.collapsedGroups.update((keys) => {
+      const next = new Set(keys);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }
+
   protected trackByTaskId(_index: number, item: { taskId: string }): string {
     return item.taskId;
   }
@@ -474,6 +522,26 @@ export class Workspace implements OnInit {
     }
   }
 
+  /** "Sửa nâng cao" (brainstorm 2026-09-18) — dialog dùng chung với
+   * `catalog-manager.ts` (`AdvancedMetadataDialog`), sửa `series.name`/
+   * `genres`/`cast`/`director`/poster. Item Draft luôn `posterMsgId`
+   * `undefined` (chưa upload gì cả) — `posterChange: 'remove'` ở đây chỉ
+   * nghĩa là "bỏ lựa chọn TMDB poster đã chọn trước đó", không xoá message
+   * nào trên kênh (chưa có message nào để xoá). */
+  protected async onEditAdvanced(item: QueueItem): Promise<void> {
+    const kind = item.metadata.kind === 'episode' ? 'episode' : 'movie';
+    const result = await this.dialogService.editAdvancedMetadata(item.metadata, kind);
+    if (!result) {
+      return;
+    }
+    this.updateMetadata(item.path, () => result.item);
+    if (result.posterChange?.type === 'replace') {
+      this.updateItem(item.path, { pendingPosterPath: result.posterChange.posterPath });
+    } else if (result.posterChange?.type === 'remove') {
+      this.updateItem(item.path, { pendingPosterPath: undefined });
+    }
+  }
+
   // --- Bảng metadata: thao tác hàng loạt trên các dòng đã chọn ---
 
   protected toggleSelectAll(checked: boolean): void {
@@ -523,6 +591,23 @@ export class Workspace implements OnInit {
 
   protected removeSelected(): void {
     this.queue.update((items) => items.filter((item) => !item.selected));
+  }
+
+  /** "Chuyển thành phim lẻ" hàng loạt (brainstorm 2026-09-18, vá 2026-09-18:
+   * bỏ điều kiện "phải xoá Ep TRƯỚC" — bản đầu gate theo `series?.episode
+   * === undefined`, nhưng đó là bug thật: hầu hết dòng cần chuyển ĐANG có
+   * Ep (đúng lý do cần chuyển), nên điều kiện đó khiến nút "không hoạt
+   * động, không biểu hiện gì" ở đúng trường hợp thường gặp nhất. Giờ chuyển
+   * THẲNG mọi dòng đã chọn có `kind === 'episode'`, xoá `series` luôn trong
+   * cùng thao tác — dữ liệu chỉ nằm ở buffer sửa cục bộ (chưa "Upload"),
+   * không phải ghi Telegram ngay, nên không cần cổng an toàn kiểu xác nhận
+   * trước khi cho phép bấm. */
+  protected convertSelectedToMovie(): void {
+    for (const item of this.queue().filter((i) => i.selected)) {
+      if (item.metadata.kind === 'episode') {
+        this.updateMetadata(item.path, (m) => ({ ...m, kind: 'movie', series: undefined }));
+      }
+    }
   }
 
   // --- Hàng đợi upload (sidebar trái) ---

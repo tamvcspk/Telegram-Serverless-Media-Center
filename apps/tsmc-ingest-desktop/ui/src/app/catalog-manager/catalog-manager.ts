@@ -1,11 +1,22 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
+import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { Router } from '@angular/router';
-import { buildCatalogEnvelope, composeCaption, mergeCatalogItems, parseExistingCatalogItems, seedMetadataFromFilename } from '@tsmc/core-ingest';
+import {
+  buildCatalogEnvelope,
+  composeCaption,
+  flattenMetadataTree,
+  mergeCatalogItems,
+  parseExistingCatalogItems,
+  seasonGroupKey,
+  seedMetadataFromFilename,
+  seriesGroupKey,
+  type FlatMetadataRow
+} from '@tsmc/core-ingest';
 import type { CatalogItemV1 } from '@tsmc/shared-models';
 import { withFloodWaitRetry } from '../core/flood-wait-retry';
 import {
@@ -16,11 +27,23 @@ import {
   publishCatalog,
   readPinnedCatalog,
   scanChannelVideos,
-  toIngestRpcError
+  toIngestRpcError,
+  uploadTmdbPoster
 } from '../core/ingest-rpc';
+import type { TmdbKind } from '../core/ingest-rpc.types';
 import { SelectedChannelStore } from '../core/selected-channel';
+import type { PosterChange } from '../shared/dialog/advanced-metadata-dialog';
 import { DialogService } from '../shared/dialog/dialog.service';
 import type { OrphanReviewDialogItem } from '../shared/dialog/orphan-review-dialog';
+
+/** Poster thay đổi CHỜ (từ "Sửa nâng cao") + msgId poster CŨ tại thời điểm mở
+ * dialog — cần cả hai để lúc "Lưu catalog" biết CHÍNH XÁC message poster nào
+ * cần xoá SAU khi catalog mới publish thành công (không xoá TRƯỚC — nếu
+ * publish thất bại giữa chừng, admin không nên mất luôn poster cũ). */
+interface PendingPosterChange {
+  change: PosterChange;
+  previousPosterMsgId?: number;
+}
 
 /**
  * Trình quản lý catalog (A.4, docs/ux-design.md § Phụ lục A.4 + A.6) — bảng
@@ -66,7 +89,7 @@ import type { OrphanReviewDialogItem } from '../shared/dialog/orphan-review-dial
  */
 @Component({
   selector: 'app-catalog-manager',
-  imports: [MatButtonModule, MatMenuModule, MatToolbarModule, MatTooltipModule, ScrollingModule],
+  imports: [MatButtonModule, MatCheckboxModule, MatMenuModule, MatToolbarModule, MatTooltipModule, ScrollingModule],
   templateUrl: './catalog-manager.html',
   styleUrl: './catalog-manager.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -92,6 +115,20 @@ export class CatalogManager implements OnInit {
   protected readonly dirty = signal(false);
   protected readonly searchText = signal('');
 
+  /** Checkbox chọn dòng (brainstorm 2026-09-18, cho bulk "Chuyển thành phim
+   * lẻ") — cùng cách `removedIds`/`brokenIds` đã làm: theo dõi RIÊNG khỏi
+   * `items()`, không phải field trên từng item. */
+  protected readonly selectedIds = signal<ReadonlySet<number>>(new Set());
+  /** Poster đổi/xoá từ "Sửa nâng cao" — CHƯA upload/xoá message thật, chỉ
+   * thực thi lúc "Lưu catalog" (`onPublish()`), TRƯỚC khi build envelope
+   * (poster msgId phải có mặt trong catalog vừa publish, khác hashtag
+   * caption vốn không nằm trong nội dung catalog.json nên sync được SAU). */
+  protected readonly pendingPosterChanges = signal<ReadonlyMap<number, PendingPosterChange>>(new Map());
+  /** Nhóm (series/season) đang thu gọn — `seriesGroupKey()`/`seasonGroupKey()`
+   * (`@tsmc/core-ingest`). Mặc định TẤT CẢ mở rộng (rỗng) — không ẩn gì bất
+   * ngờ lúc mới vào màn. */
+  protected readonly collapsedGroups = signal<ReadonlySet<string>>(new Set());
+
   protected readonly reconciling = signal(false);
   protected readonly brokenIds = signal<ReadonlySet<number>>(new Set());
   protected readonly scanningOrphans = signal(false);
@@ -108,6 +145,18 @@ export class CatalogManager implements OnInit {
     }
     return this.items().filter((item) => (item.title ?? '').toLowerCase().includes(q) || String(item.msgId).includes(q));
   });
+
+  /** Dạng cây (brainstorm 2026-09-18) — phim lẻ một dòng, phim bộ nhóm
+   * `series.name` > `season`. Mảng PHẲNG có discriminant `kind` (không phải
+   * cấu trúc lồng nhau) để feed thẳng vào `cdk-virtual-scroll-viewport` đã
+   * có sẵn — xem doc comment `flattenMetadataTree()` (`@tsmc/core-ingest`).
+   * Tìm kiếm (`filteredItems`) áp dụng TRƯỚC khi nhóm cây, nên gõ tìm sẽ tự
+   * thu gọn cây về đúng nhánh khớp (series không có tập nào khớp biến mất
+   * hẳn, không hiện dạng rỗng). */
+  protected readonly treeRows = computed(() => flattenMetadataTree(this.filteredItems(), (item) => item, this.collapsedGroups()));
+
+  protected readonly selectedCount = computed(() => this.selectedIds().size);
+  protected readonly allSelected = computed(() => this.items().length > 0 && this.items().every((item) => this.selectedIds().has(item.msgId)));
 
   ngOnInit(): void {
     if (this.selectedChannelStore.channel() === null) {
@@ -127,6 +176,8 @@ export class CatalogManager implements OnInit {
       this.dirty.set(false);
       this.brokenIds.set(new Set());
       this.removedIds.set(new Set());
+      this.selectedIds.set(new Set());
+      this.pendingPosterChanges.set(new Map());
     } catch (err) {
       this.loadError.set(describeIngestError(toIngestRpcError(err)));
     } finally {
@@ -140,6 +191,41 @@ export class CatalogManager implements OnInit {
 
   trackByMsgId(_index: number, item: CatalogItemV1): number {
     return item.msgId;
+  }
+
+  /** `trackBy` cho `treeRows()` — header row dùng khoá nhóm (ổn định qua các
+   * lần re-render vì chỉ phụ thuộc tên/season, không phụ thuộc thứ tự mảng),
+   * leaf row dùng thẳng `msgId`. */
+  protected trackByTreeRow(_index: number, row: FlatMetadataRow<CatalogItemV1>): string {
+    switch (row.kind) {
+      case 'series-header':
+        return seriesGroupKey(row.seriesName);
+      case 'season-header':
+        return seasonGroupKey(row.seriesName, row.season);
+      case 'movie':
+      case 'episode':
+        return `item:${row.row.msgId}`;
+    }
+  }
+
+  protected toggleSeriesCollapsed(seriesName: string): void {
+    this.toggleCollapsed(seriesGroupKey(seriesName));
+  }
+
+  protected toggleSeasonCollapsed(seriesName: string, season: number | undefined): void {
+    this.toggleCollapsed(seasonGroupKey(seriesName, season));
+  }
+
+  private toggleCollapsed(key: string): void {
+    this.collapsedGroups.update((keys) => {
+      const next = new Set(keys);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
   }
 
   onTitleInput(msgId: number, value: string): void {
@@ -156,6 +242,53 @@ export class CatalogManager implements OnInit {
 
   onEpisodeInput(msgId: number, value: string): void {
     this.patchSeries(msgId, { episode: value ? Number(value) : undefined });
+  }
+
+  protected toggleSelectAll(checked: boolean): void {
+    this.selectedIds.set(checked ? new Set(this.items().map((item) => item.msgId)) : new Set());
+  }
+
+  protected toggleSelected(msgId: number, checked: boolean): void {
+    this.selectedIds.update((ids) => {
+      const next = new Set(ids);
+      if (checked) {
+        next.add(msgId);
+      } else {
+        next.delete(msgId);
+      }
+      return next;
+    });
+  }
+
+  /** "Sửa nâng cao" (brainstorm 2026-09-18) — dialog dùng chung với
+   * `workspace.ts` (`AdvancedMetadataDialog`). Poster đổi/xoá KHÔNG thực thi
+   * ngay — ghi vào `pendingPosterChanges`, xử lý lúc "Lưu catalog" (đúng thứ
+   * tự bắt buộc: upload/xoá poster PHẢI xong TRƯỚC khi build envelope, vì
+   * `poster.msgId` là một field NẰM TRONG catalog.json, khác hashtag caption
+   * vốn không thuộc nội dung catalog nên sync được sau khi publish xong). */
+  protected async onEditAdvanced(item: CatalogItemV1): Promise<void> {
+    const kind: TmdbKind = item.kind === 'episode' ? 'episode' : 'movie';
+    const result = await this.dialogService.editAdvancedMetadata(item, kind, item.poster?.msgId);
+    if (!result) {
+      return;
+    }
+    this.patchItem(item.msgId, result.item);
+    if (result.posterChange) {
+      this.pendingPosterChanges.update((m) => new Map(m).set(item.msgId, { change: result.posterChange!, previousPosterMsgId: item.poster?.msgId }));
+    }
+  }
+
+  /** "Chuyển thành phim lẻ" hàng loạt — vá 2026-09-18: bỏ điều kiện "phải
+   * xoá Ep TRƯỚC" (bug thật, xem doc comment `workspace.ts::convertSelectedToMovie()`).
+   * Chuyển THẲNG mọi dòng đã chọn có `kind === 'episode'`, xoá `series`
+   * luôn — chỉ đổi buffer đang sửa, chưa ghi Telegram tới khi "Lưu catalog". */
+  protected convertSelectedToMovie(): void {
+    const ids = this.selectedIds();
+    for (const item of this.items()) {
+      if (ids.has(item.msgId) && item.kind === 'episode') {
+        this.patchItem(item.msgId, { kind: 'movie', series: undefined });
+      }
+    }
   }
 
   private patchItem(msgId: number, patch: Partial<CatalogItemV1>): void {
@@ -244,6 +377,22 @@ export class CatalogManager implements OnInit {
       next.delete(msgId);
       return next;
     });
+    this.selectedIds.update((ids) => {
+      if (!ids.has(msgId)) {
+        return ids;
+      }
+      const next = new Set(ids);
+      next.delete(msgId);
+      return next;
+    });
+    this.pendingPosterChanges.update((m) => {
+      if (!m.has(msgId)) {
+        return m;
+      }
+      const next = new Map(m);
+      next.delete(msgId);
+      return next;
+    });
     this.dirty.set(true);
   }
 
@@ -277,7 +426,15 @@ export class CatalogManager implements OnInit {
    * với `items()` đang sửa (`mergeCatalogItems` ưu tiên bản trong `items()`
    * — cùng `msgId` thì item sau thắng, đúng ngữ nghĩa "đây là bản đã sửa").
    * KHÔNG dùng "item nào không còn trong items()" làm tiêu chí loại — xem
-   * doc comment `removedIds`. */
+   * doc comment `removedIds`.
+   *
+   * **Thứ tự bắt buộc (ADR-0019 § addendum "Advanced Metadata Edit"):**
+   * resolve poster (upload/xoá) TRƯỚC khi build envelope — `poster.msgId`
+   * là field NẰM TRONG `catalog.json`, khác hashtag caption (không thuộc
+   * nội dung catalog nên sync được SAU khi publish xong, xem
+   * `syncHashtagCaptions()`). Nếu resolve poster lỗi, ABORT toàn bộ publish
+   * (không gọi `publishCatalog()`) — khác hashtag caption vốn best-effort,
+   * vì đây là nội dung catalog thật, không nên publish nửa vời. */
   async onPublish(): Promise<void> {
     const channel = this.selectedChannelStore.channel();
     if (!channel) {
@@ -288,6 +445,8 @@ export class CatalogManager implements OnInit {
     this.publishError.set(null);
     this.publishResult.set(null);
     try {
+      const oldPosterMsgIdsToDelete = await this.resolvePendingPosters();
+
       const pinned = await readPinnedCatalog();
       const remoteItems = pinned ? parseExistingCatalogItems(pinned.raw) : [];
       const removed = this.removedIds();
@@ -304,6 +463,23 @@ export class CatalogManager implements OnInit {
       this.selectedChannelStore.set(channel, `${merged.length} item`);
       this.publishResult.set({ msgId: result.msg_id, totalItems: merged.length });
       this.dirty.set(false);
+      this.pendingPosterChanges.set(new Map());
+
+      // Xoá message poster CŨ chỉ SAU KHI catalog mới đã publish thành công
+      // — publish thất bại giữa chừng không nên khiến admin mất luôn poster
+      // cũ trong lúc catalog vẫn còn trỏ tới nó. Best-effort, không chặn kết
+      // quả publish đã thành công.
+      for (const msgId of oldPosterMsgIdsToDelete) {
+        try {
+          await withFloodWaitRetry(
+            (s) => this.publishFloodWaitSeconds.set(s),
+            () => deleteMessage(msgId)
+          );
+        } catch {
+          // Poster cũ mồ côi lại trên kênh — vô hại (không còn catalog nào
+          // trỏ tới), không đáng chặn/báo lỗi cho một hành động dọn dẹp phụ.
+        }
+      }
 
       await this.syncHashtagCaptions(remoteItems);
     } catch (err) {
@@ -311,6 +487,38 @@ export class CatalogManager implements OnInit {
     } finally {
       this.publishing.set(false);
     }
+  }
+
+  /** Upload poster mới / xoá field `poster` cho mọi item có trong
+   * `pendingPosterChanges()`, ghi thẳng vào `this.items()` TRƯỚC khi
+   * `onPublish()` build envelope. Trả về danh sách `msgId` poster CŨ cần
+   * xoá trên kênh SAU khi publish thành công (không xoá ở đây — xem doc
+   * comment `onPublish()`). Ném lỗi thẳng ra ngoài nếu một upload thất bại —
+   * `onPublish()` bắt lỗi này và KHÔNG publish gì cả (an toàn hơn publish
+   * catalog thiếu poster của đúng item admin vừa sửa). */
+  private async resolvePendingPosters(): Promise<number[]> {
+    const pending = this.pendingPosterChanges();
+    if (pending.size === 0) {
+      return [];
+    }
+    const oldMsgIdsToDelete: number[] = [];
+    for (const [msgId, { change, previousPosterMsgId }] of pending) {
+      if (change.type === 'remove') {
+        this.patchItem(msgId, { poster: undefined });
+      } else {
+        const item = this.items().find((i) => i.msgId === msgId);
+        const fileName = `${(item?.title ?? `poster-${msgId}`).replace(/[^\p{L}\p{N}]+/gu, '_')}.poster.jpg`;
+        const uploaded = await withFloodWaitRetry(
+          (s) => this.publishFloodWaitSeconds.set(s),
+          () => uploadTmdbPoster(change.posterPath, fileName)
+        );
+        this.patchItem(msgId, { poster: { msgId: uploaded.msg_id } });
+      }
+      if (previousPosterMsgId !== undefined) {
+        oldMsgIdsToDelete.push(previousPosterMsgId);
+      }
+    }
+    return oldMsgIdsToDelete;
   }
 
   /** Sync hashtag caption (ADR-0019 § addendum 2026-09-18) — SAU khi catalog

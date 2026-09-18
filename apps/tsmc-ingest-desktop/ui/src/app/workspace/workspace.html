@@ -129,6 +129,7 @@
           <button mat-menu-item type="button" (click)="fillDown('year')">Năm</button>
         </mat-menu>
         <button mat-button type="button" [disabled]="selectedCount() === 0" (click)="autoNumberEpisodes()">Đánh số tập tự động</button>
+        <button mat-button type="button" [disabled]="selectedCount() === 0" (click)="convertSelectedToMovie()">Chuyển thành phim lẻ</button>
         <button
           mat-icon-button
           type="button"
@@ -160,52 +161,86 @@
           <span>🚦</span>
           <span></span>
           <span></span>
+          <span></span>
         </div>
         @if (filteredQueue().length === 0) {
           <p class="empty-hint">Không có dòng nào khớp "{{ searchText() }}".</p>
         }
         <cdk-virtual-scroll-viewport itemSize="48" class="metadata-list">
-          <div *cdkVirtualFor="let item of filteredQueue(); trackBy: trackByPath" class="metadata-row">
-            <mat-checkbox [checked]="item.selected" (change)="toggleSelected(item.path, $event.checked)" />
-            <span class="file-name" [title]="item.name">{{ item.name }}</span>
-            <input
-              class="title-input"
-              type="text"
-              [value]="item.metadata.title ?? ''"
-              (change)="onTitleInput(item.path, $any($event.target).value)"
-            />
-            <input
-              class="num-input"
-              type="number"
-              [value]="item.metadata.series?.season ?? ''"
-              (change)="onSeasonInput(item.path, $any($event.target).value)"
-            />
-            <input
-              class="num-input"
-              type="number"
-              [value]="item.metadata.series?.episode ?? ''"
-              (change)="onEpisodeInput(item.path, $any($event.target).value)"
-            />
-            <input
-              class="num-input"
-              type="number"
-              [value]="item.metadata.year ?? ''"
-              (change)="onYearInput(item.path, $any($event.target).value)"
-            />
-            <span class="rank-badge" [class]="'rank-' + (item.rank ?? (item.status === 'error' ? 'err' : 'pending'))">
-              {{ item.status === 'error' ? 'Lỗi' : rankLabel(item.rank) }}
-            </span>
-            <button mat-icon-button type="button" class="row-action-button" (click)="onTmdbLookup(item)" aria-label="Tra TMDB" title="Tra TMDB" matTooltip="Tra TMDB">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <circle cx="11" cy="11" r="7" />
-                <path d="m21 21-4.35-4.35" />
-              </svg>
-            </button>
-            <button mat-icon-button type="button" class="row-action-button" (click)="onRemove(item.path)" aria-label="Xoá khỏi bảng" title="Xoá khỏi bảng" matTooltip="Xoá khỏi bảng">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-                <path d="M6 6l12 12M18 6L6 18" />
-              </svg>
-            </button>
+          <div *cdkVirtualFor="let row of treeRows(); trackBy: trackByTreeRow">
+            @if (row.kind === 'series-header') {
+              <div
+                class="metadata-row group-header"
+                role="button"
+                tabindex="0"
+                (click)="toggleSeriesCollapsed(row.seriesName)"
+                (keydown.enter)="toggleSeriesCollapsed(row.seriesName)"
+              >
+                <span class="chevron" [class.collapsed]="row.collapsed">▾</span>
+                <span class="group-name">{{ row.seriesName }}</span>
+                <span class="group-count">{{ row.episodeCount }} tập</span>
+              </div>
+            } @else if (row.kind === 'season-header') {
+              <div
+                class="metadata-row group-header season-header"
+                role="button"
+                tabindex="0"
+                (click)="toggleSeasonCollapsed(row.seriesName, row.season)"
+                (keydown.enter)="toggleSeasonCollapsed(row.seriesName, row.season)"
+              >
+                <span class="chevron" [class.collapsed]="row.collapsed">▾</span>
+                <span class="group-name">{{ row.season !== undefined ? 'Season ' + row.season : 'Không rõ season' }}</span>
+                <span class="group-count">{{ row.episodeCount }} tập</span>
+              </div>
+            } @else {
+              <div class="metadata-row" [class.episode-row]="row.kind === 'episode'">
+                <mat-checkbox [checked]="row.row.selected" (change)="toggleSelected(row.row.path, $event.checked)" />
+                <span class="file-name" [title]="row.row.name">{{ row.row.name }}</span>
+                <input
+                  class="title-input"
+                  type="text"
+                  [value]="row.row.metadata.title ?? ''"
+                  (change)="onTitleInput(row.row.path, $any($event.target).value)"
+                />
+                <input
+                  class="num-input"
+                  type="number"
+                  [value]="row.row.metadata.series?.season ?? ''"
+                  (change)="onSeasonInput(row.row.path, $any($event.target).value)"
+                />
+                <input
+                  class="num-input"
+                  type="number"
+                  [value]="row.row.metadata.series?.episode ?? ''"
+                  (change)="onEpisodeInput(row.row.path, $any($event.target).value)"
+                />
+                <input
+                  class="num-input"
+                  type="number"
+                  [value]="row.row.metadata.year ?? ''"
+                  (change)="onYearInput(row.row.path, $any($event.target).value)"
+                />
+                <span class="rank-badge" [class]="'rank-' + (row.row.rank ?? (row.row.status === 'error' ? 'err' : 'pending'))">
+                  {{ row.row.status === 'error' ? 'Lỗi' : rankLabel(row.row.rank) }}
+                </span>
+                <button mat-icon-button type="button" class="row-action-button" (click)="onTmdbLookup(row.row)" aria-label="Tra TMDB" title="Tra TMDB" matTooltip="Tra TMDB">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="m21 21-4.35-4.35" />
+                  </svg>
+                </button>
+                <button mat-icon-button type="button" class="row-action-button" (click)="onEditAdvanced(row.row)" aria-label="Sửa nâng cao" title="Sửa nâng cao" matTooltip="Sửa nâng cao">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                  </svg>
+                </button>
+                <button mat-icon-button type="button" class="row-action-button" (click)="onRemove(row.row.path)" aria-label="Xoá khỏi bảng" title="Xoá khỏi bảng" matTooltip="Xoá khỏi bảng">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                    <path d="M6 6l12 12M18 6L6 18" />
+                  </svg>
+                </button>
+              </div>
+            }
           </div>
         </cdk-virtual-scroll-viewport>
         <div class="metadata-footer">

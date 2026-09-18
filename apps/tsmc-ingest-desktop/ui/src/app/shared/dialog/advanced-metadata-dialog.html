@@ -1,0 +1,105 @@
+<h2 mat-dialog-title>Sửa nâng cao — {{ data.item.title ?? data.item.series?.name ?? ('#' + data.item.msgId) }}</h2>
+<mat-dialog-content class="advanced-metadata-content">
+  <div class="tmdb-row">
+    <button mat-button type="button" [disabled]="tmdbSearching()" (click)="onSearchTmdb()">Tra TMDB</button>
+    @if (tmdbSearching()) {
+      <mat-progress-spinner mode="indeterminate" diameter="20" />
+    }
+    @if (tmdbError(); as err) {
+      <span class="error-text">{{ err }}</span>
+    }
+  </div>
+
+  @if (data.item.kind === 'episode') {
+    @if (convertedToMovie()) {
+      <p class="hint">Sẽ chuyển thành phim lẻ khi Lưu — bỏ hẳn thông tin phim bộ.</p>
+    } @else {
+      <mat-form-field appearance="outline" class="full-width">
+        <mat-label>Tên series</mat-label>
+        <input matInput type="text" [value]="seriesName()" (input)="seriesName.set($any($event.target).value)" />
+      </mat-form-field>
+
+      <button mat-button type="button" (click)="convertToMovie()">Chuyển thành phim lẻ</button>
+    }
+  }
+
+  <mat-form-field appearance="outline" class="full-width">
+    <mat-label>Thể loại</mat-label>
+    <mat-chip-grid #genreGrid aria-label="Thể loại">
+      @for (genre of genres(); track genre) {
+        <mat-chip-row (removed)="removeGenre(genre)">
+          {{ genre }}
+          <button matChipRemove type="button" [attr.aria-label]="'Xoá ' + genre">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </mat-chip-row>
+      }
+      <input placeholder="Gõ rồi Enter để thêm…" [matChipInputFor]="genreGrid" (matChipInputTokenEnd)="addGenre($event)" />
+    </mat-chip-grid>
+  </mat-form-field>
+
+  @if (genreOptions().length > 0) {
+    <div class="genre-options">
+      @for (opt of genreOptions(); track opt) {
+        @if (!genres().includes(opt)) {
+          <button mat-stroked-button type="button" class="genre-option" (click)="addGenreFromOption(opt)">+ {{ opt }}</button>
+        }
+      }
+    </div>
+  } @else if (genreOptionsError(); as err) {
+    <p class="hint">Không tải được danh sách thể loại TMDB ({{ err }}) — vẫn nhập tay được ở trên.</p>
+  }
+
+  <mat-form-field appearance="outline" class="full-width">
+    <mat-label>Diễn viên</mat-label>
+    <mat-chip-grid #castGrid aria-label="Diễn viên">
+      @for (name of cast(); track name) {
+        <mat-chip-row (removed)="removeCast(name)">
+          {{ name }}
+          <button matChipRemove type="button" [attr.aria-label]="'Xoá ' + name">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </mat-chip-row>
+      }
+      <input placeholder="Gõ rồi Enter để thêm…" [matChipInputFor]="castGrid" (matChipInputTokenEnd)="addCast($event)" />
+    </mat-chip-grid>
+  </mat-form-field>
+
+  <mat-form-field appearance="outline" class="full-width">
+    <mat-label>Đạo diễn</mat-label>
+    <input matInput type="text" [value]="director()" (input)="director.set($any($event.target).value)" />
+  </mat-form-field>
+
+  <div class="poster-section">
+    <span class="poster-label">Poster</span>
+
+    @if (posterLoading()) {
+      <mat-progress-spinner mode="indeterminate" diameter="24" />
+    } @else if (pendingPoster(); as pending) {
+      @if (pending.url) {
+        <img [src]="pending.url" alt="Poster mới" class="poster-preview" />
+      }
+      <span class="hint">Poster mới — sẽ upload khi Lưu.</span>
+    } @else if (removePoster()) {
+      <span class="hint">Sẽ xoá poster khi Lưu.</span>
+    } @else if (posterPreviewUrl(); as url) {
+      <img [src]="url" alt="Poster hiện tại" class="poster-preview" />
+    } @else if (posterError(); as err) {
+      <span class="hint error-text">Không tải được ảnh xem trước ({{ err }}).</span>
+    } @else {
+      <span class="hint">Chưa có poster — bấm "Tra TMDB" ở trên để thêm.</span>
+    }
+
+    @if (posterPreviewUrl() || pendingPoster()) {
+      <button mat-button type="button" color="warn" [disabled]="removePoster()" (click)="onRemovePoster()">Xoá poster</button>
+    }
+  </div>
+</mat-dialog-content>
+<mat-dialog-actions align="end">
+  <button mat-button type="button" (click)="onCancel()">Huỷ</button>
+  <button mat-flat-button type="button" color="primary" (click)="onSave()">Lưu</button>
+</mat-dialog-actions>

@@ -285,11 +285,11 @@
       }
     }
 
-    // Chín cột: checkbox · Tên file · Title · Season · Ep · Năm · hạng ·
-    // TMDB (ADR-0019) · xoá — header và mỗi hàng PHẢI dùng cùng một
-    // `grid-template-columns` để cột thẳng hàng nhau (header nằm ngoài
-    // viewport ảo, hàng nằm trong).
-    $columns: 2.5rem minmax(0, 1.6fr) minmax(0, 1fr) 4.5rem 3.5rem 5rem 3.5rem 2rem 2rem;
+    // Mười cột: checkbox · Tên file · Title · Season · Ep · Năm · hạng ·
+    // TMDB (ADR-0019) · Sửa nâng cao (2026-09-18) · xoá — header và mỗi hàng
+    // PHẢI dùng cùng một `grid-template-columns` để cột thẳng hàng nhau
+    // (header nằm ngoài viewport ảo, hàng nằm trong).
+    $columns: 2.5rem minmax(0, 1.6fr) minmax(0, 1fr) 4.5rem 3.5rem 5rem 3.5rem 2rem 2rem 2rem;
 
     .metadata-header-row {
       display: grid;

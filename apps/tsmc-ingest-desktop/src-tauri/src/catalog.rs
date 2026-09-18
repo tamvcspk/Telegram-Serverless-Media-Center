@@ -1,19 +1,16 @@
-//! Bốn Tauri command cho "Trình quản lý catalog" (A.4, ADR-0017 § addendum
+//! Năm Tauri command cho "Trình quản lý catalog" (A.4, ADR-0017 § addendum
 //! "Trình quản lý catalog") — `check_deleted_messages`/`delete_message`
 //! (đối soát chiều xuôi + xoá message), `scan_channel_videos` (đối soát
-//! chiều ngược lại, 2026-09-16), cộng `edit_message_caption` (sync hashtag
-//! caption khi sửa metadata sau publish, 2026-09-18, ADR-0019 § addendum
-//! 2026-09-18) — bốn ngoại lệ `IngestRpc` không có tương ứng 1-1 phía TS
-//! (xem doc comment `ingest-rpc-trait/src/lib.rs`). Cả bốn luôn thao tác
-//! trên `state.selected_channel` (không nhận `ResolvedChannel` qua IPC),
-//! cùng quy ước với `check_write_permission`/`read_pinned_catalog` ở
-//! `commands.rs`.
-//!
-//! `download_document` (đã có implementation ở `ingest-grammers`) VẪN
-//! chưa wire — đối soát ở màn này chỉ cần biết message còn tồn tại hay
-//! không (`check_deleted_messages`), không cần tải lại nội dung file; để
-//! trống là có chủ đích, không phải bị bỏ quên.
+//! chiều ngược lại, 2026-09-16), `edit_message_caption` (sync hashtag
+//! caption khi sửa metadata sau publish, 2026-09-18), cộng `download_document`
+//! (2026-09-18, wire nốt cho ảnh xem trước poster ở dialog Sửa nâng cao —
+//! ADR-0019 § addendum "Advanced Metadata Edit") — năm ngoại lệ `IngestRpc`
+//! không có tương ứng 1-1 phía TS (xem doc comment `ingest-rpc-trait/src/lib.rs`).
+//! Cả năm luôn thao tác trên `state.selected_channel` (không nhận
+//! `ResolvedChannel` qua IPC), cùng quy ước với
+//! `check_write_permission`/`read_pinned_catalog` ở `commands.rs`.
 
+use base64::Engine;
 use ingest_rpc_trait::IngestRpc;
 use tauri::State;
 
@@ -80,4 +77,21 @@ pub async fn edit_message_caption(state: State<'_, AppState>, msg_id: i64, capti
     let selected = state.selected_channel.lock().await;
     let channel = selected.as_ref().ok_or_else(|| IngestRpcErrorDto::other("chưa resolve_channel() — gọi trước edit_message_caption()"))?;
     rpc.edit_message_caption(channel, msg_id, caption).await.map_err(IngestRpcErrorDto::from)
+}
+
+/// Tải nguyên byte của một document theo `msg_id` — dùng để hiện ảnh xem
+/// trước poster ở dialog "Sửa nâng cao" (item ĐÃ có `poster.msgId` từ một
+/// lần upload trước, Trình quản lý catalog). Trả về base64 (không phải
+/// `Vec<u8>` trần) — ranh giới IPC của Tauri serialize `Vec<u8>` thành mảng
+/// số JSON, phình gấp nhiều lần so với base64 cho ảnh vài trăm KB.
+#[tauri::command]
+pub async fn download_document(state: State<'_, AppState>, msg_id: i64) -> Result<String, IngestRpcErrorDto> {
+    let conn = state.conn.lock().await;
+    let ConnState::Ready { rpc, .. } = &*conn else {
+        return Err(IngestRpcErrorDto::other("chưa đăng nhập xong"));
+    };
+    let selected = state.selected_channel.lock().await;
+    let channel = selected.as_ref().ok_or_else(|| IngestRpcErrorDto::other("chưa resolve_channel() — gọi trước download_document()"))?;
+    let bytes = rpc.download_document(channel, msg_id).await.map_err(IngestRpcErrorDto::from)?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }

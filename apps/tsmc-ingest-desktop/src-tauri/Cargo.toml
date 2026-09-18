@@ -30,6 +30,10 @@ log = "0.4"
 # (schannel trên Windows qua native-tls) — không cần thêm dependency hệ
 # thống nào khác trên máy đã build được app này.
 reqwest = { version = "0.12", features = ["json"] }
+# Đã có sẵn transitively (reqwest/tauri) — khai trực tiếp để encode bytes ảnh
+# poster (download_document()) thành chuỗi cho ranh giới IPC JSON, tránh
+# Vec<u8> serialize thành mảng số (phình gấp nhiều lần so với base64).
+base64 = "0.22"
 tauri = { version = "2.11.3", features = [] }
 tauri-plugin-log = "2"
 keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
