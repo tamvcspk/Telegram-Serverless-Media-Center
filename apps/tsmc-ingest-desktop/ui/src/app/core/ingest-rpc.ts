@@ -202,9 +202,19 @@ export function toProbeResult(dto: ProbeResultDto): ProbeResult {
  * thi, không tự quyết (ADR-0017 điều kiện bắt buộc #4). `mode:
  * 'reencode_all'` (Hạng D) PHẢI đã hỏi xác nhận xong TRƯỚC khi gọi hàm này
  * (mockup A.2 mục 1 — "re-encode video luôn phải hỏi", `startUpload()` ở
- * `workspace.ts` lo việc này). */
-export function prepareUpload(taskId: string, inputPath: string, mode: RemuxModeDto, subtitleTracks: SubtitleTrackDto[]): Promise<PreparedUploadDto> {
-  return invoke<PreparedUploadDto>('prepare_upload', { taskId, inputPath, mode, subtitleTracks });
+ * `workspace.ts` lo việc này). `targetVideoBitrateBps` (Option C, ADR-0017 §
+ * addendum 2026-09-19) chỉ có nghĩa với `mode: 'reencode_all'` — bỏ trống =
+ * hành vi Hạng D thường; có giá trị = ép `h264_mf` nhắm bitrate đó để file ra
+ * nằm dưới trần upload (`computeTargetVideoBitrateBps()` của
+ * `@tsmc/core-ingest` tính số này). */
+export function prepareUpload(
+  taskId: string,
+  inputPath: string,
+  mode: RemuxModeDto,
+  subtitleTracks: SubtitleTrackDto[],
+  targetVideoBitrateBps?: number
+): Promise<PreparedUploadDto> {
+  return invoke<PreparedUploadDto>('prepare_upload', { taskId, inputPath, mode, subtitleTracks, targetVideoBitrate: targetVideoBitrateBps ?? null });
 }
 
 /** Dọn thư mục tạm của `prepareUpload()` sau khi upload xong (thành công hay
@@ -337,13 +347,14 @@ export function describeIngestError(err: IngestRpcErrorDto): string {
 /** Thông báo tiếng Việt cho case "remux xong vượt trần kích thước" (chuẩn hoá
  * size, option A, brainstorm 2026-09-18) — CÙNG cách diễn đạt với case
  * `FileTooLarge` của `describeIngestError()` (đây là phát hiện SỚM hơn của
- * đúng cùng một trần, trước khi thử upload) nhưng gợi ý cụ thể hơn vì phát
- * hiện lúc này còn cơ hội sửa (giảm bitrate video/độ phân giải hoặc cắt tập —
- * chưa tự động hoá, xem `docs/roadmap.md` § Ingest). */
+ * đúng cùng một trần, trước khi thử upload). CHỈ nêu sự thật (nặng bao nhiêu,
+ * trần bao nhiêu) — phần "làm gì tiếp" do nơi gọi tự nối vào (hỏi nén lại /
+ * đã từ chối / đã nén mà vẫn vượt, xem `workspace.ts::processItem()`, Option
+ * C, ADR-0017 § addendum 2026-09-19). */
 export function describeSizeCapExceeded(actualBytes: number, maxBytes: number): string {
   const actualGb = (actualBytes / 1_000_000_000).toFixed(2);
   const maxGb = (maxBytes / 1_000_000_000).toFixed(2);
-  return `File sau khi remux nặng ${actualGb} GB, vượt trần ${maxGb} GB của tài khoản — Telegram sẽ từ chối nếu vẫn upload. Cần giảm bitrate video/độ phân giải bằng công cụ khác rồi kéo lại vào đây, hoặc cắt thành nhiều tập nhỏ hơn trước khi ingest (app chưa tự làm được việc này).`;
+  return `File sau khi remux nặng ${actualGb} GB, vượt trần ${maxGb} GB của tài khoản — Telegram sẽ từ chối nếu vẫn upload.`;
 }
 
 /** Tra cứu TMDB (ADR-0019) — bốn command KHÔNG thuộc `IngestRpc` (không phải

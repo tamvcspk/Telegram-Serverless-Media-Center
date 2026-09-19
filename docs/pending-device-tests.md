@@ -704,3 +704,31 @@ Liên quan: [ADR-0017 § addendum 2026-09-19, chặn sớm TRƯỚC upload](./ad
 - Thông báo hiện sai số GB → kiểm `PreparedUploadDto.file_size_bytes` (Rust, `std::fs::metadata` đọc `remuxed_path`) có đúng bằng dung lượng thật của file `.mp4` tạm không, đối chiếu `get_max_upload_bytes()` trả đúng field cache `GrammersIngestRpc.max_upload_bytes` (4GB Premium/2GB thường, đọc lúc đăng nhập).
 - File vượt trần vẫn thấy gọi `upload_video()`/vẫn dính `FileTooLarge` ở tầng cũ → kiểm thứ tự trong `processItem()` (`workspace.ts`) — so sánh `file_size_bytes` phải nằm NGAY ĐẦU khối `try` sau `prepareUpload()`, trước dòng `updateQueueItem(..., { stage: 'uploading_video' })`.
 - Bất kỳ hành vi nào lệch thiết kế → ghi addendum vào ADR-0017 (không sửa Quyết định gốc), rồi cập nhật lại tài liệu này.
+
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — Option C: nén lại theo bitrate mục tiêu khi vượt trần (2026-09-19)
+
+Liên quan: [ADR-0017 § addendum 2026-09-19, Option C](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-19-option-c-tự-re-encode-theo-bitrate-mục-tiêu-khi-vượt-trần-spike-11-đạt), [SPIKE-11](./spikes/README.md#spike-11). Cần MỘT file thật mà sau remux vẫn vượt trần (2GB thường / 4GB Premium), video đủ dài/bitrate cao để nén xuống dưới trần vẫn còn chấp nhận được (vd phim 1080p bitrate cao ~2 giờ).
+
+**KHÔNG chạy hộ bằng agent/Claude.** Admin tự chạy `cargo tauri dev`.
+
+### Chuẩn bị
+
+- [x] `cargo clippy --workspace -- -D warnings`/`ng build`/`npm run lint`/`npm run test:libs` (324 test, 4 mới ở `size-normalize.spec.ts`)/`npm run docs:check` sạch — verify 2026-09-19.
+- [x] Verify cục bộ `reencode_to_mp4()` production bằng fixture tổng hợp 1280×720 (`cargo run --release --example check_reencode_bitrate -p ingest-ffmpeg`): target 2 Mbps → 8.2 MB (≈2.2 Mbps tổng), target 6 Mbps → 22 MB, đều cao hơn bản `None` (5.2 MB) — bitrate được áp thật. Target 600 kbps (thấp hơn mức sàn của nội dung này) cho ra cùng kích thước bản `None` — kỳ vọng, không phải lỗi (xem "Nếu có gì vỡ").
+
+- [x] User verify TỔNG QUÁT bằng một file thật vượt trần (2026-09-19): ĐẠT. Chưa xác nhận riêng từng bước con bên dưới nên các mục vẫn để `[ ]`. Quan sát kèm theo (re-encode lâu không có tiến độ, CPU 16-25%, user không thấy thông số) đã đưa vào kế hoạch ở [ADR-0017 § addendum 2026-09-19, kế hoạch](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-19-kế-hoạch-chuẩn-hoá-dung-lượng-tiền-kiểm-chia-phần-độc-lập-chốt-sau-brainstorm).
+
+### Các bước
+
+- [ ] Kéo file vượt trần vào Workspace, bấm Upload → sau remux hiện dialog "File vượt trần dung lượng" (nút cảnh báo "Nén lại" / "Bỏ qua file này"), nêu đúng số GB thật.
+- [ ] Bấm "Nén lại" → item chuyển sang stage `reencoding`, xong thì `uploading_video` và upload thành công; file trên kênh nhỏ hơn trần, phát được bình thường trong app xem.
+- [ ] Bấm "Bỏ qua file này" (hoặc Esc) → item Lỗi với thông báo nêu đã từ chối nén lại, batch vẫn chạy tiếp cho file khác.
+- [ ] File thật sự không nén nổi (vd video rất dài) → sau nén vẫn vượt trần → item Lỗi với thông báo "Đã thử nén lại nhưng vẫn vượt trần", không lặp vô hạn.
+- [ ] Thư mục tạm của bản remux lần đầu VÀ bản nén lại đều được dọn (không còn `tsmc-ingest-desktop-*` lớn trong temp).
+- [ ] Hạng D mà re-encode mặc định vẫn vượt trần → hỏi lần hai (dialog Option C) sau dialog Hạng D đầu batch.
+- [ ] Chất lượng hình sau nén chấp nhận được bằng mắt, đối chiếu dung lượng thật với ước tính (`computeTargetVideoBitrateBps()`, margin 0.92).
+
+### Nếu có gì vỡ
+
+- Nén lại xong vẫn vượt trần dù target hợp lý → encoder `h264_mf` có mức sàn theo nội dung (không hạ được dưới mức đó dù target thấp hơn); đây là giới hạn đã biết, hướng xử lý là Option D (hạ độ phân giải, roadmap), không phải sửa công thức.
+- Crash tiến trình (`STATUS_ACCESS_VIOLATION`) khi nén file có audio MONO: lỗi có sẵn từ trước Option C (xem [docs/roadmap.md § Ingest](./roadmap.md#ingest)), không phải do bitrate.

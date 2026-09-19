@@ -16,6 +16,7 @@ Quy tắc: **một spike chỉ đóng khi có số liệu từ thiết bị th�
 | [SPIKE-08](#spike-08) | Trong 3 API dò khả năng phát (`canPlayType`/`MediaSource.isTypeSupported`/WebCodecs `isConfigSupported`), cái nào khớp đúng khả năng phát THẬT của `<video src>` theo ADR-0005 (progressive, không MSE)? | [0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md), [0005](../adr/0005-streaming-qua-service-worker-http-range.md) | ⏳ Chưa dựng |
 | [SPIKE-09](#spike-09) | `ffmpeg-next`/`ffmpeg-sys-next` (native Rust FFI) có khả thi thay shell-out CLI hiện tại của `tsmc-ingest`, với chi phí/tốc độ nào so với baseline 40.8x realtime đã đo? | [0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md) | 🟢 **Đạt, có caveat (2026-09-03, tích hợp thật + sửa số liệu 2026-09-04)** — cả 3 việc chạy được, 72.1x realtime (file mẫu tổng hợp), 7 DLL ~21.3 MB tự chứa (không cần PATH); hai rủi ro khác hẳn nhau đã đo được thật: sai tham số FFI → **segfault**, thiếu DLL → **DLL_NOT_FOUND** (không phải segfault) |
 | [SPIKE-10](#spike-10) | Trong 4 tổ hợp runtime khả dĩ cho GUI ingest desktop (Tauri), tổ hợp nào chịu được upload file ≥2 GB với RAM phẳng + có tiến trình/huỷ + không mất việc khi `FLOOD_WAIT` + crash FFmpeg không giết UI, với chi phí viết mới và đóng gói thấp nhất? | [0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md), [0003](../adr/0003-chon-thu-vien-mtproto-gramjs.md), [0012](../adr/0012-trien-khai-static-pwa-va-cau-truc-workspace.md), [0017](../adr/0017-grammers-cho-cong-cu-ingest-desktop.md) | 🟡 **Đã đóng, chấp nhận rủi ro (2026-09-07)** — chọn R3 (`grammers-client`), xem [ADR-0017](../adr/0017-grammers-cho-cong-cu-ingest-desktop.md). M1/M2/M3/M5/M7/M8/P1 ĐẠT thật trên tài khoản Telegram thật; R4 (ferogram) trượt M2 dứt khoát (transfer pool riêng, không public). M4 cải thiện 13.5%→24.4% nhưng chưa qua ngưỡng pass 80% (chấp nhận, không phải trần kiến trúc); **M6 (`FLOOD_WAIT`) để ngỏ có chủ đích, không chủ động ép** — đây là lý do đóng 🟡 thay vì 🟢, KHÔNG đổi dù Đ1/Đ2 sau này đều ĐẠT. **Cập nhật 2026-09-13:** Đ2 (giấy phép FFmpeg) đo thật lúc đóng gói `.exe` lần đầu — giữ LGPL, không kéo GPL (encoder H264 thật là `h264_mf` của Windows, không phải `libx264`). **Cập nhật tiếp cùng ngày:** Đ1 (đóng gói máy sạch) ĐẠT — user xác nhận cài+chạy bản đóng gói (MSI/NSIS kèm 7 DLL) trên máy không có vcpkg/LLVM/Rust/Node, không còn lỗi thiếu FFmpeg; Đ3 vẫn chưa đo |
+| [SPIKE-11](#spike-11) | `h264_mf` (encoder H264 thật của `reencode.rs`, xác nhận ở SPIKE-09/ADR-0013) có tôn trọng `set_bit_rate()` (field cứng `AVCodecContext`), hay bỏ qua thầm lặng giống hệt option `preset` (AVOption riêng của `libx264`) đã phát hiện trước đây? | [0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md) (điều kiện tiên quyết Option C, "chuẩn hoá dung lượng vượt trần upload") | 🟢 **Đạt (2026-09-19)** — `set_bit_rate()` ĐƯỢC tôn trọng thật: kích thước output tăng đơn điệu theo target và actual/target hội tụ về gần 1 khi target đủ cao, trên nội dung tổng hợp độ phức tạp vừa phải ("plasma") |
 
 ---
 
@@ -993,3 +994,71 @@ Chỉ bắt đầu sau khi cây quyết định cho ra một nhánh. Thứ tự 
 **Kết luận Đ2: giữ LGPL, không kéo GPL** — đúng nhánh "Đ2 nói bộ FFmpeg phân phối được giữ ở LGPL" trong cây quyết định phụ ở trên. Chi tiết đầy đủ + phát hiện phụ (option `preset=medium` bị `h264_mf` bỏ qua thầm lặng, không phải bug) ở [ADR-0013 § addendum 2026-09-13](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-09-13-trả-lời-đ2--đóng-gói-dll-ffmpeg-thật-lần-đầu).
 
 **Đ1 ĐẠT (cùng ngày, sau khi user tự verify):** cài đặt bản đóng gói (`.msi`/NSIS setup, kèm 7 DLL FFmpeg qua `build.rs` copy) trên một máy KHÔNG có `vcpkg`/LLVM/Rust/Node → mở app chạy đúng, không còn lỗi "thiếu library cần thiết của ffmpeg" đã gặp trước bản vá. Mức bằng chứng: "cài + mở chạy được" — CHƯA có số liệu chi tiết Đ1 đòi hỏi đầy đủ (tổng MB installer, danh sách file runtime đối chiếu từng cái, thử riêng Hạng D trên máy đó) — checklist còn mở ở [docs/pending-device-tests.md](../pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--đóng-gói-bản-phân-phối-exeinstaller-trên-máy-sạch-2026-09-13). **Đ3 (chi phí viết mới) vẫn chưa đo** — không đóng thêm lần này. Đ1/Đ2 ĐẠT không đổi lý do đóng 🟡 của spike (M6 để ngỏ có chủ đích) — chỉ dọn xong hai hạng mục phụ, spike vẫn giữ nguyên trạng thái 🟡 đã đóng.
+
+---
+
+## SPIKE-11
+
+**Trạng thái:** 🟢 **Đạt (2026-09-19)** — chạy thật trên máy Windows 11 thật (cùng máy dùng cho SPIKE-09/10, `vcpkg install ffmpeg:x64-windows` có sẵn), `cargo run --release --example check_bitrate_control -p ingest-ffmpeg`.
+
+**Câu hỏi:** `h264_mf` ("H264 via MediaFoundation" — encoder H264 THẬT được `encoder::find(codec::Id::H264)` chọn trên build FFmpeg của app này, xác nhận bằng `check_h264_encoder` ở SPIKE-09/ADR-0013 § addendum 2026-09-13) có **tôn trọng** `set_bit_rate()` (gán thẳng field `AVCodecContext.bit_rate`, không qua AVOption dictionary), hay bỏ qua thầm lặng giống hệt case đã phát hiện với `x264_opts.set("preset", "medium")` (AVOption riêng của `libx264`, `h264_mf` không hiểu — cùng addendum trên)?
+
+**Vì sao quan trọng:** [docs/roadmap.md § Ingest, "Option C"](../roadmap.md#ingest) đặt cược công thức `target_video_bitrate = (target_size_bytes*8/duration_sec) - audio_bitrate - overhead_mux` để tự re-encode file vượt trần upload xuống đúng dung lượng cho phép. Nếu `h264_mf` bỏ qua `bit_rate` như đã xảy ra với `preset`, toàn bộ công thức vô nghĩa — code xong sẽ không làm gì cả (encoder vẫn ra đúng một mức chất lượng/dung lượng mặc định bất kể target), và người dùng chỉ phát hiện ra sau khi thấy Option C "không hoạt động" trên file thật, tốn một vòng debug hoàn toàn tránh được nếu đo trước.
+
+### Bàn thử nghiệm
+
+Ba pass encode độc lập trong CÙNG một tiến trình (`ingest-ffmpeg/examples/check_bitrate_control.rs`, không nối vào `apps/tsmc-ingest-desktop` production — đúng nguyên tắc cô lập của SPIKE-01/08/09: nếu hỏng, biết chắc lỗi nằm ở hành vi encoder, không phải ở `reencode_to_mp4()` thật) — mỗi pass tạo mới encoder H264, set `bit_rate` khác nhau, encode 125 frame tổng hợp giống hệt nhau (không mux ra container, cộng dồn byte packet thật trả về từ `receive_packet()` trực tiếp — không qua trung gian file/`ffprobe` nào).
+
+Không cần tài khoản Telegram/MTProto nào — chỉ encode nội dung tổng hợp trong RAM, không thuộc diện "spike cần login thật" ở skill `/spike`.
+
+### Cách chạy
+
+`cargo run --release --example check_bitrate_control -p ingest-ffmpeg` (cần `FFMPEG_DIR` trỏ tới `vcpkg install ffmpeg:x64-windows`, giống mọi lần build `ingest-ffmpeg` khác).
+
+### Tiêu chí đạt/không đạt
+
+| Mã | Kiểm tra | Đạt khi |
+|---|---|---|
+| Đơn điệu | Kích thước output ở LOW/MID/HIGH (200/1500/8000 kbps target, chênh 40x) | Tăng thật sự (không trùng byte-cho-byte như một lần thử trước) khi target tăng |
+| Hội tụ | Tỉ lệ actual/target ở LOW so với HIGH | actual/target ở HIGH phải NHỎ HƠN rõ rệt so với LOW — dấu hiệu encoder "còn chỗ" dùng thêm bit khi được cho phép nhiều hơn, không bị trần cứng ẩn chặn ở một mức chất lượng mặc định bất kể target |
+
+### Ma trận nội dung thử — ba lần, hai lần đầu KHÔNG kết luận được (giữ lại làm bài học)
+
+Đây là phần giá trị nhất của spike này — không phải bảng số liệu cuối, mà **quá trình tìm ra nội dung thử đúng**, đúng tinh thần mục "Ghi kết quả" của skill `/spike` ("ghi cả phép đo sai và vì sao sai").
+
+1. **Gradient chéo mượt** (`(row+col+frame_idx*3) % 256`, giá trị đổi tuyến tính, không nhiễu): MID (1500 kbps) và HIGH (8000 kbps) ra **88530 và 88531 byte — gần như TRÙNG byte-cho-byte** dù target chênh 5.3x. Không phân biệt được hai giả thuyết: "encoder bỏ qua `bit_rate`" so với "nội dung quá mượt, đã gần lossless ngay ở mức lượng tử thấp, không còn residual nào để dùng thêm bit dù được phép" — cả hai đều cho cùng kết quả quan sát được.
+2. **Nhiễu ngẫu nhiên thuần mỗi pixel** (Xorshift64, entropy tối đa): kích thước CÓ tăng theo target (3,721,401 → 4,686,517 → 7,186,883 byte cho LOW/MID/HIGH) nhưng actual luôn vượt xa target (29.8x / 5.0x / 1.4x) — nhiễu thuần gần như không nén được ở bất kỳ mức lượng tử nào, không đại diện cho nội dung video thật (luôn có cấu trúc nén được ở mức nào đó). Có tín hiệu đúng hướng nhưng không đủ để tin công thức ước tính dung lượng.
+3. **Plasma nhiều tần số không gian + chuyển động thời gian** (tổng 4 sóng sin/cos biên độ 20-40, độ phức tạp vừa phải — không mượt tuyệt đối như (1), không entropy tối đa như (2)): kết quả dùng để kết luận, xem "Kết quả" bên dưới.
+
+### Kết quả
+
+**Máy chạy:** Windows 11 Home Single Language 10.0.26200 thật, `ffmpeg-next = 7.1.0`, FFmpeg qua `vcpkg install ffmpeg:x64-windows` đã có sẵn — cùng môi trường đã dùng cho SPIKE-09/10, `h264_mf` xác nhận là encoder H264 thật đang chạy (in ra ngay đầu output của example).
+
+Nội dung plasma, 125 frame (640×360@25fps, 5 giây):
+
+| Mức | Target | Actual bytes | Actual (kbps) | actual/target |
+|---|---|---|---|---|
+| LOW | 200 kbps | 400,638 | 641 | **3.21x** |
+| MID | 1500 kbps | 848,854 | 1,358 | **0.91x** |
+| HIGH | 8000 kbps | 1,593,486 | 2,550 | **0.32x** |
+
+- **Đơn điệu:** ĐẠT — 400,638 → 848,854 → 1,593,486 byte, tăng thật (không trùng như case gradient), gần gấp đôi mỗi bậc.
+- **Hội tụ:** ĐẠT — actual/target giảm dần 3.21x → 0.91x → 0.32x khi target tăng, đúng dấu hiệu encoder "còn dùng thêm bit khi được cho phép nhiều hơn" cho tới khi nội dung đã đủ chất lượng (HIGH dùng chưa tới 1/3 ngân sách cho phép — không phải vì bị chặn, mà vì thêm bit nữa không còn cải thiện được gì đáng kể cho đúng plasma tổng hợp này, hành vi hợp lý của một VBR-with-target thật, không phải CBR-nhồi-bit-vô-nghĩa).
+
+**Đối chiếu với option `preset` đã bị bỏ qua (SPIKE-09/ADR-0013):** khác biệt rõ — `preset` là chuỗi text đi qua AVOption dictionary riêng của `libx264` mà `h264_mf` không đăng ký nhận diện (bị bỏ qua hoàn toàn, im lặng). `bit_rate` là field số nguyên trong chính struct `AVCodecContext` mà MỌI encoder (kể cả các encoder không hỗ trợ rate control thật) đều ĐỌC ĐƯỢC — câu hỏi chỉ là có DÙNG nó để điều chỉnh lượng tử hay không, và số liệu trên xác nhận CÓ dùng thật.
+
+### Phạm vi bằng chứng — đọc cho đúng trước khi dùng số liệu này
+
+- **Nội dung tổng hợp (plasma), không phải file video thật.** Video thật (phim quay/hoạt hình) có cấu trúc nén được nhiều hơn plasma tổng hợp ở hầu hết các cảnh — công thức `target_video_bitrate` cho Option C nhiều khả năng sẽ bám target SÁT hơn số đo ở đây, nhưng chưa được đo trực tiếp trên file thật.
+- **Không mux ra MP4** — đo trực tiếp tổng byte packet elementary stream, tránh nhiễu từ container overhead, nhưng cũng nghĩa là chưa verify `reencode_to_mp4()` thật (hàm production) có set `bit_rate` đúng cách hay chưa — spike này chỉ trả lời "field này có tác dụng trên `h264_mf` không", KHÔNG thay thế việc code + verify `reencode_to_mp4()` thật khi làm Option C.
+- **Một độ phân giải, một framerate** (640×360@25fps) — chưa thử độ phân giải cao (1080p/4K, nơi bitrate cần thiết lớn hơn nhiều, tỉ lệ hội tụ có thể khác) hay framerate khác.
+- **`set_gop()` cố định = 2×FPS** cho mọi pass — chưa thử ảnh hưởng của GOP structure lên độ chính xác bám target.
+
+### Ta sẽ làm gì với từng kết quả (viết trước khi chạy)
+
+| Kết quả | Hành động |
+|---|---|
+| `bit_rate` được tôn trọng (đơn điệu + hội tụ) | An toàn để code Option C theo công thức đã đề xuất ở roadmap — đóng spike 🟢 |
+| `bit_rate` bị bỏ qua (kích thước không đổi/không đơn điệu bất kể target, giống case gradient ban đầu) | Công thức Option C KHÔNG dùng được nguyên trạng — cần điều tra AVOption riêng của `h264_mf` (nếu có expose qua `CODECAPI_AVEncCommonMeanBitRate` dạng option string) hoặc coi Option C là KHÔNG khả thi với encoder hiện tại, ghi rõ vào addendum ADR-0013/ADR-0017 — đóng spike 🔴, chặn Option C cho tới khi có hướng khác |
+
+**Kết quả thật khớp nhánh 1** — xem "Kết quả" ở trên. Đóng spike 🟢. Chi tiết áp dụng vào code Option C: [ADR-0017 § addendum 2026-09-19](../adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-19-option-c-tự-re-encode-theo-bitrate-mục-tiêu-khi-vượt-trần-spike-11-đạt).

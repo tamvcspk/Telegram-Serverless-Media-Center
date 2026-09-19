@@ -16,6 +16,7 @@ import {
   buildCatalogEnvelope,
   classifyCompatRank,
   composeCaption,
+  computeTargetVideoBitrateBps,
   deriveCompat,
   findRepresentativeEpisode,
   flattenMetadataTree,
@@ -835,16 +836,45 @@ export class Workspace implements OnInit {
       .map((s) => ({ index: s.index, lang: s.lang }));
 
     this.updateQueueItem(item.taskId, { stage: mode === 'reencode_all' ? 'reencoding' : 'remuxing' });
-    const prepared: PreparedUploadDto = await prepareUpload(item.taskId, item.path, mode, subtitleTracks);
+    let prepared: PreparedUploadDto = await prepareUpload(item.taskId, item.path, mode, subtitleTracks);
 
     try {
-      // Chuẩn hoá size, option A (brainstorm 2026-09-18) — chặn TRƯỚC khi mở
-      // kết nối `uploadVideo()` (mockup `docs/ux-design.md` dòng "Remux xong
-      // vượt trần kích thước"), thay vì để `FileTooLarge` bắn muộn sau khi
+      // Chuẩn hoá size — chặn TRƯỚC khi mở kết nối `uploadVideo()` (option A,
+      // brainstorm 2026-09-18), thay vì để `FileTooLarge` bắn muộn sau khi
       // remux/re-encode đã tốn xong thời gian. Ném lỗi bên trong `try` (không
       // trước nó) để `finally` dưới vẫn dọn `temp_dir` như mọi lỗi khác.
       if (prepared.file_size_bytes > maxUploadBytes) {
-        throw new Error(describeSizeCapExceeded(prepared.file_size_bytes, maxUploadBytes));
+        // Option C (ADR-0017 § addendum 2026-09-19, SPIKE-11 ĐẠT) — thay vì bỏ
+        // file, HỎI có cho nén lại video xuống dưới trần không. Bắt buộc hỏi
+        // riêng (mockup A.2 mục 1): Hạng A/B/C bình thường stream-copy video,
+        // nhánh này buộc chúng decode+encode thật lần đầu chỉ vì lý do dung
+        // lượng. Chỉ hỏi được SAU remux (chưa biết dung lượng cuối trước đó),
+        // nên không gộp vào dialog Hạng D đầu batch. Hạng D mà default re-encode
+        // vẫn vượt trần cũng đi đúng nhánh này (hỏi lần hai, có bitrate ép).
+        const overCap = describeSizeCapExceeded(prepared.file_size_bytes, maxUploadBytes);
+        const targetBps = computeTargetVideoBitrateBps(maxUploadBytes, prepared.final_probe.duration_sec);
+        const allowReencode = await this.dialogService.confirm({
+          title: 'File vượt trần dung lượng',
+          message: `${item.name}: ${overCap} Cho phép nén lại video xuống dưới trần? Việc này giải mã và mã hoá lại TOÀN BỘ video — chậm hơn hẳn remux và giảm chất lượng hình.`,
+          confirmText: 'Nén lại',
+          cancelText: 'Bỏ qua file này',
+          tone: 'warn'
+        });
+        if (!allowReencode) {
+          throw new Error(`${overCap} Bỏ qua vì đã từ chối nén lại — có thể tự giảm bitrate/độ phân giải bằng công cụ khác rồi kéo lại vào đây, hoặc cắt thành nhiều tập nhỏ hơn.`);
+        }
+
+        // Bản chuẩn bị lần đầu không dùng nữa — dọn trước khi ghi đè `prepared`
+        // (`finally` bên dưới chỉ dọn bản CUỐI CÙNG).
+        void cleanupTempDir(prepared.temp_dir);
+        this.updateQueueItem(item.taskId, { stage: 'reencoding' });
+        prepared = await prepareUpload(item.taskId, item.path, 'reencode_all', subtitleTracks, targetBps);
+
+        if (prepared.file_size_bytes > maxUploadBytes) {
+          throw new Error(
+            `${describeSizeCapExceeded(prepared.file_size_bytes, maxUploadBytes)} Đã thử nén lại nhưng vẫn vượt trần — bỏ qua file này (thử giảm thêm bằng công cụ khác, hoặc cắt thành nhiều tập nhỏ hơn).`
+          );
+        }
       }
 
       this.updateQueueItem(item.taskId, { stage: 'uploading_video', progress: undefined });

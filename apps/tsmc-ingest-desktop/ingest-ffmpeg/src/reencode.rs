@@ -66,7 +66,18 @@ fn round_down_even(value: u32) -> u32 {
     value & !1
 }
 
-pub fn reencode_to_mp4(input_path: &str, output_path: &str) -> Result<(), ffmpeg::Error> {
+/// `target_video_bitrate_bps`: `None` giữ NGUYÊN hành vi Hạng D thường (mặc
+/// định `h264_mf`, không set field này — hành vi đúng như trước
+/// 2026-09-19). `Some(bps)` là nhánh Option C (docs/roadmap.md § Ingest,
+/// "chuẩn hoá dung lượng vượt trần upload") — dùng khi file VẪN vượt trần
+/// upload sau remux/re-encode bình thường, tầng gọi (Angular,
+/// `computeTargetVideoBitrateBps()` ở `@tsmc/core-ingest`) đã tính sẵn số bps
+/// mục tiêu từ trần byte cho phép + `duration_sec`, hàm này chỉ THỰC THI
+/// (ADR-0017 điều kiện bắt buộc #4 — crate không tự quyết công thức).
+/// [SPIKE-11](../../../../docs/spikes/README.md#spike-11) (2026-09-19) đo
+/// thật xác nhận `h264_mf` tôn trọng `set_bit_rate()` — khác hẳn `preset`
+/// (AVOption riêng `libx264`, bị bỏ qua thầm lặng, xem doc comment đầu file).
+pub fn reencode_to_mp4(input_path: &str, output_path: &str, target_video_bitrate_bps: Option<u64>) -> Result<(), ffmpeg::Error> {
     ensure_init();
 
     let mut in_opts = Dictionary::new();
@@ -125,6 +136,9 @@ pub fn reencode_to_mp4(input_path: &str, output_path: &str) -> Result<(), ffmpeg
     video_enc_ctx.set_time_base(video_ist_time_base);
     if global_header {
         video_enc_ctx.set_flags(codec::flag::Flags::GLOBAL_HEADER);
+    }
+    if let Some(bps) = target_video_bitrate_bps {
+        video_enc_ctx.set_bit_rate(bps as usize);
     }
     // Tên biến/option `preset` giữ nguyên theo ví dụ gốc `ffmpeg-next` — build
     // FFmpeg thật của app này KHÔNG có `libx264` (xem doc comment đầu file),

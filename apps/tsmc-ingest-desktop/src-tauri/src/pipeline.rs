@@ -41,7 +41,14 @@ fn unique_suffix() -> String {
 }
 
 #[tauri::command]
-pub async fn prepare_upload(app: AppHandle, task_id: String, input_path: String, mode: RemuxModeDto, subtitle_tracks: Vec<SubtitleTrackDto>) -> Result<PreparedUploadDto, IngestRpcErrorDto> {
+pub async fn prepare_upload(
+    app: AppHandle,
+    task_id: String,
+    input_path: String,
+    mode: RemuxModeDto,
+    subtitle_tracks: Vec<SubtitleTrackDto>,
+    target_video_bitrate: Option<u64>
+) -> Result<PreparedUploadDto, IngestRpcErrorDto> {
     // Native FFI của ffmpeg-next chạy IN-PROCESS, CPU-bound (remux/decode) —
     // `spawn_blocking` để không giữ một worker thread Tokio async bận chờ
     // suốt quá trình đó (KHÔNG phải để né rủi ro segfault đã ghi ở ADR-0013 §
@@ -50,12 +57,19 @@ pub async fn prepare_upload(app: AppHandle, task_id: String, input_path: String,
     // đó, kể cả nhánh `ReencodeAll` (Hạng D) mới thêm — LẦN ĐẦU crate này gọi
     // `avcodec_send_frame()` cho VIDEO, cùng lớp rủi ro đã gặp thật ở audio
     // lúc SPIKE-09, xem doc comment `ingest-ffmpeg/src/reencode.rs`).
-    tokio::task::spawn_blocking(move || prepare_upload_blocking(&app, &task_id, &input_path, mode, &subtitle_tracks))
+    tokio::task::spawn_blocking(move || prepare_upload_blocking(&app, &task_id, &input_path, mode, &subtitle_tracks, target_video_bitrate))
         .await
         .map_err(|e| IngestRpcErrorDto::other(format!("tác vụ chuẩn bị upload panic: {e}")))?
 }
 
-fn prepare_upload_blocking(app: &AppHandle, task_id: &str, input_path: &str, mode: RemuxModeDto, subtitle_tracks: &[SubtitleTrackDto]) -> Result<PreparedUploadDto, IngestRpcErrorDto> {
+fn prepare_upload_blocking(
+    app: &AppHandle,
+    task_id: &str,
+    input_path: &str,
+    mode: RemuxModeDto,
+    subtitle_tracks: &[SubtitleTrackDto],
+    target_video_bitrate: Option<u64>
+) -> Result<PreparedUploadDto, IngestRpcErrorDto> {
     let temp_dir = std::env::temp_dir().join(format!("tsmc-ingest-desktop-{}", unique_suffix()));
     std::fs::create_dir_all(&temp_dir).map_err(|e| IngestRpcErrorDto::other(e.to_string()))?;
 
@@ -67,7 +81,7 @@ fn prepare_upload_blocking(app: &AppHandle, task_id: &str, input_path: &str, mod
     match mode {
         RemuxModeDto::Copy => ingest_ffmpeg::remux(input_path, &remuxed_path_str, false),
         RemuxModeDto::ReencodeAudio => ingest_ffmpeg::remux(input_path, &remuxed_path_str, true),
-        RemuxModeDto::ReencodeAll => ingest_ffmpeg::reencode_to_mp4(input_path, &remuxed_path_str)
+        RemuxModeDto::ReencodeAll => ingest_ffmpeg::reencode_to_mp4(input_path, &remuxed_path_str, target_video_bitrate)
     }
     .map_err(|e| IngestRpcErrorDto::other(format!("remux/re-encode lỗi: {e}")))?;
 
