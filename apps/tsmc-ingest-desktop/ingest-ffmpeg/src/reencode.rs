@@ -57,6 +57,7 @@
 
 use ffmpeg_next::{self as ffmpeg, channel_layout::ChannelLayout, codec, encoder, filter, format, format::Pixel, frame, media::Type as MediaType, software::{resampling, scaling}, util::dictionary::Owned as Dictionary, Rational};
 
+use crate::audio_layout::{aac_target_layout, aformat_filter_spec, ensure_frame_matches_encoder};
 use crate::ensure_init;
 
 /// 4:2:0 (chroma nửa độ phân giải cả hai chiều) yêu cầu width/height CHẴN —
@@ -160,10 +161,9 @@ pub fn reencode_to_mp4(input_path: &str, output_path: &str, target_video_bitrate
     let aectx = codec::context::Context::from_parameters(aost.parameters())?;
     let mut audio_enc_ctx = aectx.encoder().audio()?;
 
-    let channel_layout = aac
-        .channel_layouts()
-        .map(|cls| cls.best(audio_decoder.channel_layout().channels()))
-        .unwrap_or(ffmpeg::channel_layout::ChannelLayout::STEREO);
+    // Xem doc comment `audio_layout.rs` — `aac.channel_layouts()` là `None` trên
+    // FFmpeg 7.1 nên cách chọn cũ luôn ra STEREO, nguồn mono segfault.
+    let (channel_layout, channel_layout_name) = aac_target_layout(audio_decoder.channel_layout().channels());
 
     if global_header {
         audio_enc_ctx.set_flags(codec::flag::Flags::GLOBAL_HEADER);
@@ -199,7 +199,7 @@ pub fn reencode_to_mp4(input_path: &str, output_path: &str, target_video_bitrate
         out.set_channel_layout(audio_encoder.channel_layout());
         out.set_sample_rate(audio_encoder.rate());
     }
-    audio_filter.output("in", 0)?.input("out", 0)?.parse("anull")?;
+    audio_filter.output("in", 0)?.input("out", 0)?.parse(&aformat_filter_spec(channel_layout_name))?;
     audio_filter.validate()?;
     if !aac.capabilities().contains(codec::capabilities::Capabilities::VARIABLE_FRAME_SIZE) {
         audio_filter.get("out").unwrap().sink().set_frame_size(audio_encoder.frame_size());
@@ -329,6 +329,7 @@ fn drain_audio_filter_and_encode(
 ) -> Result<(), ffmpeg::Error> {
     let mut filtered = frame::Audio::empty();
     while filter_graph.get("out").unwrap().sink().frame(&mut filtered).is_ok() {
+        ensure_frame_matches_encoder(&filtered, encoder_ctx)?;
         encoder_ctx.send_frame(&filtered)?;
         drain_audio_encoder(encoder_ctx, octx, dec_time_base, out_index)?;
     }

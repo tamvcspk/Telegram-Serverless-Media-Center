@@ -12,6 +12,7 @@
 
 use ffmpeg_next::{self as ffmpeg, channel_layout::ChannelLayout, codec, encoder, filter, format, frame, media::Type as MediaType, software::resampling, util::dictionary::Owned as Dictionary, Rational};
 
+use crate::audio_layout::{aac_target_layout, aformat_filter_spec, ensure_frame_matches_encoder};
 use crate::ensure_init;
 
 enum AudioSink {
@@ -113,10 +114,9 @@ pub fn remux(input_path: &str, output_path: &str, reencode_audio_to_aac: bool) -
         let ectx = codec::context::Context::from_parameters(ost.parameters())?;
         let mut enc = ectx.encoder().audio()?;
 
-        let channel_layout = codec
-            .channel_layouts()
-            .map(|cls| cls.best(dec.channel_layout().channels()))
-            .unwrap_or(ffmpeg::channel_layout::ChannelLayout::STEREO);
+        // Xem doc comment `audio_layout.rs` — `codec.channel_layouts()` là `None`
+        // trên FFmpeg 7.1 nên cách chọn cũ luôn ra STEREO, nguồn mono segfault.
+        let (channel_layout, channel_layout_name) = aac_target_layout(dec.channel_layout().channels());
 
         if global_header {
             enc.set_flags(codec::flag::Flags::GLOBAL_HEADER);
@@ -155,7 +155,7 @@ pub fn remux(input_path: &str, output_path: &str, reencode_audio_to_aac: bool) -
             out.set_channel_layout(enc.channel_layout());
             out.set_sample_rate(enc.rate());
         }
-        graph.output("in", 0)?.input("out", 0)?.parse("anull")?;
+        graph.output("in", 0)?.input("out", 0)?.parse(&aformat_filter_spec(channel_layout_name))?;
         graph.validate()?;
 
         if !codec.capabilities().contains(codec::capabilities::Capabilities::VARIABLE_FRAME_SIZE) {
@@ -249,6 +249,7 @@ fn drain_filter_and_encode(
 ) -> Result<(), ffmpeg::Error> {
     let mut filtered = frame::Audio::empty();
     while filter_graph.get("out").unwrap().sink().frame(&mut filtered).is_ok() {
+        ensure_frame_matches_encoder(&filtered, encoder_ctx)?;
         encoder_ctx.send_frame(&filtered)?;
         drain_encoder(encoder_ctx, octx, dec_time_base, out_index)?;
     }

@@ -17,6 +17,9 @@ export interface QueueItem {
   /** Từ `ProbeResultDto.duration_sec` — dùng để ước tính thời gian re-encode
    * lúc hỏi xác nhận Hạng D (mockup A.2 mục 1). */
   durationSec?: number;
+  /** Từ `ProbeResultDto.file_size_bytes` — dung lượng file NGUỒN, đầu vào của
+   * bước TIỀN KIỂM vượt trần upload lúc bấm "Upload" (`planSizeCap()`). */
+  sourceBytes?: number;
   /** `msgId: 0` placeholder — chưa có gì để gán, item chưa upload. */
   metadata: CatalogItemV1;
   /** Mặc định `true`, TRỪ khi probe xong ra Hạng D (mockup A.5 "File Hạng D:

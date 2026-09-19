@@ -167,6 +167,13 @@ impl From<ProbeSubtitleStream> for ProbeSubtitleStreamDto {
 /// `rename_all = "camelCase"`, xem đầu file) — phía Angular tự map sang
 /// `durationSec` bằng một hàm chuyển đổi một dòng trước khi gọi
 /// `classifyCompatRank()`, không đổi quy ước DTO chỉ vì một field.
+///
+/// `file_size_bytes` (thêm 2026-09-19, Giai đoạn 0 chuẩn hoá dung lượng) là
+/// dung lượng THẬT trên đĩa của chính file được probe — KHÔNG thuộc
+/// `ProbeResult` của `ingest-ffmpeg` (crate đó không đọc file system, chỉ đọc
+/// container), nên không thể có `From<ProbeResult>`: nơi gọi tự đọc
+/// `std::fs::metadata` rồi truyền vào `from_probe()`. Phía Angular dùng nó để
+/// TIỀN KIỂM vượt trần upload TRƯỚC khi bấm Upload (`planSizeCap()`).
 #[derive(Debug, Serialize)]
 pub struct ProbeResultDto {
     pub container: ContainerDto,
@@ -174,16 +181,18 @@ pub struct ProbeResultDto {
     pub video: Option<ProbeVideoStreamDto>,
     pub audio: Vec<ProbeAudioStreamDto>,
     pub subtitles: Vec<ProbeSubtitleStreamDto>,
+    pub file_size_bytes: u64,
 }
 
-impl From<ProbeResult> for ProbeResultDto {
-    fn from(p: ProbeResult) -> Self {
+impl ProbeResultDto {
+    pub fn from_probe(p: ProbeResult, file_size_bytes: u64) -> Self {
         Self {
             container: p.container.into(),
             duration_sec: p.duration_sec,
             video: p.video.map(ProbeVideoStreamDto::from),
             audio: p.audio.into_iter().map(ProbeAudioStreamDto::from).collect(),
             subtitles: p.subtitles.into_iter().map(ProbeSubtitleStreamDto::from).collect(),
+            file_size_bytes,
         }
     }
 }

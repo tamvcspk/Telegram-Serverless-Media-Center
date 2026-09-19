@@ -24,6 +24,7 @@ import {
   matchSidecarSubtitles,
   mergeCatalogItems,
   parseExistingCatalogItems,
+  planSizeCap,
   seasonGroupKey,
   seedMetadataFromFilename,
   seriesGroupKey,
@@ -63,8 +64,18 @@ import type { PreparedUploadDto, RemuxModeDto } from '../core/ingest-rpc.types';
 import { QueueStore, type UploadQueueItem, type UploadStage } from '../core/queue-store';
 import { SelectedChannelStore } from '../core/selected-channel';
 import { DialogService } from '../shared/dialog/dialog.service';
+import type { SizeCapDialogItem } from '../shared/dialog/size-cap-dialog';
 
 type FillDownField = 'title' | 'season' | 'year';
+
+/** Kết quả `Workspace.preflightUpload()`. */
+interface UploadPlan {
+  /** File SẼ chạy, đúng thứ tự bảng metadata. */
+  runnable: QueueItem[];
+  /** `path` → bitrate video mục tiêu (bps) — chỉ file đã được đồng ý nén theo kế hoạch. */
+  reencodeBps: ReadonlyMap<string, number>;
+  maxUploadBytes: number;
+}
 
 const UPLOAD_STAGE_LABEL: Record<UploadStage, string> = {
   queued: 'Trong hàng đợi…',
@@ -186,6 +197,11 @@ export class Workspace implements OnInit {
   /** Item ĐỦ ĐIỀU KIỆN "Upload": đã chọn, probe xong — bao gồm CẢ Hạng D
    * (re-encode, hỏi xác nhận MỘT LẦN cho cả batch trong `startUpload()`). */
   protected readonly uploadableItems = computed(() => this.queue().filter((item) => item.selected && item.status === 'ready' && item.rank !== undefined));
+
+  /** Đang trong bước TIỀN KIỂM của `startUpload()` (đọc trần + các dialog hỏi
+   * trước khi chạy) — `uploading` chỉ bật SAU bước này, nên cần cờ riêng để
+   * khoá nút Upload và chặn bấm lần hai. */
+  protected readonly preflighting = signal(false);
 
   protected readonly publishing = signal(false);
   protected readonly publishFloodWaitSeconds = signal<number | null>(null);
@@ -330,7 +346,7 @@ export class Workspace implements OnInit {
     try {
       const dto = await probeMedia(path);
       const { rank, reasons } = classifyCompatRank(toProbeResult(dto));
-      const patch: Partial<QueueItem> = { status: 'ready', rank, reasons, durationSec: dto.duration_sec };
+      const patch: Partial<QueueItem> = { status: 'ready', rank, reasons, durationSec: dto.duration_sec, sourceBytes: dto.file_size_bytes };
       if (rank === 'D') {
         patch.selected = false;
       }
@@ -717,8 +733,13 @@ export class Workspace implements OnInit {
     }
   }
 
+  /** Nút "Upload" — hai pha: (1) TIỀN KIỂM, hỏi mọi câu cần hỏi khi user còn
+   * ngồi đó (`preflightUpload()`); (2) chạy tuần tự, KHÔNG hỏi gì thêm trừ lưới
+   * an toàn trong `processItem()`. Cờ `preflighting` chặn bấm lần hai lúc dialog
+   * còn mở/đang đọc trần (trước đây `uploading` chỉ bật SAU các dialog nên bấm
+   * đúp mở chồng hai lượt tiền kiểm). */
   protected async startUpload(): Promise<void> {
-    if (this.uploading()) {
+    if (this.uploading() || this.preflighting()) {
       return;
     }
     const channel = this.selectedChannelStore.channel();
@@ -727,57 +748,36 @@ export class Workspace implements OnInit {
       return;
     }
 
-    // Chuẩn hoá size, option A (brainstorm 2026-09-18) — đọc trần MỘT LẦN
-    // cho cả batch (không đổi giữa các file, cùng tài khoản/phiên đăng nhập)
-    // TRƯỚC KHI đặt `uploading`, để một lỗi hiếm ở đây (vd mất đăng nhập giữa
-    // lúc mở Workspace) không kẹt UI ở trạng thái "đang upload" mãi.
-    // `processItem()` tự so với `file_size_bytes` của từng file NGAY SAU
-    // remux, trước khi tốn thêm một RPC `uploadVideo()` chắc chắn bị Telegram
-    // từ chối.
-    let maxUploadBytes: number;
+    this.preflighting.set(true);
+    let plan: UploadPlan | null;
     try {
-      maxUploadBytes = await getMaxUploadBytes();
-    } catch (err) {
-      this.publishError.set(describeIngestError(toIngestRpcError(err)));
+      plan = await this.preflightUpload(candidates);
+    } finally {
+      this.preflighting.set(false);
+    }
+    if (!plan || plan.runnable.length === 0) {
       return;
     }
-
-    // Hạng D — re-encode video THẬT, đắt hơn hẳn remux. MỘT dialog tổng hợp
-    // cho CẢ BATCH, toggle riêng từng file (mặc định checked) — thay bản
-    // trước hỏi TỪNG FILE một dialog riêng (ADR-0018 § "Quyết định kèm
-    // theo": giữ quyền kiểm soát hạt nhân, không ép all-or-nothing). File bị
-    // bỏ tick vẫn ở lại Draft, không vào hàng đợi, batch vẫn chạy tiếp cho
-    // các file còn lại.
-    const gradeDCandidates = candidates.filter((c) => c.rank === 'D');
-    const confirmedGradeD =
-      gradeDCandidates.length > 0
-        ? await this.dialogService.confirmGradeD(
-            gradeDCandidates.map((c) => ({ path: c.path, name: c.name, estimateMin: Math.max(1, Math.ceil((c.durationSec ?? 0) / 60)) }))
-          )
-        : undefined;
+    const { runnable, reencodeBps, maxUploadBytes } = plan;
 
     this.uploading.set(true);
     this.publishError.set(null);
     this.publishResult.set(null);
-    this.batchTotal.set(candidates.length);
+    // Chỉ đếm file THẬT SỰ chạy — file bị bỏ qua ở tiền kiểm (bỏ tick) ở lại
+    // bảng metadata, không tính vào "Đã tải x/y".
+    this.batchTotal.set(runnable.length);
     this.batchDone.set(0);
 
-    const newItems: CatalogItemV1[] = [];
-    for (const staged of candidates) {
-      if (staged.rank === 'D' && !confirmedGradeD?.has(staged.path)) {
-        this.batchDone.update((n) => n + 1);
-        continue;
-      }
-
-      // Đẩy từ bảng metadata SANG hàng đợi — bảng chính trống chỗ ngay cho
-      // dòng này, đúng yêu cầu "bảng chính được làm trống để đón file mới".
-      // `taskId` sinh Ở ĐÂY (UUID, ADR-0018) — item vừa vào hàng đợi mới cần
-      // correlation id, bảng Draft (`queue`) không bao giờ nhận event Rust
-      // nên không cần id trước thời điểm này.
-      this.queue.update((items) => items.filter((i) => i.path !== staged.path));
-      const taskId = crypto.randomUUID();
-      const queued: UploadQueueItem = {
-        taskId,
+    // Đẩy TOÀN BỘ file được duyệt từ bảng metadata SANG hàng đợi NGAY, không
+    // đợi tới lượt từng file — bảng chính trống chỗ cho file mới, và hàng đợi
+    // hiện đúng "x/y" (trước đây mỗi file chỉ vào hàng đợi khi tới lượt xử lý:
+    // file đầu nén cả giờ thì file sau vẫn nằm ở bảng metadata, footer báo
+    // "0/2" trong khi hàng đợi chỉ có 1). `taskId` sinh Ở ĐÂY (UUID, ADR-0018)
+    // — item vừa vào hàng đợi mới cần correlation id, bảng Draft (`queue`)
+    // không bao giờ nhận event Rust nên không cần id trước thời điểm này.
+    const queuedItems = runnable.map(
+      (staged): UploadQueueItem => ({
+        taskId: crypto.randomUUID(),
         path: staged.path,
         name: staged.name,
         rank: staged.rank as CompatRank,
@@ -785,12 +785,18 @@ export class Workspace implements OnInit {
         pendingPosterPath: staged.pendingPosterPath,
         durationSec: staged.durationSec,
         stage: 'queued'
-      };
-      this.uploadQueue.update((items) => [...items, queued]);
+      })
+    );
+    const runnablePaths = new Set(runnable.map((c) => c.path));
+    this.queue.update((items) => items.filter((i) => !runnablePaths.has(i.path)));
+    this.uploadQueue.update((items) => [...items, ...queuedItems]);
 
+    const newItems: CatalogItemV1[] = [];
+    for (const queued of queuedItems) {
+      const taskId = queued.taskId;
       this.currentUploadTaskId.set(taskId);
       try {
-        const finalMetadata = await this.processItem(queued, maxUploadBytes);
+        const finalMetadata = await this.processItem(queued, maxUploadBytes, reencodeBps.get(queued.path));
         newItems.push(finalMetadata);
         this.updateQueueItem(taskId, { stage: 'done' });
       } catch (err) {
@@ -820,15 +826,109 @@ export class Workspace implements OnInit {
     this.uploading.set(false);
   }
 
+  /**
+   * TIỀN KIỂM (Giai đoạn 0, ADR-0017 § addendum 2026-09-19 "kế hoạch") — mọi
+   * câu hỏi diễn ra Ở ĐÂY, TRƯỚC khi file nào bắt đầu xử lý, khi user còn ngồi
+   * đó (dialog cũ hỏi GIỮA batch: batch chạy lúc user vắng mặt sẽ đứng chờ).
+   * Trả `null` nếu user huỷ cả lượt hoặc không đọc được trần upload (đã báo
+   * lỗi qua `publishError`); ngược lại trả danh sách file SẼ chạy (file bị bỏ
+   * tick ở dialog nào thì không có mặt — ở lại bảng metadata) cùng bitrate mục
+   * tiêu của những file đã được đồng ý nén.
+   *
+   * Trần đọc MỘT LẦN cho cả batch (không đổi giữa các file, cùng tài khoản/
+   * phiên đăng nhập — chuẩn hoá size option A, brainstorm 2026-09-18);
+   * `processItem()` tự so với dung lượng THẬT sau remux làm lưới an toàn. Dự
+   * đoán từ dung lượng file nguồn — xem `planSizeCap()` về độ chính xác.
+   */
+  private async preflightUpload(candidates: QueueItem[]): Promise<UploadPlan | null> {
+    let maxUploadBytes: number;
+    try {
+      maxUploadBytes = await getMaxUploadBytes();
+    } catch (err) {
+      this.publishError.set(describeIngestError(toIngestRpcError(err)));
+      return null;
+    }
+
+    const sizePlans = new Map(
+      candidates.map((c) => [c.path, planSizeCap({ sourceBytes: c.sourceBytes ?? 0, durationSec: c.durationSec ?? 0, maxUploadBytes })] as const)
+    );
+    const toGb = (bytes: number | undefined): string => ((bytes ?? 0) / 1_000_000_000).toFixed(2);
+    const estimateMinOf = (c: QueueItem): number => Math.max(1, Math.ceil((c.durationSec ?? 0) / 60));
+
+    // Hạng D — re-encode video THẬT, đắt hơn hẳn remux. MỘT dialog tổng hợp
+    // cho CẢ BATCH, toggle riêng từng file (mặc định checked) — thay bản
+    // trước hỏi TỪNG FILE một dialog riêng (ADR-0018 § "Quyết định kèm
+    // theo": giữ quyền kiểm soát hạt nhân, không ép all-or-nothing). File bị
+    // bỏ tick vẫn ở lại Draft, không vào hàng đợi, batch vẫn chạy tiếp cho
+    // các file còn lại.
+    const gradeDCandidates = candidates.filter((c) => c.rank === 'D');
+    const confirmedGradeD =
+      gradeDCandidates.length > 0
+        ? await this.dialogService.confirmGradeD(
+            gradeDCandidates.map((c) => ({
+              path: c.path,
+              name: c.name,
+              estimateMin: estimateMinOf(c),
+              note: sizePlans.get(c.path)?.exceedsCap
+                ? `nặng ${toGb(c.sourceBytes)} GB, vượt trần ${toGb(maxUploadBytes)} GB — nén thẳng theo bitrate mục tiêu để vừa trần`
+                : undefined
+            }))
+          )
+        : undefined;
+    const afterGradeD = candidates.filter((c) => c.rank !== 'D' || confirmedGradeD?.has(c.path));
+
+    // `path` → bitrate video mục tiêu (bps) cho MỘT lần re-encode duy nhất.
+    // Hạng D vượt trần: user đã đồng ý re-encode ở dialog trên, chỉ gộp bitrate
+    // vào lần encode đó (trước đây chạy default rồi lại nén lần hai nếu vượt).
+    // Hạng A/B/C vượt trần: bắt buộc hỏi riêng (mockup A.2 mục 1 — re-encode
+    // video luôn phải hỏi, chúng vốn chỉ stream-copy).
+    const reencodeBps = new Map<string, number>();
+    const askSizeCap: SizeCapDialogItem[] = [];
+    for (const c of afterGradeD) {
+      const bps = sizePlans.get(c.path)?.targetVideoBitrateBps;
+      if (bps === undefined) {
+        continue;
+      }
+      if (c.rank === 'D') {
+        reencodeBps.set(c.path, bps);
+      } else {
+        askSizeCap.push({ path: c.path, name: c.name, sourceBytes: c.sourceBytes ?? 0, estimateMin: estimateMinOf(c) });
+      }
+    }
+
+    let skipped = new Set<string>();
+    if (askSizeCap.length > 0) {
+      const chosen = await this.dialogService.confirmSizeCap(askSizeCap, maxUploadBytes);
+      if (chosen === null) {
+        return null; // huỷ cả lượt — mọi file còn nguyên trong bảng metadata
+      }
+      skipped = new Set(askSizeCap.filter((i) => !chosen.has(i.path)).map((i) => i.path));
+      for (const item of askSizeCap) {
+        const bps = sizePlans.get(item.path)?.targetVideoBitrateBps;
+        if (chosen.has(item.path) && bps !== undefined) {
+          reencodeBps.set(item.path, bps);
+        }
+      }
+    }
+
+    return { runnable: afterGradeD.filter((c) => !skipped.has(c.path)), reencodeBps, maxUploadBytes };
+  }
+
   /** Một item hàng đợi: probe lại lấy danh sách track phụ đề TEXT (lọc bỏ
    * track ẢNH), remux/re-encode+thumbnail+rút phụ đề (`prepareUpload()`, cục
    * bộ, không FLOOD_WAIT), rồi upload video + từng phụ đề (CÓ FLOOD_WAIT —
    * bọc `withFloodWaitRetry`). Trả về `CatalogItemV1` cuối cùng (msgId/
    * compat/subs thật) — ném lỗi nếu bất kỳ bước nào thất bại, để
    * `startUpload()` đánh dấu đúng item đó Lỗi mà KHÔNG dừng các item còn lại
-   * trong batch. */
-  private async processItem(item: UploadQueueItem, maxUploadBytes: number): Promise<CatalogItemV1> {
-    const mode: RemuxModeDto = item.rank === 'D' ? 'reencode_all' : item.rank === 'C' ? 'reencode_audio' : 'copy';
+   * trong batch.
+   *
+   * `plannedTargetBps` có giá trị = bước TIỀN KIỂM (`startUpload()`) đã dự đoán
+   * file vượt trần và đã được đồng ý nén: đi THẲNG `reencode_all` với bitrate
+   * đó, MỘT lần encode duy nhất (không remux thử trước). `undefined` = dự
+   * đoán là vừa trần → đường thường theo hạng; nếu dung lượng THẬT sau đó vẫn
+   * vượt thì rơi vào lưới an toàn bên dưới. */
+  private async processItem(item: UploadQueueItem, maxUploadBytes: number, plannedTargetBps?: number): Promise<CatalogItemV1> {
+    const mode: RemuxModeDto = plannedTargetBps !== undefined || item.rank === 'D' ? 'reencode_all' : item.rank === 'C' ? 'reencode_audio' : 'copy';
 
     const probeDto = await probeMedia(item.path);
     const subtitleTracks = probeDto.subtitles
@@ -836,7 +936,7 @@ export class Workspace implements OnInit {
       .map((s) => ({ index: s.index, lang: s.lang }));
 
     this.updateQueueItem(item.taskId, { stage: mode === 'reencode_all' ? 'reencoding' : 'remuxing' });
-    let prepared: PreparedUploadDto = await prepareUpload(item.taskId, item.path, mode, subtitleTracks);
+    let prepared: PreparedUploadDto = await prepareUpload(item.taskId, item.path, mode, subtitleTracks, plannedTargetBps);
 
     try {
       // Chuẩn hoá size — chặn TRƯỚC khi mở kết nối `uploadVideo()` (option A,
@@ -844,13 +944,22 @@ export class Workspace implements OnInit {
       // remux/re-encode đã tốn xong thời gian. Ném lỗi bên trong `try` (không
       // trước nó) để `finally` dưới vẫn dọn `temp_dir` như mọi lỗi khác.
       if (prepared.file_size_bytes > maxUploadBytes) {
-        // Option C (ADR-0017 § addendum 2026-09-19, SPIKE-11 ĐẠT) — thay vì bỏ
-        // file, HỎI có cho nén lại video xuống dưới trần không. Bắt buộc hỏi
-        // riêng (mockup A.2 mục 1): Hạng A/B/C bình thường stream-copy video,
-        // nhánh này buộc chúng decode+encode thật lần đầu chỉ vì lý do dung
-        // lượng. Chỉ hỏi được SAU remux (chưa biết dung lượng cuối trước đó),
-        // nên không gộp vào dialog Hạng D đầu batch. Hạng D mà default re-encode
-        // vẫn vượt trần cũng đi đúng nhánh này (hỏi lần hai, có bitrate ép).
+        if (plannedTargetBps !== undefined) {
+          // Đã nén theo bitrate mục tiêu MỘT lần mà vẫn vượt — `h264_mf` có mức
+          // sàn theo nội dung (không hạ dưới mức đó dù target thấp hơn, xem
+          // ADR-0017 § addendum 2026-09-19 Option C). Không encode lặp lại.
+          throw new Error(
+            `${describeSizeCapExceeded(prepared.file_size_bytes, maxUploadBytes)} Đã nén lại theo bitrate mục tiêu nhưng vẫn vượt trần — bỏ qua file này (thử giảm thêm bằng công cụ khác, hoặc cắt thành nhiều tập nhỏ hơn).`
+          );
+        }
+
+        // LƯỚI AN TOÀN (Option C, ADR-0017 § addendum 2026-09-19) — bước tiền
+        // kiểm ở `preflightUpload()` dự đoán từ dung lượng file nguồn nên có thể
+        // trượt (vd file nguồn nhỏ hơn trần nhưng Hạng D re-encode mặc định ra
+        // file to hơn). Chỉ biết chắc SAU remux; hỏi giữa
+        // batch là đường cuối cùng, không phải đường chính. Bắt buộc hỏi (mockup
+        // A.2 mục 1): Hạng A/B/C bình thường stream-copy video, nhánh này buộc
+        // chúng decode+encode thật chỉ vì lý do dung lượng.
         const overCap = describeSizeCapExceeded(prepared.file_size_bytes, maxUploadBytes);
         const targetBps = computeTargetVideoBitrateBps(maxUploadBytes, prepared.final_probe.duration_sec);
         const allowReencode = await this.dialogService.confirm({

@@ -75,6 +75,10 @@ export interface ProbeResultDto {
   video: ProbeVideoStreamDto | null;
   audio: ProbeAudioStreamDto[];
   subtitles: ProbeSubtitleStreamDto[];
+  /** Dung lượng THẬT của file được probe (thêm 2026-09-19) — nguồn cho bước
+   * TIỀN KIỂM vượt trần upload (`planSizeCap()`, `@tsmc/core-ingest`). Với
+   * `PreparedUploadDto.final_probe` là dung lượng bản đã remux/re-encode. */
+  file_size_bytes: number;
 }
 
 /** Khớp `UploadedRefDto`. */

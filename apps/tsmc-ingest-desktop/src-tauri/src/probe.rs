@@ -68,5 +68,10 @@ pub fn list_dir_entries(dir_path: String) -> Vec<String> {
 /// chặn kết quả của những file lành.
 #[tauri::command]
 pub fn probe_media(path: String) -> Result<ProbeResultDto, IngestRpcErrorDto> {
-    ingest_ffmpeg::probe(&path).map(ProbeResultDto::from).map_err(|e| IngestRpcErrorDto::other(e.to_string()))
+    let probed = ingest_ffmpeg::probe(&path).map_err(|e| IngestRpcErrorDto::other(e.to_string()))?;
+    // Dung lượng file nguồn cho bước TIỀN KIỂM vượt trần upload (Giai đoạn 0,
+    // xem `ProbeResultDto`) — lỗi đọc là bất thường thật (vừa probe xong file
+    // này), không che bằng 0 (0 sẽ vô tình luôn "qua" mọi trần).
+    let file_size_bytes = std::fs::metadata(&path).map_err(|e| IngestRpcErrorDto::other(format!("đọc dung lượng file lỗi: {e}")))?.len();
+    Ok(ProbeResultDto::from_probe(probed, file_size_bytes))
 }

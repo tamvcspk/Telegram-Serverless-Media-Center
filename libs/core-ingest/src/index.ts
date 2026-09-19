@@ -24,6 +24,6 @@ export { composeCaption } from './caption-hashtags';
 export { flattenMetadataTree, seasonGroupKey, seriesGroupKey } from './metadata-tree';
 export type { FlatMetadataRow } from './metadata-tree';
 
-export { computeTargetVideoBitrateBps, MIN_VIDEO_BITRATE_BPS, REENCODE_AUDIO_BITRATE_BPS } from './size-normalize';
+export { computeTargetVideoBitrateBps, MIN_VIDEO_BITRATE_BPS, planSizeCap, REENCODE_AUDIO_BITRATE_BPS, type SizeCapPlan } from './size-normalize';
 
 export { assignToSeries, findRepresentativeEpisode, listSeriesNames, suggestNextEpisode } from './series-registry';

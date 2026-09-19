@@ -9,6 +9,9 @@ export interface GradeDDialogItem {
   /** Số phút ước tính re-encode, làm tròn LÊN từ duration thật (mockup A.2
    * mục 1: "cảnh báo Hạng D bằng số phút cụ thể"). */
   estimateMin: number;
+  /** Ghi chú thêm dưới tên file — vd file nặng hơn trần upload nên sẽ nén
+   * thẳng theo bitrate mục tiêu (Giai đoạn 0 chuẩn hoá dung lượng). */
+  note?: string;
 }
 
 export interface GradeDDialogData {

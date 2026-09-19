@@ -22,6 +22,7 @@
 //! code đã gây segfault, nhưng input vẫn là file trên đĩa của admin — coi là
 //! không tin tưởng như mọi input khác (lỗi trả `Result`, không `unwrap()`).
 
+mod audio_layout;
 mod reencode;
 mod remux;
 mod subtitles;

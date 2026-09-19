@@ -1,0 +1,19 @@
+<h2 mat-dialog-title>File vượt trần dung lượng</h2>
+<mat-dialog-content>
+  <p>
+    {{ data.items.length }} file nặng hơn trần {{ maxGb }} GB của tài khoản — Telegram sẽ từ chối nếu upload nguyên. Tick file nào muốn nén lại (giải mã và mã hoá lại TOÀN BỘ video: chậm hơn hẳn remux, giảm chất lượng hình). Bỏ tick file nào muốn để lại làm sau (vẫn nằm trong bảng metadata).
+  </p>
+  <ul class="size-cap-list">
+    @for (item of data.items; track item.path) {
+      <li>
+        <mat-checkbox [checked]="isChecked(item.path)" (change)="toggle(item.path, $event.checked)">
+          {{ item.name }} <span class="estimate">({{ gb(item.sourceBytes) }} GB · nén ~{{ item.estimateMin }} phút)</span>
+        </mat-checkbox>
+      </li>
+    }
+  </ul>
+</mat-dialog-content>
+<mat-dialog-actions align="end">
+  <button mat-button type="button" [mat-dialog-close]="null">Huỷ upload</button>
+  <button mat-flat-button type="button" color="warn" (click)="onConfirm()">Tiếp tục</button>
+</mat-dialog-actions>

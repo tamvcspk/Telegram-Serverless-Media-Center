@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeTargetVideoBitrateBps, MIN_VIDEO_BITRATE_BPS, REENCODE_AUDIO_BITRATE_BPS } from './size-normalize';
+import { computeTargetVideoBitrateBps, MIN_VIDEO_BITRATE_BPS, planSizeCap, REENCODE_AUDIO_BITRATE_BPS } from './size-normalize';
 
 describe('computeTargetVideoBitrateBps', () => {
   it('tính đúng cho trường hợp thường: trần 2 GB, phim 2 giờ', () => {
@@ -26,5 +26,27 @@ describe('computeTargetVideoBitrateBps', () => {
     expect(computeTargetVideoBitrateBps(2_000_000_000, 0)).toBe(MIN_VIDEO_BITRATE_BPS);
     expect(computeTargetVideoBitrateBps(2_000_000_000, -5)).toBe(MIN_VIDEO_BITRATE_BPS);
     expect(computeTargetVideoBitrateBps(2_000_000_000, Number.NaN)).toBe(MIN_VIDEO_BITRATE_BPS);
+  });
+});
+
+describe('planSizeCap', () => {
+  it('file nguồn nhỏ hơn trần: không vượt, không có bitrate mục tiêu', () => {
+    expect(planSizeCap({ sourceBytes: 1_500_000_000, durationSec: 5400, maxUploadBytes: 2_000_000_000 })).toEqual({ exceedsCap: false });
+  });
+
+  it('đúng bằng trần: chưa vượt', () => {
+    expect(planSizeCap({ sourceBytes: 2_000_000_000, durationSec: 5400, maxUploadBytes: 2_000_000_000 }).exceedsCap).toBe(false);
+  });
+
+  it('file nguồn lớn hơn trần: vượt, kèm đúng bitrate mục tiêu của computeTargetVideoBitrateBps', () => {
+    const plan = planSizeCap({ sourceBytes: 4_300_000_000, durationSec: 7200, maxUploadBytes: 4_000_000_000 });
+    expect(plan.exceedsCap).toBe(true);
+    expect(plan.targetVideoBitrateBps).toBe(computeTargetVideoBitrateBps(4_000_000_000, 7200));
+  });
+
+  it('dung lượng nguồn không hợp lệ (0, âm, NaN): không chặn nhầm', () => {
+    for (const sourceBytes of [0, -1, Number.NaN]) {
+      expect(planSizeCap({ sourceBytes, durationSec: 5400, maxUploadBytes: 2_000_000_000 }).exceedsCap).toBe(false);
+    }
   });
 });

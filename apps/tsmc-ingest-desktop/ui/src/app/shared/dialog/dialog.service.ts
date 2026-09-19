@@ -8,6 +8,7 @@ import { AssignSeriesDialog, type AssignSeriesDialogData, type AssignSeriesResul
 import { ConfirmDialog, type ConfirmDialogData } from './confirm-dialog';
 import { GradeDDialog, type GradeDDialogItem } from './grade-d-dialog';
 import { OrphanReviewDialog, type OrphanReviewDialogItem } from './orphan-review-dialog';
+import { SizeCapDialog, type SizeCapDialogData, type SizeCapDialogItem, type SizeCapDialogResult } from './size-cap-dialog';
 import { TmdbKeyDialog, type TmdbKeyDialogData } from './tmdb-key-dialog';
 import { TmdbSearchDialog, type TmdbSearchDialogData } from './tmdb-search-dialog';
 
@@ -64,6 +65,20 @@ export class DialogService {
     });
     const result = await firstValueFrom(ref.afterClosed());
     return new Set(result ?? []);
+  }
+
+  /** TIỀN KIỂM vượt trần upload cho CẢ BATCH trong một dialog (Giai đoạn 0,
+   * ADR-0017 § addendum 2026-09-19) — thay dialog cũ hỏi giữa batch. Trả về
+   * tập `path` chọn "Nén lại" (file bỏ tick bị bỏ qua, ở lại bảng metadata),
+   * hoặc `null` nếu user huỷ cả lượt upload (nút "Huỷ upload"/Esc/bấm ra
+   * ngoài — khác `confirmGradeD()`, xem `SizeCapDialog`). */
+  async confirmSizeCap(items: SizeCapDialogItem[], maxUploadBytes: number): Promise<ReadonlySet<string> | null> {
+    const ref = this.dialog.open<SizeCapDialog, SizeCapDialogData, SizeCapDialogResult>(SizeCapDialog, {
+      data: { items, maxUploadBytes },
+      width: '30rem'
+    });
+    const result = await firstValueFrom(ref.afterClosed());
+    return result ? new Set(result.reencode) : null;
   }
 
   /** Hiện danh sách file mồ côi tìm thấy khi quét TOÀN BỘ lịch sử kênh (đối

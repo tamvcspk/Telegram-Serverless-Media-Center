@@ -116,7 +116,7 @@ fn prepare_upload_blocking(
         remuxed_path: remuxed_path_str,
         thumbnail_path: thumbnail_path_str,
         subtitles,
-        final_probe: ProbeResultDto::from(final_probe),
+        final_probe: ProbeResultDto::from_probe(final_probe, file_size_bytes),
         file_size_bytes
     })
 }

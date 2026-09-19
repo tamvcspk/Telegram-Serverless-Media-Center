@@ -6,6 +6,9 @@
       <li>
         <mat-checkbox [checked]="isChecked(item.path)" (change)="toggle(item.path, $event.checked)">
           {{ item.name }} <span class="estimate">(~{{ item.estimateMin }} phút)</span>
+          @if (item.note) {
+            <span class="note">{{ item.note }}</span>
+          }
         </mat-checkbox>
       </li>
     }

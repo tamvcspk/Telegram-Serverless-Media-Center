@@ -146,7 +146,7 @@
           </svg>
         </button>
 
-        <button mat-raised-button type="button" color="primary" [disabled]="uploading() || uploadableItems().length === 0" (click)="startUpload()">
+        <button mat-raised-button type="button" color="primary" [disabled]="uploading() || preflighting() || uploadableItems().length === 0" (click)="startUpload()">
           {{ uploading() ? 'Đang upload…' : 'Upload (' + uploadableItems().length + ')' }}
         </button>
       </mat-toolbar>

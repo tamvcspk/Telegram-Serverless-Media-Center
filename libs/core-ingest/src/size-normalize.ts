@@ -34,3 +34,34 @@ export function computeTargetVideoBitrateBps(maxUploadBytes: number, durationSec
   const videoBudgetBps = totalBudgetBps * (1 - MUX_OVERHEAD_FRACTION) - REENCODE_AUDIO_BITRATE_BPS;
   return Math.max(Math.floor(videoBudgetBps), MIN_VIDEO_BITRATE_BPS);
 }
+
+export interface SizeCapPlan {
+  /** Dự đoán file đầu ra có vượt trần upload không (xem `planSizeCap()`). */
+  exceedsCap: boolean;
+  /** Bitrate video mục tiêu (bps) cho MỘT lần re-encode duy nhất — chỉ có khi
+   * `exceedsCap`. */
+  targetVideoBitrateBps?: number;
+}
+
+/**
+ * TIỀN KIỂM dung lượng, chạy TRƯỚC khi bấm Upload (Giai đoạn 0, ADR-0017 §
+ * addendum 2026-09-19 "kế hoạch") — thay cách cũ chỉ biết dung lượng SAU
+ * remux rồi hỏi giữa batch (batch chạy lúc user vắng mặt sẽ đứng chờ).
+ *
+ * Dự đoán: đầu ra ≈ dung lượng file NGUỒN. Đúng gần sát với Hạng A/B/C (video
+ * stream-copy, audio copy hoặc AAC 160 kbps — chỉ lệch vài % do bỏ track phụ),
+ * chỉ là cận trên thô với Hạng D (re-encode, dung lượng đầu ra chưa đoán được
+ * — `h264_mf` có mức sàn theo nội dung, SPIKE-11). Cố ý KHÔNG thêm hệ số hiệu
+ * chỉnh: Giai đoạn 2 sẽ thay bằng ước tính chính xác (encode thử vài đoạn
+ * ngắn); dự đoán lệch thì lưới an toàn sau remux (`workspace.ts::processItem()`)
+ * vẫn bắt được.
+ *
+ * `sourceBytes <= 0` (không đọc được) → coi như không vượt, không chặn nhầm.
+ */
+export function planSizeCap(input: { sourceBytes: number; durationSec: number; maxUploadBytes: number }): SizeCapPlan {
+  const { sourceBytes, durationSec, maxUploadBytes } = input;
+  if (!(sourceBytes > maxUploadBytes)) {
+    return { exceedsCap: false };
+  }
+  return { exceedsCap: true, targetVideoBitrateBps: computeTargetVideoBitrateBps(maxUploadBytes, durationSec) };
+}

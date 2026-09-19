@@ -720,6 +720,8 @@ Liên quan: [ADR-0017 § addendum 2026-09-19, Option C](./adr/0017-grammers-cho-
 
 ### Các bước
 
+> **Đã đổi (2026-09-19, Giai đoạn 0):** dialog hỏi "Nén lại" giờ hiện TRƯỚC khi batch chạy (bước tiền kiểm), không còn giữa batch — các bước dưới mô tả đường LƯỚI AN TOÀN còn lại (chọn "thử nguyên file" ở dialog tiền kiểm, hoặc dự đoán trượt). Checklist đường chính ở [mục Giai đoạn 0](#gui-ingest-desktop-appstsmc-ingest-desktop--giai-đoạn-0-tiền-kiểm-vượt-trần--vá-audio-mono-2026-09-19).
+
 - [ ] Kéo file vượt trần vào Workspace, bấm Upload → sau remux hiện dialog "File vượt trần dung lượng" (nút cảnh báo "Nén lại" / "Bỏ qua file này"), nêu đúng số GB thật.
 - [ ] Bấm "Nén lại" → item chuyển sang stage `reencoding`, xong thì `uploading_video` và upload thành công; file trên kênh nhỏ hơn trần, phát được bình thường trong app xem.
 - [ ] Bấm "Bỏ qua file này" (hoặc Esc) → item Lỗi với thông báo nêu đã từ chối nén lại, batch vẫn chạy tiếp cho file khác.
@@ -732,3 +734,34 @@ Liên quan: [ADR-0017 § addendum 2026-09-19, Option C](./adr/0017-grammers-cho-
 
 - Nén lại xong vẫn vượt trần dù target hợp lý → encoder `h264_mf` có mức sàn theo nội dung (không hạ được dưới mức đó dù target thấp hơn); đây là giới hạn đã biết, hướng xử lý là Option D (hạ độ phân giải, roadmap), không phải sửa công thức.
 - Crash tiến trình (`STATUS_ACCESS_VIOLATION`) khi nén file có audio MONO: lỗi có sẵn từ trước Option C (xem [docs/roadmap.md § Ingest](./roadmap.md#ingest)), không phải do bitrate.
+
+
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — Giai đoạn 0: tiền kiểm vượt trần + vá audio mono (2026-09-19)
+
+Liên quan: [ADR-0017 § addendum 2026-09-19, Giai đoạn 0](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-19-giai-đoạn-0-vá-crash-audio-mono--chuyển-quyết-định-vượt-trần-sang-bước-tiền-kiểm), [docs/roadmap.md § Ingest](./roadmap.md#ingest).
+
+**KHÔNG chạy hộ bằng agent/Claude** — CLAUDE.md: "Không chạy đăng nhập MTProto hộ người dùng". Admin tự chạy trong `apps/tsmc-ingest-desktop/` (`cargo tauri dev`).
+
+### Chuẩn bị
+
+- [x] `cargo build`/`cargo clippy --workspace -- -D warnings`/`ng build`/`npm run lint`/`npm run test:libs` (328 test, 4 mới ở `size-normalize.spec.ts`) sạch — verify 2026-09-19.
+- [x] Audio mono không còn crash: `cargo run --release --example check_audio_channels -p ingest-ffmpeg -- <input> <out_dir>` trên fixture MKV H.264 + AC3 mono/stereo/5.1, chạy CẢ `remux(.., true)` (Hạng C) và `reencode_to_mp4()` (Hạng D) — đầu ra mono→1 kênh, stereo→2, 5.1→2, `volumedetect` không câm; stereo giống hệt từng byte code cũ — verify 2026-09-19.
+
+### Các bước
+
+- [ ] Một file MONO thật (vd rip DVD/phim cũ có audio AC3/MP3 mono) qua Hạng C hoặc D trong app → không sập cả app, upload xong, nghe được tiếng (một kênh, không méo/câm).
+- [ ] Một file 5.1 thật qua Hạng C/D → tiếng ra đủ (có cả thoại kênh giữa, khác trước đây chỉ có trái/phải).
+- [ ] File Hạng A/B vượt trần → bấm Upload, TRƯỚC khi file nào bắt đầu xử lý hiện dialog "File vượt trần dung lượng" nêu đúng số GB nguồn và trần; giữ tick mặc định + "Tiếp tục" → item đi thẳng `reencoding` (KHÔNG có bước remux trước, KHÔNG có dialog thứ hai), xong thì upload, file trên kênh nhỏ hơn trần.
+- [ ] Cùng dialog: bỏ tick một file → file đó bị bỏ qua, ở lại bảng metadata (không vào hàng đợi).
+- [ ] Batch trộn file vượt trần + file hợp lệ: bấm Upload → dialog chỉ liệt kê file vượt trần; sau "Tiếp tục" CẢ HAI file vào hàng đợi ngay (file vượt trần đang nén, file hợp lệ hiện "Trong hàng đợi…"), footer "Đã tải 0/2" khớp số dòng hàng đợi, file hợp lệ tự chạy sau khi file đầu xong.
+- [ ] Bấm Upload hai lần liên tiếp thật nhanh → chỉ MỘT dialog tiền kiểm, nút Upload xám lúc dialog đang mở.
+- [ ] "Huỷ upload" (hoặc Esc) ở dialog tiền kiểm → không file nào bị xử lý, mọi file còn nguyên trong bảng metadata.
+- [ ] Hạng D vượt trần: dialog Hạng D hiện ghi chú "nén thẳng theo bitrate mục tiêu để vừa trần", KHÔNG có dialog thứ hai; item chỉ re-encode MỘT lần (không thấy stage `reencoding` chạy hai lượt liên tiếp).
+- [ ] File đã nén theo bitrate mục tiêu mà vẫn vượt trần → item Lỗi "Đã nén lại theo bitrate mục tiêu nhưng vẫn vượt trần", không lặp encode.
+- [ ] Batch trộn nhiều loại (file vừa trần + file vượt trần + Hạng D) → mọi câu hỏi hiện HẾT trước khi file đầu tiên chạy, sau đó batch chạy không cần ngồi canh.
+- [ ] Thư mục tạm `tsmc-ingest-desktop-*` được dọn cho cả file đi đường nén theo kế hoạch lẫn đường lưới an toàn.
+
+### Nếu có gì vỡ
+
+- Dialog tiền kiểm hiện cho file thực ra vừa trần sau remux (dự đoán theo dung lượng file nguồn là cận trên thô — file có nhiều track audio/phụ đề bị bỏ khi remux nhẹ hơn nguồn) → bỏ tick để thử nguyên file; nếu gặp thường xuyên, Giai đoạn 2 (ước tính chính xác) là chỗ sửa, không phải công thức `planSizeCap()`.
+- Crash tiến trình (`STATUS_ACCESS_VIOLATION`) VẪN xảy ra với một file audio lạ: chạy `check_audio_channels` trên đúng file đó để biết layout/số kênh nguồn; chốt chặn `ensure_frame_matches_encoder()` giờ trả lỗi thường thay vì sập, nên nếu vẫn sập thì lỗi nằm ở chỗ khác.
