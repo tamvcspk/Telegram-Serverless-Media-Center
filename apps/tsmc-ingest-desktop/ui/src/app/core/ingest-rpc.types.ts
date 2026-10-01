@@ -133,6 +133,24 @@ export interface PipelineStageDto {
   stage: 'remuxing' | 'reencoding' | 'generating_thumbnail' | 'extracting_subtitles';
 }
 
+/** Payload sự kiện `"pipeline-progress"` — %/tốc độ/ETA/dung lượng dự phóng
+ * của `remux()`/`reencode_to_mp4()` (Giai đoạn 1, docs/roadmap.md § Ingest).
+ * TÁCH khỏi `UploadProgressDto` (bytes_sent/total_bytes ở đó là byte MẠNG
+ * thật của một lần upload, ý nghĩa khác hẳn số giây/byte-cục-bộ ở đây) và
+ * khỏi `PipelineStageDto` (chỉ bắn một lần mỗi lần đổi stage, không có
+ * trường số nào). `speed_x_realtime`/`eta_sec` là `null` trong ~20-30s đầu
+ * ("đang đo" — chưa đủ mẫu cho một ước lượng tin được, không bịa ETA).
+ * `projected_final_bytes` là `null` tới khi `percent` qua một ngưỡng nhỏ. */
+export interface PipelineProgressDto {
+  task_id: string;
+  path: string;
+  stage: 'remuxing' | 'reencoding';
+  percent: number;
+  speed_x_realtime: number | null;
+  eta_sec: number | null;
+  projected_final_bytes: number | null;
+}
+
 /** Khớp `RemuxModeDto` — cách xử lý video ở `prepare_upload()`, suy từ hạng
  * đã `classifyCompatRank()`: `copy` (A/B), `reencode_audio` (C),
  * `reencode_all` (D — ĐẮT, decode+encode cả video, PHẢI hỏi xác nhận trước

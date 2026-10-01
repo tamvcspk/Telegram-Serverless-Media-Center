@@ -13,12 +13,38 @@
 //! command này chỉ THỰC THI (ADR-0017 điều kiện bắt buộc #4).
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::Mutex as StdMutex;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::dto::{CurrentTaskDto, IngestRpcErrorDto, PipelineStageDto, PreparedSubtitleDto, PreparedUploadDto, ProbeResultDto, RemuxModeDto, SubtitleTrackDto};
-use crate::state::AppState;
+use crate::dto::{CurrentTaskDto, IngestRpcErrorDto, PipelineProgressDto, PipelineStageDto, PreparedSubtitleDto, PreparedUploadDto, ProbeResultDto, RemuxModeDto, SubtitleTrackDto};
+use crate::state::{AppState, CancelHandle};
+
+/// 20-30s đầu chỉ hiện "đang đo" thay vì bịa một ETA từ quá ít mẫu (roadmap
+/// § Progress event).
+const MEASURING_WINDOW: Duration = Duration::from_secs(20);
+/// Cảnh báo sớm dung lượng dự phóng chỉ bắt đầu có ý nghĩa sau ~10% tiến độ
+/// (roadmap: "cảnh báo sớm ở ~10% nếu sẽ vượt trần") — trước đó số liệu quá
+/// nhiễu để ngoại suy.
+const PROJECTION_MIN_PERCENT: f64 = 10.0;
+
+/// State nội bộ của closure `on_progress` — EMA tốc độ thực (x-realtime) qua
+/// `std::sync::Mutex` (KHÔNG `RefCell`, vì `RefCell` không `Sync` — bắt buộc
+/// bởi bound `Send + Sync` của `PipelineProgressSink`).
+struct SpeedTracker {
+    start: Instant,
+    last_elapsed_sec: f64,
+    last_instant: Instant,
+    ema_speed: Option<f64>,
+}
+
+impl SpeedTracker {
+    fn new() -> Self {
+        let now = Instant::now();
+        Self { start: now, last_elapsed_sec: 0.0, last_instant: now, ema_speed: None }
+    }
+}
 
 /// Bắn `"pipeline-stage"` VÀ cập nhật `AppState.current_task` (ADR-0018 mục
 /// 5) — hai việc luôn đi cùng nhau vì cùng một nguồn sự thật (stage hiện
@@ -43,47 +69,119 @@ fn unique_suffix() -> String {
 #[tauri::command]
 pub async fn prepare_upload(
     app: AppHandle,
+    state: State<'_, AppState>,
     task_id: String,
     input_path: String,
     mode: RemuxModeDto,
     subtitle_tracks: Vec<SubtitleTrackDto>,
     target_video_bitrate: Option<u64>
 ) -> Result<PreparedUploadDto, IngestRpcErrorDto> {
-    // Native FFI của ffmpeg-next chạy IN-PROCESS, CPU-bound (remux/decode) —
-    // `spawn_blocking` để không giữ một worker thread Tokio async bận chờ
-    // suốt quá trình đó (KHÔNG phải để né rủi ro segfault đã ghi ở ADR-0013 §
-    // addendum 2026-09-03 — rủi ro đó đứng nguyên, không có cách nào tránh
-    // được từ phía Rust an toàn, đã chấp nhận theo điều kiện áp dụng addendum
-    // đó, kể cả nhánh `ReencodeAll` (Hạng D) mới thêm — LẦN ĐẦU crate này gọi
-    // `avcodec_send_frame()` cho VIDEO, cùng lớp rủi ro đã gặp thật ở audio
-    // lúc SPIKE-09, xem doc comment `ingest-ffmpeg/src/reencode.rs`).
-    tokio::task::spawn_blocking(move || prepare_upload_blocking(&app, &task_id, &input_path, mode, &subtitle_tracks, target_video_bitrate))
-        .await
-        .map_err(|e| IngestRpcErrorDto::other(format!("tác vụ chuẩn bị upload panic: {e}")))?
+    let cancel = ingest_ffmpeg::CancelFlag::new();
+    *state.active_cancel.lock().await = Some((task_id.clone(), CancelHandle::Ffmpeg(cancel.clone())));
+
+    let stage_label = if matches!(mode, RemuxModeDto::ReencodeAll) { "reencoding" } else { "remuxing" };
+    let progress_task_id = task_id.clone();
+    let progress_path = input_path.clone();
+    let progress_app = app.clone();
+    let tracker = StdMutex::new(SpeedTracker::new());
+    // `move` NGUYÊN closure này VÀO trong closure `spawn_blocking` bên dưới
+    // (không tạo ở ngoài rồi borrow `&on_progress`) — `spawn_blocking` đòi
+    // closure `'static`, mượn từ ngoài sẽ không compile.
+    let on_progress = move |p: ingest_ffmpeg::PipelineProgress| {
+        let now = Instant::now();
+        let (speed, measuring) = {
+            let mut st = tracker.lock().unwrap();
+            let dt_wall = now.duration_since(st.last_instant).as_secs_f64();
+            let dt_media = p.elapsed_sec - st.last_elapsed_sec;
+            let inst_speed = (dt_wall > 0.0).then(|| dt_media / dt_wall);
+            st.ema_speed = match (st.ema_speed, inst_speed) {
+                (Some(prev), Some(cur)) => Some(prev * 0.7 + cur * 0.3),
+                (None, Some(cur)) => Some(cur),
+                (prev, None) => prev,
+            };
+            st.last_elapsed_sec = p.elapsed_sec;
+            st.last_instant = now;
+            (st.ema_speed, now.duration_since(st.start) < MEASURING_WINDOW)
+        };
+        let percent = if p.duration_sec > 0.0 { (p.elapsed_sec / p.duration_sec * 100.0).clamp(0.0, 100.0) } else { 0.0 };
+        let speed_x_realtime = if measuring { None } else { speed };
+        let eta_sec = match speed_x_realtime {
+            Some(s) if s > 0.0 && p.duration_sec > 0.0 => Some(((p.duration_sec - p.elapsed_sec) / s).max(0.0)),
+            _ => None,
+        };
+        let projected_final_bytes = (percent >= PROJECTION_MIN_PERCENT && p.bytes_written > 0).then(|| (p.bytes_written as f64 / (percent / 100.0)) as u64);
+
+        let dto = PipelineProgressDto {
+            task_id: progress_task_id.clone(),
+            path: progress_path.clone(),
+            stage: stage_label.to_string(),
+            percent,
+            speed_x_realtime,
+            eta_sec,
+            projected_final_bytes
+        };
+        if let Ok(mut current) = progress_app.state::<AppState>().current_task.lock() {
+            *current = Some(CurrentTaskDto { task_id: dto.task_id.clone(), path: dto.path.clone(), stage: dto.stage.clone(), bytes_sent: None, total_bytes: None });
+        }
+        let _ = progress_app.emit("pipeline-progress", dto);
+    };
+
+    let blocking_task_id = task_id.clone();
+    let blocking_input_path = input_path.clone();
+    let cancel_for_blocking = cancel.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        // Native FFI của ffmpeg-next chạy IN-PROCESS, CPU-bound (remux/decode) —
+        // `spawn_blocking` để không giữ một worker thread Tokio async bận chờ
+        // suốt quá trình đó (KHÔNG phải để né rủi ro segfault đã ghi ở ADR-0013 §
+        // addendum 2026-09-03 — rủi ro đó đứng nguyên, không có cách nào tránh
+        // được từ phía Rust an toàn, đã chấp nhận theo điều kiện áp dụng addendum
+        // đó, kể cả nhánh `ReencodeAll` (Hạng D) mới thêm — LẦN ĐẦU crate này gọi
+        // `avcodec_send_frame()` cho VIDEO, cùng lớp rủi ro đã gặp thật ở audio
+        // lúc SPIKE-09, xem doc comment `ingest-ffmpeg/src/reencode.rs`).
+        prepare_upload_blocking(&app, &blocking_task_id, &blocking_input_path, mode, &subtitle_tracks, target_video_bitrate, &on_progress, &cancel_for_blocking)
+    })
+    .await
+    .map_err(|e| IngestRpcErrorDto::other(format!("tác vụ chuẩn bị upload panic: {e}")))?;
+
+    *state.active_cancel.lock().await = None;
+    result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn prepare_upload_blocking(
     app: &AppHandle,
     task_id: &str,
     input_path: &str,
     mode: RemuxModeDto,
     subtitle_tracks: &[SubtitleTrackDto],
-    target_video_bitrate: Option<u64>
+    target_video_bitrate: Option<u64>,
+    on_progress: ingest_ffmpeg::PipelineProgressSink<'_>,
+    cancel: &ingest_ffmpeg::CancelFlag
 ) -> Result<PreparedUploadDto, IngestRpcErrorDto> {
     let temp_dir = std::env::temp_dir().join(format!("tsmc-ingest-desktop-{}", unique_suffix()));
     std::fs::create_dir_all(&temp_dir).map_err(|e| IngestRpcErrorDto::other(e.to_string()))?;
 
     let stem = std::path::Path::new(input_path).file_stem().and_then(|s| s.to_str()).unwrap_or("item");
 
+    // Probe TRƯỚC remux/reencode chỉ để lấy duration_sec (nhẹ, không
+    // decode/encode frame nào — probe() chỉ mở demuxer + đọc
+    // AVCodecParameters, xem doc comment lib.rs). `final_probe` (SAU remux,
+    // đọc container/codec/size THẬT của output) vẫn giữ nguyên vị trí cũ bên
+    // dưới, KHÔNG bị thay thế bằng pre-probe này.
+    let pre_probe = ingest_ffmpeg::probe(input_path).map_err(|e| IngestRpcErrorDto::other(format!("probe trước remux lỗi: {e}")))?;
+
     emit_stage(app, task_id, input_path, if matches!(mode, RemuxModeDto::ReencodeAll) { "reencoding" } else { "remuxing" });
     let remuxed_path = temp_dir.join(format!("{stem}.mp4"));
     let remuxed_path_str = remuxed_path.to_string_lossy().into_owned();
     match mode {
-        RemuxModeDto::Copy => ingest_ffmpeg::remux(input_path, &remuxed_path_str, false),
-        RemuxModeDto::ReencodeAudio => ingest_ffmpeg::remux(input_path, &remuxed_path_str, true),
-        RemuxModeDto::ReencodeAll => ingest_ffmpeg::reencode_to_mp4(input_path, &remuxed_path_str, target_video_bitrate)
+        RemuxModeDto::Copy => ingest_ffmpeg::remux(input_path, &remuxed_path_str, false, pre_probe.duration_sec, on_progress, cancel),
+        RemuxModeDto::ReencodeAudio => ingest_ffmpeg::remux(input_path, &remuxed_path_str, true, pre_probe.duration_sec, on_progress, cancel),
+        RemuxModeDto::ReencodeAll => ingest_ffmpeg::reencode_to_mp4(input_path, &remuxed_path_str, target_video_bitrate, pre_probe.duration_sec, on_progress, cancel)
     }
-    .map_err(|e| IngestRpcErrorDto::other(format!("remux/re-encode lỗi: {e}")))?;
+    .map_err(|e| match e {
+        ingest_ffmpeg::ProcessError::Cancelled => IngestRpcErrorDto::Cancelled,
+        other => IngestRpcErrorDto::other(format!("remux/re-encode lỗi: {other}"))
+    })?;
 
     let final_probe = ingest_ffmpeg::probe(&remuxed_path_str).map_err(|e| IngestRpcErrorDto::other(format!("probe lại sau remux lỗi: {e}")))?;
     // Chuẩn hoá size (2026-09-19, option A của brainstorm) — đọc dung lượng

@@ -23,11 +23,13 @@
 //! không tin tưởng như mọi input khác (lỗi trả `Result`, không `unwrap()`).
 
 mod audio_layout;
+mod progress;
 mod reencode;
 mod remux;
 mod subtitles;
 mod thumbnail;
 
+pub use progress::{CancelFlag, PipelineProgress, PipelineProgressSink};
 pub use reencode::reencode_to_mp4;
 pub use remux::remux;
 pub use subtitles::extract_subtitles;
@@ -51,6 +53,16 @@ pub(crate) fn ensure_init() {
 pub enum ProbeError {
     #[error("ffmpeg lỗi: {0}")]
     Ffmpeg(#[from] ffmpeg::Error),
+}
+
+/// Lỗi của remux()/reencode_to_mp4() — mirror ProbeError, cộng thêm biến thể
+/// Cancelled (ffmpeg::Error là kiểu ngoài crate, không có chỗ cho việc này).
+#[derive(Debug, Error)]
+pub enum ProcessError {
+    #[error("ffmpeg lỗi: {0}")]
+    Ffmpeg(#[from] ffmpeg::Error),
+    #[error("đã huỷ")]
+    Cancelled,
 }
 
 /// Khớp `Container` của `libs/core-ingest/src/compat-rank.ts` — năm biến thể

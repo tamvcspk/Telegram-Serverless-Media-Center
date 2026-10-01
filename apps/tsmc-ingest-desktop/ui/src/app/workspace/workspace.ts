@@ -44,6 +44,7 @@ import {
   getMaxUploadBytes,
   listDirEntries,
   listMediaFiles,
+  onPipelineProgress,
   onPipelineStage,
   onUploadProgress,
   prepareUpload,
@@ -75,6 +76,27 @@ interface UploadPlan {
   /** `path` → bitrate video mục tiêu (bps) — chỉ file đã được đồng ý nén theo kế hoạch. */
   reencodeBps: ReadonlyMap<string, number>;
   maxUploadBytes: number;
+}
+
+/** `"1:20"`/`"45s"` — dùng cho ETA re-encode ở `pipelineProgressDetailText()`.
+ * Không cần độ chính xác dưới giây (EMA tốc độ đã đủ nhiễu, thêm số thập
+ * phân chỉ giả vờ chính xác hơn thực tế). */
+function formatEtaShort(sec: number): string {
+  const total = Math.round(sec);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return m > 0 ? `${m}:${String(s).padStart(2, '0')}` : `${s}s`;
+}
+
+/** `"420 MB"`/`"1.2 GB"` — dùng cho dung lượng dự phóng cuối ở
+ * `pipelineProgressDetailText()`. Chỉ hai bậc (MB/GB, decimal 1000-based,
+ * khớp `SizeCapDialog::gb()` đã dùng `1_000_000_000`) — không cần KB/TB cho
+ * kích thước file video thật tế. */
+function formatBytesShort(bytes: number): string {
+  if (bytes >= 1_000_000_000) {
+    return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
+  }
+  return `${Math.round(bytes / 1_000_000)} MB`;
 }
 
 const UPLOAD_STAGE_LABEL: Record<UploadStage, string> = {
@@ -286,6 +308,16 @@ export class Workspace implements OnInit {
       this.updateQueueItem(p.task_id, { progress: { bytesSent: p.bytes_sent, totalBytes: p.total_bytes } });
     });
     this.destroyRef.onDestroy(unlistenProgress);
+
+    // Giai đoạn 1 (docs/roadmap.md § Ingest) — %/tốc độ/ETA/dung lượng dự
+    // phóng trong lúc remuxing/reencoding, cùng nhóm và TRƯỚC getCurrentTask()
+    // như hai listener kia (giữ đúng thứ tự bắt buộc ở trên).
+    const unlistenPipelineProgress = await onPipelineProgress((p) => {
+      this.updateQueueItem(p.task_id, {
+        pipelineProgress: { percent: p.percent, speedXRealtime: p.speed_x_realtime, etaSec: p.eta_sec, projectedFinalBytes: p.projected_final_bytes }
+      });
+    });
+    this.destroyRef.onDestroy(unlistenPipelineProgress);
 
     const unlistenStage = await onPipelineStage((p) => {
       this.updateQueueItem(p.task_id, { stage: p.stage });
@@ -673,44 +705,64 @@ export class Workspace implements OnInit {
 
   /** `matListItemLine` — chỉ nói ĐANG Ở ĐÂU, KHÔNG kèm số % nữa (số % giờ
    * hiện giữa avatar dạng `mat-progress-spinner`, xem `spinnerCenterText()` —
-   * tránh lặp cùng một con số ở hai chỗ trong cùng một dòng). */
+   * tránh lặp cùng một con số ở hai chỗ trong cùng một dòng). Lúc
+   * `remuxing`/`reencoding` (Giai đoạn 1), nối thêm tốc độ/ETA/dung lượng dự
+   * phóng vào ĐÚNG dòng này (`pipelineProgressDetailText()`) thay vì thêm
+   * một `matListItemLine` thứ hai — `itemSize="64"` của
+   * `cdk-virtual-scroll-viewport` (template) cố định khớp chiều cao "hai
+   * dòng" của MDC (title + ĐÚNG MỘT line), thêm dòng thứ ba sẽ vỡ layout
+   * virtual-scroll (chiều cao mỗi hàng phải đồng nhất). `.stage-line` đã có
+   * `text-overflow: ellipsis` nên chuỗi dài tự cắt gọn, không tràn dòng. */
   protected uploadStageLabel(item: UploadQueueItem): string {
     if (item.floodWaitSeconds !== undefined) {
       return `FLOOD_WAIT ${item.floodWaitSeconds}s`;
     }
-    return UPLOAD_STAGE_LABEL[item.stage];
+    const base = UPLOAD_STAGE_LABEL[item.stage];
+    const detail = this.pipelineProgressDetailText(item);
+    return detail ? `${base} · ${detail}` : base;
   }
 
-  /** % byte đã gửi — chỉ có ý nghĩa ở stage `uploading_video` (thao tác DUY
-   * NHẤT có tiến trình byte thật, xem `ingest-rpc-trait::UploadProgress`). */
+  /** % byte đã gửi ở `uploading_video` (thao tác DUY NHẤT có tiến trình byte
+   * MẠNG thật, xem `ingest-rpc-trait::UploadProgress`), hoặc % media đã
+   * remux/re-encode ở `remuxing`/`reencoding` (Giai đoạn 1, `pipelineProgress`
+   * — tiến trình cục bộ, KHÔNG phải byte mạng, xem doc comment `queue-store.ts`). */
   protected queueItemProgressPercent(item: UploadQueueItem): number {
+    if (item.stage === 'remuxing' || item.stage === 'reencoding') {
+      return item.pipelineProgress ? Math.round(item.pipelineProgress.percent) : 0;
+    }
     if (!item.progress || item.progress.totalBytes <= 0) {
       return 0;
     }
     return Math.round((item.progress.bytesSent / item.progress.totalBytes) * 100);
   }
 
-  /** Chỉ `uploading_video` có số byte thật để hiện `mode="determinate"` —
-   * mọi stage cục bộ khác (remux/re-encode/thumbnail/rút phụ đề/upload phụ
-   * đề) VÀ lúc đang chờ `FLOOD_WAIT` đều `"indeterminate"` (vòng xoay không
-   * số, không giả vờ biết % khi không đo được). */
+  /** `uploading_video` (byte mạng thật) VÀ `remuxing`/`reencoding` (tick %
+   * cục bộ, Giai đoạn 1) có số thật để hiện `mode="determinate"` — mọi stage
+   * khác (thumbnail/rút phụ đề/upload phụ đề) VÀ lúc đang chờ `FLOOD_WAIT`
+   * đều `"indeterminate"` (vòng xoay không số, không giả vờ biết % khi không
+   * đo được). */
   protected queueItemProgressMode(item: UploadQueueItem): 'determinate' | 'indeterminate' {
     // Chỉ chuyển "determinate" sau khi ĐÃ có ít nhất một mẫu tiến trình thật
-    // — chuyển ngay khi bước vào `uploading_video` (trước khi sự kiện
-    // `"upload-progress"` đầu tiên tới) sẽ hiện `value=0`, tức một vòng
-    // TRỐNG hoàn toàn (stroke-dashoffset ở % 0 = không có gì để vẽ) — phát
-    // hiện thật (user report): "upload không thấy spinner" trong khoảnh khắc
-    // đó, dễ hiểu nhầm là spinner hỏng. Giữ "indeterminate" (vẫn xoay, thấy
-    // rõ có việc đang chạy) cho tới khi có số byte thật để hiện.
-    const hasRealProgress = item.stage === 'uploading_video' && !!item.progress && item.progress.totalBytes > 0;
+    // — chuyển ngay khi bước vào stage (trước khi sự kiện đầu tiên tới) sẽ
+    // hiện `value=0`, tức một vòng TRỐNG hoàn toàn (stroke-dashoffset ở % 0 =
+    // không có gì để vẽ) — phát hiện thật (user report, `uploading_video`):
+    // "upload không thấy spinner" trong khoảnh khắc đó, dễ hiểu nhầm là
+    // spinner hỏng. Giữ "indeterminate" (vẫn xoay, thấy rõ có việc đang
+    // chạy) cho tới khi có số thật để hiện — áp dụng cùng logic cho
+    // remuxing/reencoding.
+    const hasRealProgress =
+      (item.stage === 'uploading_video' && !!item.progress && item.progress.totalBytes > 0) ||
+      ((item.stage === 'remuxing' || item.stage === 'reencoding') && !!item.pipelineProgress && item.pipelineProgress.percent > 0);
     return hasRealProgress && item.floodWaitSeconds === undefined ? 'determinate' : 'indeterminate';
   }
 
   /** Số hiện GIỮA vòng spinner (tận dụng avatar làm luôn chỗ hiện số, theo
    * yêu cầu user) — số giây còn lại nếu đang `FLOOD_WAIT` (ưu tiên hiện cái
-   * này vì nó QUAN TRỌNG hơn % byte), % byte nếu đang `uploading_video`,
-   * không có gì (`null`) ở các stage khác — vòng spinner vẫn xoay
-   * (indeterminate) nhưng không có số nào đáng tin để hiện. */
+   * này vì nó QUAN TRỌNG hơn % byte), % nếu đang `uploading_video`/
+   * `remuxing`/`reencoding`, không có gì (`null`) ở các stage khác — vòng
+   * spinner vẫn xoay (indeterminate) nhưng không có số nào đáng tin để hiện.
+   * Chỉ %, KHÔNG nhồi tốc độ/ETA/dung lượng dự phóng vào đây — vòng 32px chỉ
+   * đủ chỗ cho 1-3 ký tự, ba con số kia hiện riêng ở `pipelineProgressDetailText()`. */
   protected spinnerCenterText(item: UploadQueueItem): string | null {
     if (item.floodWaitSeconds !== undefined) {
       return String(item.floodWaitSeconds);
@@ -718,7 +770,30 @@ export class Workspace implements OnInit {
     if (item.stage === 'uploading_video' && item.progress && item.progress.totalBytes > 0) {
       return String(this.queueItemProgressPercent(item));
     }
+    if ((item.stage === 'remuxing' || item.stage === 'reencoding') && item.pipelineProgress) {
+      return String(this.queueItemProgressPercent(item));
+    }
     return null;
+  }
+
+  /** Chi tiết nối vào `uploadStageLabel()` (tốc độ x-realtime · ETA · dung
+   * lượng dự phóng) — chỉ render lúc `remuxing`/`reencoding` (Giai đoạn 1,
+   * docs/roadmap.md § Ingest). `null` cho `speedXRealtime` = "đang đo" (~20-30s
+   * đầu, không bịa ETA từ quá ít mẫu). */
+  private pipelineProgressDetailText(item: UploadQueueItem): string | null {
+    if (item.stage !== 'remuxing' && item.stage !== 'reencoding') {
+      return null;
+    }
+    const p = item.pipelineProgress;
+    if (!p) {
+      return null;
+    }
+    if (p.speedXRealtime === null) {
+      return 'đang đo tốc độ…';
+    }
+    const eta = p.etaSec !== null ? formatEtaShort(p.etaSec) : '…';
+    const size = p.projectedFinalBytes !== null ? formatBytesShort(p.projectedFinalBytes) : '…';
+    return `${p.speedXRealtime.toFixed(1)}x thật · còn ~${eta} · ~${size}`;
   }
 
   /** Huỷ lần upload video ĐANG chạy (SPIKE-10 M5: "huỷ dừng lưu lượng ≤ 3s")

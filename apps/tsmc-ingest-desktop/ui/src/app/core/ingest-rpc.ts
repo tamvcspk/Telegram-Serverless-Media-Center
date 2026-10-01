@@ -7,6 +7,7 @@ import type {
   IngestRpcErrorDto,
   LoginOutcomeDto,
   PinnedCatalogDto,
+  PipelineProgressDto,
   PipelineStageDto,
   PreparedUploadDto,
   ProbeResultDto,
@@ -310,6 +311,15 @@ export function onUploadProgress(handler: (payload: UploadProgressDto) => void):
  * nói đang ở stage nào"). */
 export function onPipelineStage(handler: (payload: PipelineStageDto) => void): Promise<UnlistenFn> {
   return listen<PipelineStageDto>('pipeline-stage', (event) => handler(event.payload));
+}
+
+/** Lắng nghe sự kiện `"pipeline-progress"` (Giai đoạn 1, docs/roadmap.md §
+ * Ingest) — %/tốc độ/ETA/dung lượng dự phóng trong lúc `remuxing`/`reencoding`,
+ * bắn nhiều lần trong MỘT lần gọi `prepareUpload()` (throttle ~250ms phía
+ * Rust). Trả về hàm huỷ đăng ký — gọi trong `DestroyRef.onDestroy()`, cùng
+ * cách `onUploadProgress()`/`onPipelineStage()` đã làm. */
+export function onPipelineProgress(handler: (payload: PipelineProgressDto) => void): Promise<UnlistenFn> {
+  return listen<PipelineProgressDto>('pipeline-progress', (event) => handler(event.payload));
 }
 
 /** `invoke()` reject bằng đúng giá trị `IngestRpcErrorDto` đã serialize khi

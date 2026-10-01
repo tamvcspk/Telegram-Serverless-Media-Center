@@ -36,6 +36,10 @@ export interface UploadQueueItem {
   durationSec?: number;
   stage: UploadStage;
   progress?: { bytesSent: number; totalBytes: number };
+  /** Tiến trình remux/re-encode cục bộ (Giai đoạn 1, docs/roadmap.md §
+   * Ingest) — TÁCH khỏi `progress` (byte MẠNG upload) vì ý nghĩa khác hẳn.
+   * `null` cho `speedXRealtime`/`etaSec` = "đang đo" (~20-30s đầu). */
+  pipelineProgress?: { percent: number; speedXRealtime: number | null; etaSec: number | null; projectedFinalBytes: number | null };
   error?: string;
   /** Đếm ngược `FLOOD_WAIT` (giây còn lại) — ĐỘC LẬP với `stage` (mockup A.5). */
   floodWaitSeconds?: number;

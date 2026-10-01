@@ -765,3 +765,31 @@ Liên quan: [ADR-0017 § addendum 2026-09-19, Giai đoạn 0](./adr/0017-grammer
 
 - Dialog tiền kiểm hiện cho file thực ra vừa trần sau remux (dự đoán theo dung lượng file nguồn là cận trên thô — file có nhiều track audio/phụ đề bị bỏ khi remux nhẹ hơn nguồn) → bỏ tick để thử nguyên file; nếu gặp thường xuyên, Giai đoạn 2 (ước tính chính xác) là chỗ sửa, không phải công thức `planSizeCap()`.
 - Crash tiến trình (`STATUS_ACCESS_VIOLATION`) VẪN xảy ra với một file audio lạ: chạy `check_audio_channels` trên đúng file đó để biết layout/số kênh nguồn; chốt chặn `ensure_frame_matches_encoder()` giờ trả lỗi thường thay vì sập, nên nếu vẫn sập thì lỗi nằm ở chỗ khác.
+
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — Giai đoạn 1: progress %/tốc độ/ETA/dung lượng dự phóng + cancel cho `remux()`/`reencode_to_mp4()` (2026-09-29)
+
+Liên quan: [ADR-0017 § addendum 2026-09-29, Giai đoạn 1](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-29-giai-đoạn-1-progress-tốc-độetadung-lượng-dự-phóng--cancel-cho-remuxreencode_to_mp4), [docs/roadmap.md § Ingest](./roadmap.md#ingest).
+
+**KHÔNG chạy hộ bằng agent/Claude** — CLAUDE.md: "Không chạy đăng nhập MTProto hộ người dùng". Admin tự chạy trong `apps/tsmc-ingest-desktop/` (`cargo tauri dev`). Riêng bước "Chuẩn bị" đầu tiên (ví dụ `check_progress_and_cancel`) KHÔNG đụng MTProto — chỉ cần một file video thật trên máy, agent bị chặn chạy được vì máy dev hiện tại không còn fixture (`tools/spike-09/fixtures/` đã xoá), không phải vì luật MTProto.
+
+### Chuẩn bị
+
+- [x] `cargo build`/`cargo clippy --workspace -- -D warnings` (cả `ingest-ffmpeg` lẫn `tsmc-ingest-desktop`) sạch — verify 2026-09-29.
+- [x] `ng build`/`npm run lint` sạch — verify 2026-09-29.
+- [ ] `cargo run --release --example check_progress_and_cancel -p ingest-ffmpeg -- <input> <out.mp4> 0 reencode` trên một file thật (khuyến nghị Hạng D, đủ dài để thấy nhiều tick) → in ra nhiều dòng `t=... elapsed=.../...s bytes_written=...` cách nhau ~250ms, `result = Ok(())` cuối cùng. Lặp lại với `remux` ở tham số cuối để xem cadence khác biệt (nhanh hơn hẳn, ít tick hơn).
+- [ ] Cùng lệnh với `cancel_after_ms` > 0 (vd `5000`) → in `>>> gọi cancel() sau 5000ms`, `result = Err(Cancelled)` ngay sau đó (không treo, không segfault), file output dở dang vẫn nằm trên đĩa (không dọn tự động — đây là ví dụ chạy tay, không phải qua Tauri).
+
+### Các bước
+
+- [ ] Kéo một file Hạng D thật vào workspace, bấm Upload → lúc stage `reencoding`, dòng chi tiết dưới tên file hiện "đang đo tốc độ…" trong ~20-30s đầu, sau đó chuyển sang dạng "N.Nx thật · còn ~M:SS · ~NNN MB", số liệu tăng/giảm hợp lý theo thời gian thực (không đứng yên, không nhảy vô lý).
+- [ ] % trên `mat-progress-spinner` (vòng quanh icon) tăng dần khớp % trong dòng chi tiết, không đứng yên ở 0% rồi nhảy thẳng 100%.
+- [ ] Nút Huỷ xuất hiện đúng lúc `remuxing`/`reencoding` (trước đây chỉ xuất hiện lúc `uploading_video`) — bấm Huỷ giữa chừng re-encode → item chuyển "Lỗi", `errorMessage` hiện "Đã huỷ thao tác." (đúng thông điệp đã dùng cho huỷ upload), batch tiếp tục với file kế tiếp (không dừng cả batch), file `.mp4` tạm dở dang bị dọn qua `cleanupTempDir()` như bình thường.
+- [ ] File Hạng A/B/C (`remuxing`, không phải `reencoding`) → do remux nhanh (~72x realtime), dòng chi tiết có thể chỉ thoáng qua "đang đo tốc độ…" rồi xong ngay — xác nhận không có lỗi console/crash dù stage này ngắn, không cần thấy đủ 3 con số thật (roadmap đã ghi nhận trước: "remux() nhanh tới mức progress bar gần như nhảy 0→100% ngay, lợi ích thấp").
+- [ ] Batch nhiều file liên tiếp, một số Hạng D một số A/B/C → correlation đúng theo `task_id` (dòng chi tiết/% không bao giờ lẫn giữa hai file đang ở hàng đợi cùng lúc — dù pipeline chạy tuần tự, kiểm tra không có dữ liệu "dính" từ file trước sang file sau lúc chuyển tiếp).
+- [ ] Cảnh báo sớm dung lượng dự phóng: thử một file Hạng D dự đoán sẽ vượt trần sau khi nén (nếu tình huống này còn xảy ra được sau Giai đoạn 0) → dung lượng dự phóng trong dòng chi tiết xuất hiện sớm (ngay sau khi qua ~10% tiến độ), không phải đợi tới lúc xong mới biết vượt trần.
+
+### Nếu có gì vỡ
+
+- Dòng chi tiết không bao giờ rời "đang đo tốc độ…" → kiểm `MEASURING_WINDOW` (`pipeline.rs`, 20s) có đúng đang so với `Instant` khởi tạo lúc bắt đầu `on_progress` hay bị reset nhầm mỗi tick; đối chiếu số tick nhận được qua DevTools console (`onPipelineProgress` payload) xem `speed_x_realtime` có về `null` liên tục không.
+- Huỷ không có tác dụng (item vẫn chạy tiếp tới xong) → kiểm `state.active_cancel` có đang giữ đúng `CancelHandle::Ffmpeg` cho `task_id` đang chạy không (log `cancel_upload` phía Rust), và cancel-check trong `drain_video()`/vòng packet `remux()` có nằm đúng vị trí đã ghi ở ADR-0017 addendum hay bị tối ưu hoá/xoá nhầm.
+- Segfault/treo lúc huỷ giữa chừng `reencode_to_mp4()` → so với kết quả `check_progress_and_cancel` chạy tay ở bước "Chuẩn bị" (không qua Tauri) — nếu ví dụ chạy tay cũng sập thì lỗi nằm ở `ingest-ffmpeg` (khoanh vùng cancel-check/`drain_video_encoder`), nếu chỉ sập qua app thì nghi ngờ đầu tiên là tầng Tauri (`spawn_blocking`/`AppHandle` lifetime).

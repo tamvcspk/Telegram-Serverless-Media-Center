@@ -16,7 +16,7 @@ use ingest_rpc_trait::{CancelFlag, IngestRpc, SubtitleUploadInput, VideoUploadIn
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::dto::{CurrentTaskDto, IngestRpcErrorDto, UploadProgressDto, UploadedRefDto};
-use crate::state::{AppState, ConnState};
+use crate::state::{AppState, CancelHandle, ConnState};
 use crate::tmdb::TMDB_IMAGE_BASE_LARGE;
 
 /// Trần upload thật (byte) của tài khoản đang đăng nhập — đọc lại field ĐÃ
@@ -61,7 +61,7 @@ pub async fn upload_video(
     caption: Option<String>,
 ) -> Result<UploadedRefDto, IngestRpcErrorDto> {
     let cancel = CancelFlag::new();
-    *state.active_cancel.lock().await = Some((task_id.clone(), cancel.clone()));
+    *state.active_cancel.lock().await = Some((task_id.clone(), CancelHandle::Rpc(cancel.clone())));
 
     let progress_task_id = task_id.clone();
     let progress_path = file_path.clone();

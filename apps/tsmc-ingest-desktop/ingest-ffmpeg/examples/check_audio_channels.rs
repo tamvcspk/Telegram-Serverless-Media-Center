@@ -16,11 +16,14 @@ fn main() {
 
     let remux_out = format!("{out_dir}/remux_aac.mp4");
     let reencode_out = format!("{out_dir}/reencode.mp4");
+    let duration_sec = ingest_ffmpeg::probe(input).expect("probe").duration_sec;
+    let cancel = ingest_ffmpeg::CancelFlag::new();
+    let on_progress = |p: ingest_ffmpeg::PipelineProgress| println!("  tick: {:.1}/{:.1}s, {} byte", p.elapsed_sec, p.duration_sec, p.bytes_written);
 
     println!("remux (Hạng C, audio -> AAC)...");
-    ingest_ffmpeg::remux(input, &remux_out, true).expect("remux");
+    ingest_ffmpeg::remux(input, &remux_out, true, duration_sec, &on_progress, &cancel).expect("remux");
     println!("reencode_to_mp4 (Hạng D)...");
-    ingest_ffmpeg::reencode_to_mp4(input, &reencode_out, None).expect("reencode");
+    ingest_ffmpeg::reencode_to_mp4(input, &reencode_out, None, duration_sec, &on_progress, &cancel).expect("reencode");
 
     println!("remux    : {} byte", std::fs::metadata(&remux_out).expect("stat remux").len());
     println!("reencode : {} byte", std::fs::metadata(&reencode_out).expect("stat reencode").len());

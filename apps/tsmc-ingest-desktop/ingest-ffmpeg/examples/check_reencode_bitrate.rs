@@ -14,11 +14,14 @@ fn main() {
 
     let default_out = format!("{out_dir}/default.mp4");
     let capped_out = format!("{out_dir}/capped.mp4");
+    let duration_sec = ingest_ffmpeg::probe(input).expect("probe").duration_sec;
+    let cancel = ingest_ffmpeg::CancelFlag::new();
+    let on_progress = |_: ingest_ffmpeg::PipelineProgress| {};
 
     println!("chạy None...");
-    ingest_ffmpeg::reencode_to_mp4(input, &default_out, None).expect("reencode None");
+    ingest_ffmpeg::reencode_to_mp4(input, &default_out, None, duration_sec, &on_progress, &cancel).expect("reencode None");
     println!("chạy Some({bps})...");
-    ingest_ffmpeg::reencode_to_mp4(input, &capped_out, Some(bps)).expect("reencode Some");
+    ingest_ffmpeg::reencode_to_mp4(input, &capped_out, Some(bps), duration_sec, &on_progress, &cancel).expect("reencode Some");
 
     let default_size = std::fs::metadata(&default_out).expect("stat default").len();
     let capped_size = std::fs::metadata(&capped_out).expect("stat capped").len();

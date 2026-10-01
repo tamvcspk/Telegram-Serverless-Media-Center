@@ -55,10 +55,14 @@
 //! `thumbnail.rs`, chỉ khác là dùng cho MỌI frame của cả video, không phải
 //! một frame duy nhất.
 
+use std::time::Instant;
+
 use ffmpeg_next::{self as ffmpeg, channel_layout::ChannelLayout, codec, encoder, filter, format, format::Pixel, frame, media::Type as MediaType, software::{resampling, scaling}, util::dictionary::Owned as Dictionary, Rational};
 
 use crate::audio_layout::{aac_target_layout, aformat_filter_spec, ensure_frame_matches_encoder};
 use crate::ensure_init;
+use crate::progress::{maybe_tick, CancelFlag, PipelineProgressSink};
+use crate::ProcessError;
 
 /// 4:2:0 (chroma nửa độ phân giải cả hai chiều) yêu cầu width/height CHẴN —
 /// làm tròn XUỐNG số chẵn gần nhất, không làm tròn LÊN (tránh vẽ thêm viền
@@ -78,7 +82,14 @@ fn round_down_even(value: u32) -> u32 {
 /// [SPIKE-11](../../../../docs/spikes/README.md#spike-11) (2026-09-19) đo
 /// thật xác nhận `h264_mf` tôn trọng `set_bit_rate()` — khác hẳn `preset`
 /// (AVOption riêng `libx264`, bị bỏ qua thầm lặng, xem doc comment đầu file).
-pub fn reencode_to_mp4(input_path: &str, output_path: &str, target_video_bitrate_bps: Option<u64>) -> Result<(), ffmpeg::Error> {
+pub fn reencode_to_mp4(
+    input_path: &str,
+    output_path: &str,
+    target_video_bitrate_bps: Option<u64>,
+    duration_sec: f64,
+    progress: PipelineProgressSink<'_>,
+    cancel: &CancelFlag,
+) -> Result<(), ProcessError> {
     ensure_init();
 
     let mut in_opts = Dictionary::new();
@@ -219,11 +230,13 @@ pub fn reencode_to_mp4(input_path: &str, output_path: &str, target_video_bitrate
     header_opts.set("movflags", "faststart");
     octx.write_header_with(header_opts)?;
 
+    let mut last_emit = Instant::now();
+
     for (stream, packet) in ictx.packets() {
         let in_index = stream.index();
         if in_index == video_in_index {
             video_decoder.send_packet(&packet)?;
-            drain_video(&mut video_decoder, &mut video_scaler, &mut video_encoder, &mut octx, video_ist_time_base, video_out_index, &mut last_video_dts)?;
+            drain_video(&mut video_decoder, &mut video_scaler, &mut video_encoder, &mut octx, video_ist_time_base, video_out_index, &mut last_video_dts, duration_sec, output_path, progress, cancel, &mut last_emit)?;
         } else if in_index == audio_in_index {
             let mut packet = packet;
             packet.rescale_ts(audio_ist_time_base, audio_dec_time_base);
@@ -234,7 +247,7 @@ pub fn reencode_to_mp4(input_path: &str, output_path: &str, target_video_bitrate
 
     // Flush video: decoder -> scaler -> encoder.
     video_decoder.send_eof()?;
-    drain_video(&mut video_decoder, &mut video_scaler, &mut video_encoder, &mut octx, video_ist_time_base, video_out_index, &mut last_video_dts)?;
+    drain_video(&mut video_decoder, &mut video_scaler, &mut video_encoder, &mut octx, video_ist_time_base, video_out_index, &mut last_video_dts, duration_sec, output_path, progress, cancel, &mut last_emit)?;
     video_encoder.send_eof()?;
     drain_video_encoder(&mut video_encoder, &mut octx, video_ist_time_base, video_out_index, &mut last_video_dts)?;
 
@@ -250,6 +263,7 @@ pub fn reencode_to_mp4(input_path: &str, output_path: &str, target_video_bitrate
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn drain_video(
     decoder: &mut codec::decoder::Video,
     scaler: &mut scaling::Context,
@@ -258,10 +272,24 @@ fn drain_video(
     ist_time_base: Rational,
     out_index: i32,
     last_dts: &mut Option<i64>,
-) -> Result<(), ffmpeg::Error> {
+    duration_sec: f64,
+    output_path: &str,
+    progress: PipelineProgressSink<'_>,
+    cancel: &CancelFlag,
+    last_emit: &mut Instant,
+) -> Result<(), ProcessError> {
     let mut decoded = frame::Video::empty();
     while decoder.receive_frame(&mut decoded).is_ok() {
+        // Check huỷ TRONG vòng receive_frame (không chỉ ở vòng packet ngoài)
+        // — lúc flush EOF, một lần gọi drain_video() có thể rút ra NHIỀU
+        // frame đã buffer trong decoder, check ở ngoài sẽ bỏ lỡ đúng lúc đó.
+        if cancel.is_cancelled() {
+            return Err(ProcessError::Cancelled);
+        }
         let ts = decoded.timestamp();
+        if let Some(ts) = ts {
+            maybe_tick(last_emit, ts as f64 * f64::from(ist_time_base), duration_sec, output_path, progress);
+        }
         // `scaler.run()` sinh frame MỚI (không giữ pts của frame nguồn) —
         // phải gán lại pts SAU khi scale, không phải trước.
         let mut scaled = frame::Video::empty();

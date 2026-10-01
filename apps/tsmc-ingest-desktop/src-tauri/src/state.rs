@@ -14,6 +14,28 @@ use ingest_rpc_trait::{CancelFlag, ResolvedChannel};
 
 use crate::dto::CurrentTaskDto;
 
+/// Bắc cầu một slot `active_cancel` cho HAI loại cờ huỷ khác nhau (upload
+/// MTProto và remux/reencode ffmpeg) — không đổi CHÍNH SÁCH "chỉ một slot"
+/// đã ghi ở doc comment field này (pipeline vẫn chạy tuần tự), chỉ đổi KIỂU
+/// đang giữ trong slot đó. `ingest_ffmpeg::CancelFlag` KHÔNG dùng lại
+/// `ingest_rpc_trait::CancelFlag` dù hình dạng giống hệt — `ingest-ffmpeg` cố
+/// ý không phụ thuộc `ingest-rpc-trait` (crate đó khai "hợp đồng RPC
+/// MTProto", ingest-ffmpeg không đụng MTProto/async) — xem doc comment
+/// `ingest-ffmpeg/src/progress.rs`.
+pub enum CancelHandle {
+    Rpc(CancelFlag),
+    Ffmpeg(ingest_ffmpeg::CancelFlag),
+}
+
+impl CancelHandle {
+    pub fn cancel(&self) {
+        match self {
+            Self::Rpc(f) => f.cancel(),
+            Self::Ffmpeg(f) => f.cancel(),
+        }
+    }
+}
+
 #[derive(Default)]
 pub enum ConnState {
     /// Chưa gọi `check_session()` lần nào trong phiên chạy app này.
@@ -58,7 +80,7 @@ pub struct AppState {
     /// giao ca sang file kế tiếp trong queue) thì no-op — tránh huỷ NHẦM file
     /// kế tiếp, một race có thật khi `cancel_upload()` cũ không nhận tham số.
     /// `None` khi không có upload video nào đang chạy.
-    pub active_cancel: tokio::sync::Mutex<Option<(String, CancelFlag)>>,
+    pub active_cancel: tokio::sync::Mutex<Option<(String, CancelHandle)>>,
     /// Key mã hoá `session.sqlite3` (ADR-0021) — cache trong tiến trình SAU
     /// LẦN ĐẦU `secret_store::load_or_generate_key()` thành công, để
     /// `check_session()` gọi nhiều lần trong CÙNG một tiến trình app không

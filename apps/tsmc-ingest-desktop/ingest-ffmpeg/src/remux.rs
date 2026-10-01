@@ -10,10 +10,14 @@
 //! quyết ở đây (ADR-0017 điều kiện bắt buộc #4 — crate này không chứa luật
 //! phân hạng).
 
+use std::time::Instant;
+
 use ffmpeg_next::{self as ffmpeg, channel_layout::ChannelLayout, codec, encoder, filter, format, frame, media::Type as MediaType, software::resampling, util::dictionary::Owned as Dictionary, Rational};
 
 use crate::audio_layout::{aac_target_layout, aformat_filter_spec, ensure_frame_matches_encoder};
 use crate::ensure_init;
+use crate::progress::{maybe_tick, CancelFlag, PipelineProgressSink};
+use crate::ProcessError;
 
 enum AudioSink {
     Copy {
@@ -50,7 +54,14 @@ enum AudioSink {
 
 /// `reencode_audio_to_aac = false` → audio stream-copy y như video (khớp Hạng
 /// A/B). `true` → decode → encode AAC qua filter graph (khớp Hạng C).
-pub fn remux(input_path: &str, output_path: &str, reencode_audio_to_aac: bool) -> Result<(), ffmpeg::Error> {
+pub fn remux(
+    input_path: &str,
+    output_path: &str,
+    reencode_audio_to_aac: bool,
+    duration_sec: f64,
+    progress: PipelineProgressSink<'_>,
+    cancel: &CancelFlag,
+) -> Result<(), ProcessError> {
     ensure_init();
 
     // +genpts: matroska demux thường để dts=None cho vài packet đầu của stream
@@ -186,11 +197,22 @@ pub fn remux(input_path: &str, output_path: &str, reencode_audio_to_aac: bool) -
     opts.set("movflags", "faststart");
     octx.write_header_with(opts)?;
 
+    let mut last_emit = Instant::now();
+
     for (stream, mut packet) in ictx.packets() {
+        if cancel.is_cancelled() {
+            return Err(ProcessError::Cancelled);
+        }
         let in_index = stream.index();
         let out_index = stream_mapping[in_index];
         if out_index < 0 {
             continue;
+        }
+        // Đọc dts/pts TRƯỚC khi hai nhánh bên dưới gọi `packet.rescale_ts()`
+        // (mutate ngay chính packet này) — đọc SAU sẽ ra timestamp đã bị
+        // rescale sang time_base đích thay vì time_base nguồn.
+        if let Some(ts) = packet.dts().or_else(|| packet.pts()) {
+            maybe_tick(&mut last_emit, ts as f64 * f64::from(ist_time_bases[in_index]), duration_sec, output_path, progress);
         }
         if in_index == video_in_index {
             let ost_tb = octx.stream(out_index as usize).unwrap().time_base();

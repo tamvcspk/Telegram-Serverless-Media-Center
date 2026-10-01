@@ -327,6 +327,25 @@ pub struct PipelineStageDto {
     pub stage: String,
 }
 
+/// Sự kiện tiến trình remux/re-encode — bắn qua `app.emit("pipeline-progress",
+/// ..)`, TÁCH KHỎI `"upload-progress"` (`bytes_sent`/`total_bytes` ở đó là
+/// byte MẠNG thật của một lần upload, ý nghĩa khác hẳn số giây/byte-đã-ghi
+/// cục bộ ở đây) và TÁCH KHỎI `"pipeline-stage"` (chỉ bắn một lần mỗi lần đổi
+/// stage, không có trường số nào). `speed_x_realtime`/`eta_sec` là `None`
+/// trong ~20-30s đầu ("đang đo" — chưa đủ mẫu cho một ước lượng tin được,
+/// roadmap: "không bịa ETA"). `projected_final_bytes` là `None` tới khi
+/// `percent` qua một ngưỡng nhỏ (đỡ nhiễu lúc vừa bắt đầu).
+#[derive(Debug, Clone, Serialize)]
+pub struct PipelineProgressDto {
+    pub task_id: String,
+    pub path: String,
+    pub stage: String,
+    pub percent: f64,
+    pub speed_x_realtime: Option<f64>,
+    pub eta_sec: Option<f64>,
+    pub projected_final_bytes: Option<u64>,
+}
+
 /// Tra cứu TMDB (ADR-0019) — `kind` do tầng gọi (Angular) quyết dựa trên
 /// `item.metadata.kind` ('episode' → `search/tv`, còn lại → `search/movie'),
 /// `tmdb.rs` không tự suy luận. Khớp union `'movie' | 'episode'` phía TS.
