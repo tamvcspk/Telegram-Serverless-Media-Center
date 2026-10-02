@@ -766,3 +766,31 @@ Liên quan: [ADR-0017 § addendum 2026-09-19, Giai đoạn 0](./adr/0017-grammer
 - Dialog tiền kiểm hiện cho file thực ra vừa trần sau remux (dự đoán theo dung lượng file nguồn là cận trên thô — file có nhiều track audio/phụ đề bị bỏ khi remux nhẹ hơn nguồn) → bỏ tick để thử nguyên file; nếu gặp thường xuyên, Giai đoạn 2 (ước tính chính xác) là chỗ sửa, không phải công thức `planSizeCap()`.
 - Crash tiến trình (`STATUS_ACCESS_VIOLATION`) VẪN xảy ra với một file audio lạ: chạy `check_audio_channels` trên đúng file đó để biết layout/số kênh nguồn; chốt chặn `ensure_frame_matches_encoder()` giờ trả lỗi thường thay vì sập, nên nếu vẫn sập thì lỗi nằm ở chỗ khác.
 
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — Giai đoạn 2: dialog tiền kiểm (2026-10-01)
+
+Liên quan: [ADR-0017 § addendum 2026-10-01, Giai đoạn 2](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-10-01-giai-đoạn-2-dialog-tiền-kiểm--dự-đoán-thẻ-nénchia-panel-nâng-cao), [docs/roadmap.md § Ingest](./roadmap.md#ingest).
+
+**KHÔNG chạy hộ bằng agent/Claude** — CLAUDE.md: "Không chạy đăng nhập MTProto hộ người dùng". Admin tự chạy trong `apps/tsmc-ingest-desktop/` (`cargo tauri dev`).
+
+> Dialog mới thay `SizeCapDialog`; các bước ở mục Giai đoạn 0 nhắc "dialog File vượt trần dung lượng" và "dialog Hạng D ghi chú nén thẳng" nay là `PreflightDialog` — Hạng D vượt trần không còn qua `GradeDDialog`.
+
+### Chuẩn bị
+
+- [x] `cargo check --workspace --examples`, `cargo test -p ingest-ffmpeg estimate`, `ng build`, `npm run lint`, `npm run test:libs` (344 test) sạch — 2026-10-01.
+- [ ] Ước tính chạy độc lập, không cần tài khoản: `cargo run --release --example check_estimate -p ingest-ffmpeg -- <video> [target_bps] [max_height]` — in 3 đoạn (dung lượng, media-giây, tường) + ngoại suy. So dung lượng ngoại suy với file nén thật cùng tham số (`check_reencode_bitrate`): lệch bao nhiêu %? (ghi lại để hiệu chỉnh khoảng 0.5x–1.5x).
+
+### Các bước
+
+- [ ] File vượt trần: Upload → hiện dialog "Tiền kiểm dung lượng" với đúng GB nguồn/trần, ba thẻ; thẻ "Chia phần" xám (khoá), nhãn "Gợi ý" ở thẻ đúng theo mức cần giảm (≤15% → Nén lại).
+- [ ] Batch trộn Hạng A/B/C + Hạng D đều vượt trần → CHỈ MỘT dialog tiền kiểm (không còn GradeD rồi SizeCap nối tiếp). Hạng D không vượt trần vẫn qua dialog Hạng D cũ.
+- [ ] "Ước tính chính xác": spinner "Đang encode thử…", xong hiện dung lượng "(đã đo)" + thời gian + tốc độ; nút "Dừng" dừng ngay không treo; đóng dialog giữa lúc đo không để tiến trình chạy ngầm (kiểm Task Manager); thư mục tạm `tsmc-ingest-desktop-estimate-*` được dọn.
+- [ ] Đổi slider/độ phân giải/audio sau khi đo → hiện "kết quả cũ không còn khớp", đo lại ra số mới.
+- [ ] Panel Nâng cao: mở → tắt app → mở lại → còn nhớ trạng thái (file `ui_prefs.json` ở app-data). Chế độ Tự động khởi tạo: file 1080p bitrate thấp được đề xuất hạ xuống 720p/576p; nút "Đặt lại về Tự động" khôi phục.
+- [ ] Nén với độ phân giải hạ (vd 720p) + audio 96 kbps → file ra đúng kích thước khung hình/âm thanh nghe được, dung lượng nằm dưới trần/slider; chạy tới upload xong.
+- [ ] Chỉ báo bits/pixel hợp lý (thấp → chữ đỏ); hình thật của bản nén ở mức "thấp" có lộ block không? (ghi lại để chỉnh `AUTO_MIN_BITS_PER_PIXEL` 0.06).
+- [ ] "Huỷ upload"/Esc → không file nào xử lý; bỏ qua một file → ở lại bảng metadata.
+
+### Nếu có gì vỡ
+
+- `estimate_reencode` ra dung lượng lệch xa thực tế (seek về keyframe xa, đoạn đại diện kém): ghi lại file + số liệu, chỉnh vị trí/độ dài đoạn ở `estimate.rs` (`SAMPLE_POSITIONS`/`SAMPLE_LEN_SEC`).
+- Crash khi nén có hạ độ phân giải: chạy `check_reencode_bitrate` với cùng `max_height`; rủi ro native FFI ở ADR-0013 § addendum 2026-09-03.

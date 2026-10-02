@@ -18,7 +18,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::dto::{CurrentTaskDto, IngestRpcErrorDto, PipelineProgressDto, PipelineStageDto, PreparedSubtitleDto, PreparedUploadDto, ProbeResultDto, RemuxModeDto, SubtitleTrackDto};
+use crate::dto::{CurrentTaskDto, EstimateSampleDto, IngestRpcErrorDto, PipelineProgressDto, PipelineStageDto, PreparedSubtitleDto, PreparedUploadDto, ProbeResultDto, RemuxModeDto, SubtitleTrackDto};
 use crate::state::{AppState, CancelHandle};
 
 /// 20-30s đầu chỉ hiện "đang đo" thay vì bịa một ETA từ quá ít mẫu (roadmap
@@ -74,8 +74,11 @@ pub async fn prepare_upload(
     input_path: String,
     mode: RemuxModeDto,
     subtitle_tracks: Vec<SubtitleTrackDto>,
-    target_video_bitrate: Option<u64>
+    target_video_bitrate: Option<u64>,
+    max_height: Option<u32>,
+    audio_bitrate: Option<u32>
 ) -> Result<PreparedUploadDto, IngestRpcErrorDto> {
+    let reencode_options = ingest_ffmpeg::ReencodeOptions { target_video_bitrate_bps: target_video_bitrate, max_height, audio_bitrate_bps: audio_bitrate, window: None };
     let cancel = ingest_ffmpeg::CancelFlag::new();
     *state.active_cancel.lock().await = Some((task_id.clone(), CancelHandle::Ffmpeg(cancel.clone())));
 
@@ -138,7 +141,7 @@ pub async fn prepare_upload(
         // đó, kể cả nhánh `ReencodeAll` (Hạng D) mới thêm — LẦN ĐẦU crate này gọi
         // `avcodec_send_frame()` cho VIDEO, cùng lớp rủi ro đã gặp thật ở audio
         // lúc SPIKE-09, xem doc comment `ingest-ffmpeg/src/reencode.rs`).
-        prepare_upload_blocking(&app, &blocking_task_id, &blocking_input_path, mode, &subtitle_tracks, target_video_bitrate, &on_progress, &cancel_for_blocking)
+        prepare_upload_blocking(&app, &blocking_task_id, &blocking_input_path, mode, &subtitle_tracks, &reencode_options, &on_progress, &cancel_for_blocking)
     })
     .await
     .map_err(|e| IngestRpcErrorDto::other(format!("tác vụ chuẩn bị upload panic: {e}")))?;
@@ -154,7 +157,7 @@ fn prepare_upload_blocking(
     input_path: &str,
     mode: RemuxModeDto,
     subtitle_tracks: &[SubtitleTrackDto],
-    target_video_bitrate: Option<u64>,
+    reencode_options: &ingest_ffmpeg::ReencodeOptions,
     on_progress: ingest_ffmpeg::PipelineProgressSink<'_>,
     cancel: &ingest_ffmpeg::CancelFlag
 ) -> Result<PreparedUploadDto, IngestRpcErrorDto> {
@@ -176,7 +179,7 @@ fn prepare_upload_blocking(
     match mode {
         RemuxModeDto::Copy => ingest_ffmpeg::remux(input_path, &remuxed_path_str, false, pre_probe.duration_sec, on_progress, cancel),
         RemuxModeDto::ReencodeAudio => ingest_ffmpeg::remux(input_path, &remuxed_path_str, true, pre_probe.duration_sec, on_progress, cancel),
-        RemuxModeDto::ReencodeAll => ingest_ffmpeg::reencode_to_mp4(input_path, &remuxed_path_str, target_video_bitrate, pre_probe.duration_sec, on_progress, cancel)
+        RemuxModeDto::ReencodeAll => ingest_ffmpeg::reencode_with_options(input_path, &remuxed_path_str, reencode_options, pre_probe.duration_sec, on_progress, cancel)
     }
     .map_err(|e| match e {
         ingest_ffmpeg::ProcessError::Cancelled => IngestRpcErrorDto::Cancelled,
@@ -225,4 +228,39 @@ fn prepare_upload_blocking(
 #[tauri::command]
 pub fn cleanup_temp_dir(dir_path: String) {
     let _ = std::fs::remove_dir_all(dir_path);
+}
+
+/// "Ước tính chính xác" của dialog tiền kiểm (Giai đoạn 2) — encode thử vài
+/// đoạn ngắn bằng ĐÚNG tham số sẽ dùng thật, trả số thô cho TS ngoại suy. Cùng
+/// `active_cancel` với `prepare_upload` nên nút Huỷ/`cancel_upload` dùng chung
+/// (dialog tiền kiểm chạy TRƯỚC batch nên hai việc không bao giờ trùng nhau).
+#[tauri::command]
+pub async fn estimate_reencode(
+    state: State<'_, AppState>,
+    task_id: String,
+    input_path: String,
+    target_video_bitrate: Option<u64>,
+    max_height: Option<u32>,
+    audio_bitrate: Option<u32>
+) -> Result<Vec<EstimateSampleDto>, IngestRpcErrorDto> {
+    let cancel = ingest_ffmpeg::CancelFlag::new();
+    *state.active_cancel.lock().await = Some((task_id, CancelHandle::Ffmpeg(cancel.clone())));
+
+    let options = ingest_ffmpeg::ReencodeOptions { target_video_bitrate_bps: target_video_bitrate, max_height, audio_bitrate_bps: audio_bitrate, window: None };
+    let result = tokio::task::spawn_blocking(move || {
+        let duration_sec = ingest_ffmpeg::probe(&input_path).map_err(|e| IngestRpcErrorDto::other(format!("probe trước ước tính lỗi: {e}")))?.duration_sec;
+        let work_dir = std::env::temp_dir().join(format!("tsmc-ingest-desktop-estimate-{}", unique_suffix()));
+        std::fs::create_dir_all(&work_dir).map_err(|e| IngestRpcErrorDto::other(e.to_string()))?;
+        let samples = ingest_ffmpeg::estimate_reencode(&input_path, &options, duration_sec, &work_dir, &cancel);
+        let _ = std::fs::remove_dir_all(&work_dir);
+        samples.map_err(|e| match e {
+            ingest_ffmpeg::ProcessError::Cancelled => IngestRpcErrorDto::Cancelled,
+            other => IngestRpcErrorDto::other(format!("encode thử lỗi: {other}"))
+        })
+    })
+    .await
+    .map_err(|e| IngestRpcErrorDto::other(format!("tác vụ ước tính panic: {e}")))?;
+
+    *state.active_cancel.lock().await = None;
+    result.map(|v| v.into_iter().map(EstimateSampleDto::from).collect())
 }

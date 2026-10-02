@@ -519,3 +519,25 @@ Hệ quả tầng Tauri: `AppState.active_cancel` (một slot duy nhất, `tokio
 - **Quyết định UI nhỏ đáng ghi lại:** tốc độ/ETA/dung lượng dự phóng KHÔNG thêm một `matListItemLine` thứ hai dưới `stage-line` như phác thảo ban đầu trong lúc lập kế hoạch — `cdk-virtual-scroll-viewport itemSize="64"` (template `workspace.html`) cố định khớp chiều cao "hai dòng" của MDC (title + ĐÚNG MỘT `matListItemLine`, ghi rõ trong `workspace.scss` dòng 140-143), thêm dòng thứ ba sẽ vỡ layout virtual-scroll (mọi hàng phải cùng chiều cao). Sửa bằng cách NỐI chi tiết vào cùng chuỗi `uploadStageLabel()` (`" · "` ngăn cách), `.stage-line` đã có `text-overflow: ellipsis` nên chuỗi dài tự cắt gọn, không tràn dòng.
 
 **Verify:** `cargo build`/`cargo clippy --workspace -- -D warnings` (cả `ingest-ffmpeg` lẫn `tsmc-ingest-desktop`) sạch, `ng build`/`npm run lint` sạch. Thêm ví dụ mới `ingest-ffmpeg/examples/check_progress_and_cancel.rs` (chạy tay, in tick + verify cancel trả lỗi nhanh không treo/segfault, theo đúng convention `check_*.rs` đã có) — **CHƯA chạy được**, máy dev hiện tại không còn file fixture video thật (`tools/spike-09/fixtures/` đã bị xoá ở slice "khai tử `tsmc-ingest` CLI" trước đó). CHƯA verify bằng file thật, cả ví dụ chạy tay lẫn qua `cargo tauri dev` + tài khoản thật. `[Cần kiểm chứng thiết bị thật]` — checklist ở [docs/pending-device-tests.md](../pending-device-tests.md).
+
+
+## Cập nhật sau khi Accepted (2026-10-01, Giai đoạn 2: dialog tiền kiểm — dự đoán, thẻ Nén/Chia, panel Nâng cao)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết
+> định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó —
+> quyết định gốc **vẫn đứng vững**.
+
+Thực hiện Giai đoạn 2 của [kế hoạch chuẩn hoá dung lượng](#cập-nhật-sau-khi-accepted-2026-09-19-kế-hoạch-chuẩn-hoá-dung-lượng-tiền-kiểm-chia-phần-độc-lập-chốt-sau-brainstorm). Không đổi `IngestRpc` (không thêm method MTProto); chỉ thêm Tauri command cục bộ.
+
+**Đã làm:**
+
+- **Một dialog tiền kiểm thay `SizeCapDialog`** (`PreflightDialog`): gom Hạng A/B/C vượt trần VÀ Hạng D vượt trần vào cùng một dialog (trước đây hai dialog nối tiếp). Hạng D KHÔNG vượt trần vẫn qua `GradeDDialog` như cũ. Mỗi file: ba thẻ Nén lại / Chia phần / Bỏ qua kèm dung lượng + thời gian dự kiến + chỉ báo chất lượng.
+- **Thẻ "Chia phần" hiện nhưng bị khoá** — cần Giai đoạn 3-4 (ADR item nhiều phần + ingest chia file). Gợi ý mặc định (`chooseDefaultStrategy()`, ngưỡng 15%) vẫn hiện làm nhãn "Gợi ý" để thấy hành vi sau này; lựa chọn mặc định tạm luôn là Nén lại.
+- **Dự đoán tức thì dạng khoảng** (`estimateReencodeRangeBytes()`): hệ số **0.5x–1.5x** quanh dung lượng theo bitrate mục tiêu. Hẹp hơn quan sát 0.3x–3x của SPIKE-11 có chủ đích, là điểm bắt đầu CHƯA có dữ liệu thật — chính vì khoảng này không chắc nên có nút "Ước tính chính xác".
+- **"Ước tính chính xác"** (`estimate_reencode`, `ingest-ffmpeg::estimate_reencode`): encode thử 3 đoạn ~8s ở 20/50/80% bằng đúng tham số sẽ dùng thật (video ngắn hơn 32s chỉ thử một đoạn từ đầu), trả số thô (byte, media-giây thật đọc lại bằng `probe`, thời gian tường); TS ngoại suy dung lượng + tốc độ + ETA (`estimateFromSamples()`, tốc độ = tổng media / tổng thời gian tường). Huỷ bằng `cancel_upload(task_id)` sẵn có; kết quả gắn với plan đã đo và tự coi là cũ khi user đổi tuỳ chọn.
+- **Panel Nâng cao** (collapsible, MỘT cờ chung cho cả dialog): slider kích thước mục tiêu (10%–100% trần), độ phân giải (thang 2160…360, chỉ mức thấp hơn nguồn), bitrate audio (96/128/160/192 kbps), chỉ báo bits/pixel. Giá trị khởi tạo = chế độ Tự động = Option D: kích thước = trần, độ phân giải = **cao nhất mà bits/pixel ≥ 0.06** (`chooseAutoResolution()`; ngưỡng THAM KHẢO, chưa hiệu chỉnh trên `h264_mf`). Trạng thái mở/đóng lưu ở app-data (`ui_prefs.json`, command `load_ui_prefs`/`save_ui_prefs`), không `localStorage`.
+- **Rust chỉ thực thi:** `reencode_with_options()` + `ReencodeOptions { target_video_bitrate_bps, max_height, audio_bitrate_bps, window }`; `reencode_to_mp4()` giữ nguyên chữ ký (bọc lại). `prepare_upload` nhận thêm `max_height`/`audio_bitrate`. `ProbeVideoStreamDto` thêm `fps` (từ `avg_frame_rate`). Công thức (bitrate, thang độ phân giải, làm tròn kích thước chẵn) ở `libs/core-ingest/src/reencode-plan.ts`; `scaled_dimensions()` (Rust) PHẢI khớp `scaledSize()` (TS) — đồng bộ bằng comment chéo.
+
+**Còn mở:** đo thật để hiệu chỉnh ba hằng số tạm (`REENCODE_DEFAULT_MAX_REDUCTION` 15%, `AUTO_MIN_BITS_PER_PIXEL` 0.06, khoảng 0.5x–1.5x); spike đo phân bổ CPU (decode/scale/encode) của Giai đoạn 1 vẫn chưa làm; thẻ Chia phần chờ Giai đoạn 3-4.
+
+**Verify:** `cargo check --workspace --examples`, 3 test Rust mới (`estimate::tests`), `ng build`, `npm run lint`, `npm run test:libs` (344 test, `reencode-plan.spec.ts` mới) sạch. CHƯA verify bằng file thật — `[Cần kiểm chứng thiết bị thật]`, checklist ở [docs/pending-device-tests.md](../pending-device-tests.md).

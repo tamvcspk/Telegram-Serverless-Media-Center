@@ -24,6 +24,32 @@ export { composeCaption } from './caption-hashtags';
 export { flattenMetadataTree, seasonGroupKey, seriesGroupKey } from './metadata-tree';
 export type { FlatMetadataRow } from './metadata-tree';
 
-export { computeTargetVideoBitrateBps, MIN_VIDEO_BITRATE_BPS, planSizeCap, REENCODE_AUDIO_BITRATE_BPS, type SizeCapPlan } from './size-normalize';
+export {
+  bitsPerPixel,
+  chooseDefaultStrategy,
+  computeTargetVideoBitrateBps,
+  MIN_VIDEO_BITRATE_BPS,
+  planSizeCap,
+  REENCODE_AUDIO_BITRATE_BPS,
+  REENCODE_DEFAULT_MAX_REDUCTION,
+  type SizeCapPlan,
+  type SizeCapStrategy
+} from './size-normalize';
+
+export {
+  AUDIO_BITRATE_CHOICES_BPS,
+  AUTO_MIN_BITS_PER_PIXEL,
+  chooseAutoResolution,
+  estimateFromSamples,
+  estimateReencodeRangeBytes,
+  qualityLevel,
+  reencodeQuality,
+  resolutionChoices,
+  scaledSize,
+  type EstimateSample,
+  type QualityLevel,
+  type ReencodeEstimate,
+  type ReencodePlan
+} from './reencode-plan';
 
 export { assignToSeries, findRepresentativeEpisode, listSeriesNames, suggestNextEpisode } from './series-registry';

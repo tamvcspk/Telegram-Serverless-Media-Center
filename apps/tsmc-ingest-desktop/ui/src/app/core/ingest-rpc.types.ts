@@ -51,6 +51,8 @@ export interface ProbeVideoStreamDto {
   codec: string;
   width: number;
   height: number;
+  /** Khung hình/giây trung bình; 0 nếu không rõ (đầu vào chỉ báo bits/pixel). */
+  fps: number;
 }
 
 export interface ProbeAudioStreamDto {
@@ -149,6 +151,20 @@ export interface PipelineProgressDto {
   speed_x_realtime: number | null;
   eta_sec: number | null;
   projected_final_bytes: number | null;
+}
+
+/** Khớp `EstimateSampleDto` — một đoạn encode thử của `estimateReencode()`.
+ * Cùng hình dạng `EstimateSample` (`@tsmc/core-ingest`, camelCase) — map ở
+ * `ingest-rpc.ts::estimateReencode()`. */
+export interface EstimateSampleDto {
+  out_bytes: number;
+  media_sec: number;
+  wall_sec: number;
+}
+
+/** Khớp `UiPrefsDto` — tuỳ chọn giao diện nhớ ở app-data (không `localStorage`). */
+export interface UiPrefsDto {
+  preflight_advanced_open: boolean;
 }
 
 /** Khớp `RemuxModeDto` — cách xử lý video ở `prepare_upload()`, suy từ hạng

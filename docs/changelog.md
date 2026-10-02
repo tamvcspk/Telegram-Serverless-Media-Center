@@ -4,6 +4,10 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-10-01 — GUI ingest desktop: Giai đoạn 2 — dialog tiền kiểm (dự đoán, ước tính chính xác, panel Nâng cao)
+
+`PreflightDialog` thay `SizeCapDialog`: một dialog cho mọi file vượt trần (Hạng A/B/C lẫn D), thẻ Nén lại/Chia phần (khoá tới Giai đoạn 3-4)/Bỏ qua, khoảng ước tính tức thì, nút "Ước tính chính xác" (Rust encode thử 3 đoạn ~8s, đo dung lượng + tốc độ), panel Nâng cao (kích thước/độ phân giải/audio + bits/pixel, chế độ Tự động = Option D, trạng thái mở/đóng lưu app-data). Code + build/lint/test sạch; CHƯA verify thiết bị thật. Chi tiết: [ADR-0017 § addendum 2026-10-01](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-10-01-giai-đoạn-2-dialog-tiền-kiểm--dự-đoán-thẻ-nénchia-panel-nâng-cao).
+
 ## 2026-10-01 — GUI ingest desktop: Giai đoạn 1 verify thiết bị thật — progress/cancel ✅
 
 Verify Giai đoạn 1 (code 2026-09-29) bằng file Hạng D thật: % tăng dần hợp lý, speed/ETA xuất hiện sau ~20-30s "đang đo", cancel dừng ngay không treo, cleanup tạm tự động. ✅ Tất cả bước checklist [docs/pending-device-tests.md](./pending-device-tests.md) ĐẠT — xoá section Giai đoạn 1 khỏi danh sách chờ. Chi tiết: [ADR-0017 § addendum 2026-09-29](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-29-giai-đoạn-1-progress-tốc-độetadung-lượng-dự-phóng--cancel-cho-remuxreencode_to_mp4).

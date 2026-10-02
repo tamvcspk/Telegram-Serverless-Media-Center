@@ -127,12 +127,38 @@ pub struct ProbeVideoStreamDto {
     pub codec: String,
     pub width: u32,
     pub height: u32,
+    /// Khung hình/giây trung bình, 0 nếu không rõ — đầu vào của chỉ báo bits/pixel.
+    pub fps: f64,
 }
 
 impl From<ProbeVideoStream> for ProbeVideoStreamDto {
     fn from(v: ProbeVideoStream) -> Self {
-        Self { codec: v.codec, width: v.width, height: v.height }
+        Self { codec: v.codec, width: v.width, height: v.height, fps: v.fps }
     }
+}
+
+/// Một đoạn encode thử của `estimate_reencode` — số thô, TS tự ngoại suy
+/// (`estimateFromSamples()` ở `@tsmc/core-ingest`).
+#[derive(Debug, Serialize)]
+pub struct EstimateSampleDto {
+    pub out_bytes: u64,
+    pub media_sec: f64,
+    pub wall_sec: f64,
+}
+
+impl From<ingest_ffmpeg::EstimateSample> for EstimateSampleDto {
+    fn from(s: ingest_ffmpeg::EstimateSample) -> Self {
+        Self { out_bytes: s.out_bytes, media_sec: s.media_sec, wall_sec: s.wall_sec }
+    }
+}
+
+/// Tuỳ chọn giao diện nhớ ở app-data (KHÔNG `localStorage` — tách theo origin,
+/// cùng lý do `SavedCredentialsDto`). Thiếu field = mặc định.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UiPrefsDto {
+    /// Panel "Nâng cao" của dialog tiền kiểm đang mở?
+    pub preflight_advanced_open: bool,
 }
 
 #[derive(Debug, Serialize)]

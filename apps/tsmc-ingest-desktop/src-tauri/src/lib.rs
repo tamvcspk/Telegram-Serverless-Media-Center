@@ -3,6 +3,7 @@ mod commands;
 mod dto;
 mod logs;
 mod pipeline;
+mod prefs;
 mod probe;
 mod secret_store;
 mod state;
@@ -73,6 +74,9 @@ pub fn run() {
             probe::list_dir_entries,
             pipeline::prepare_upload,
             pipeline::cleanup_temp_dir,
+            pipeline::estimate_reencode,
+            prefs::load_ui_prefs,
+            prefs::save_ui_prefs,
             upload::get_max_upload_bytes,
             upload::upload_video,
             upload::upload_subtitle,

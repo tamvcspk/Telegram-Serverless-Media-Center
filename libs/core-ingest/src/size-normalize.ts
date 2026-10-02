@@ -26,12 +26,12 @@ export const MIN_VIDEO_BITRATE_BPS = 100_000;
  * kẹp dưới bởi `MIN_VIDEO_BITRATE_BPS`. `durationSec <= 0` (probe không đọc
  * được) trả về sàn — không chia cho 0.
  */
-export function computeTargetVideoBitrateBps(maxUploadBytes: number, durationSec: number): number {
+export function computeTargetVideoBitrateBps(maxUploadBytes: number, durationSec: number, audioBitrateBps: number = REENCODE_AUDIO_BITRATE_BPS): number {
   if (!(durationSec > 0)) {
     return MIN_VIDEO_BITRATE_BPS;
   }
   const totalBudgetBps = (maxUploadBytes * SIZE_SAFETY_MARGIN * 8) / durationSec;
-  const videoBudgetBps = totalBudgetBps * (1 - MUX_OVERHEAD_FRACTION) - REENCODE_AUDIO_BITRATE_BPS;
+  const videoBudgetBps = totalBudgetBps * (1 - MUX_OVERHEAD_FRACTION) - audioBitrateBps;
   return Math.max(Math.floor(videoBudgetBps), MIN_VIDEO_BITRATE_BPS);
 }
 
@@ -64,4 +64,50 @@ export function planSizeCap(input: { sourceBytes: number; durationSec: number; m
     return { exceedsCap: false };
   }
   return { exceedsCap: true, targetVideoBitrateBps: computeTargetVideoBitrateBps(maxUploadBytes, durationSec) };
+}
+
+/** Cần giảm tới mức này (so với dung lượng nguồn) thì nén lại vẫn gần như không
+ * mất chất lượng → mặc định "Nén lại"; vượt mức này mặc định "Chia phần".
+ * ĐIỂM BẮT ĐẦU, chưa có dữ liệu thật (ADR-0017 § addendum 2026-09-19 quyết định
+ * #1) — chỉnh sau khi có số liệu, có thể thay bằng chỉ báo bits/pixel. */
+export const REENCODE_DEFAULT_MAX_REDUCTION = 0.15;
+
+export type SizeCapStrategy = 'reencode' | 'split';
+
+/**
+ * Chiến lược MẶC ĐỊNH của bước tiền kiểm (user vẫn đổi được ở dialog).
+ * Hạng D luôn nén lại (không có stream-copy để chia). Hạng A/B/C: `r = trần ×
+ * 0.92 / dung lượng nguồn`; cần giảm ≤ 15% → nén lại, ngược lại → chia phần.
+ * Chưa vượt trần → `null` (không cần hỏi gì).
+ */
+export function chooseDefaultStrategy(input: {
+  sourceBytes: number;
+  maxUploadBytes: number;
+  /** `true` với Hạng D (video phải re-encode sẵn). */
+  mustReencode: boolean;
+}): SizeCapStrategy | null {
+  const { sourceBytes, maxUploadBytes, mustReencode } = input;
+  if (!(sourceBytes > maxUploadBytes)) {
+    return null;
+  }
+  if (mustReencode) {
+    return 'reencode';
+  }
+  const reduction = 1 - (maxUploadBytes * SIZE_SAFETY_MARGIN) / sourceBytes;
+  return reduction <= REENCODE_DEFAULT_MAX_REDUCTION ? 'reencode' : 'split';
+}
+
+/**
+ * Chỉ báo chất lượng: bits trên pixel trên frame (`bps / (w × h × fps)`). Tham
+ * số đầu vào hợp lệ mới tính, ngược lại `null`. Thang đọc: dưới ~0.05 dễ lộ
+ * block ở cảnh chuyển động, ~0.1 là H.264 xem ổn — NGƯỠNG THAM KHẢO chưa hiệu
+ * chỉnh trên `h264_mf`, dùng để hiển thị, không để chặn.
+ */
+export function bitsPerPixel(input: { bitrateBps: number; width: number; height: number; fps: number }): number | null {
+  const { bitrateBps, width, height, fps } = input;
+  const pixelsPerSec = width * height * fps;
+  if (!(bitrateBps > 0) || !(pixelsPerSec > 0)) {
+    return null;
+  }
+  return bitrateBps / pixelsPerSec;
 }

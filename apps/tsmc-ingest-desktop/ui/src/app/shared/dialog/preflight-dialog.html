@@ -1,0 +1,102 @@
+<h2 mat-dialog-title>Tiền kiểm dung lượng</h2>
+<mat-dialog-content>
+  <p>
+    {{ data.items.length }} file sẽ vượt trần {{ maxGb }} GB của tài khoản nếu upload nguyên — Telegram sẽ từ chối. Chọn cách xử lý cho từng file trước khi bắt đầu (batch sẽ chạy mà không hỏi thêm).
+  </p>
+  <div class="advanced-toggle">
+    <button mat-button type="button" (click)="toggleAdvanced()" [attr.aria-expanded]="advancedOpen()">
+      {{ advancedOpen() ? 'Ẩn tuỳ chọn nâng cao' : 'Tuỳ chọn nâng cao' }}
+    </button>
+  </div>
+
+  <ul class="preflight-list">
+    @for (item of data.items; track item.path) {
+      @let s = state(item.path);
+      <li class="preflight-item" [class.skipped]="s.strategy === 'skip'">
+        <div class="item-head">
+          <span class="item-name">{{ item.name }}</span>
+          <span class="item-meta">
+            {{ gb(item.sourceBytes) }} GB@if (item.height > 0) { · {{ item.width }}×{{ item.height }} }@if (item.mustReencode) { · Hạng D }
+          </span>
+        </div>
+
+        <div class="cards" role="group" [attr.aria-label]="'Cách xử lý ' + item.name">
+          <button type="button" class="card" [class.selected]="s.strategy === 'reencode'" [attr.aria-pressed]="s.strategy === 'reencode'" (click)="setStrategy(item.path, 'reencode')">
+            <span class="card-title">Nén lại @if (isSuggested(item, 'reencode')) { <span class="badge">Gợi ý</span> }</span>
+            <span class="card-line">{{ sizeText(item) }}</span>
+            <span class="card-line">{{ timeText(item) }}</span>
+            @let q = qualityOf(item);
+            @if (q) {
+              <span class="card-line quality" [class]="'quality-' + q.level">Chất lượng: {{ q.label }} ({{ q.bpp.toFixed(3) }} bit/pixel)</span>
+            }
+          </button>
+          <button type="button" class="card" disabled [attr.aria-disabled]="true">
+            <span class="card-title">Chia phần @if (isSuggested(item, 'split')) { <span class="badge">Gợi ý</span> }</span>
+            <span class="card-line">Vài giây, không mất chất lượng</span>
+            <span class="card-line">Chưa khả dụng — đang phát triển (Giai đoạn 3-4)</span>
+          </button>
+          <button type="button" class="card" [class.selected]="s.strategy === 'skip'" [attr.aria-pressed]="s.strategy === 'skip'" (click)="setStrategy(item.path, 'skip')">
+            <span class="card-title">Bỏ qua</span>
+            <span class="card-line">Để lại làm sau, vẫn nằm trong bảng metadata</span>
+          </button>
+        </div>
+
+        @if (s.strategy === 'reencode') {
+          <div class="estimate-row">
+            @if (s.estimatingTaskId !== null) {
+              <mat-spinner diameter="18" />
+              <span>Đang encode thử 3 đoạn ngắn…</span>
+              <button mat-button type="button" (click)="stopEstimate(item.path)">Dừng</button>
+            } @else {
+              <button mat-stroked-button type="button" [disabled]="anyEstimating() || item.durationSec <= 0" (click)="runEstimate(item)">
+                {{ validEstimate(item) ? 'Đo lại' : 'Ước tính chính xác' }}
+              </button>
+              @if (estimateStale(item)) {
+                <span class="hint">Kết quả cũ không còn khớp tuỳ chọn hiện tại — đo lại để cập nhật.</span>
+              }
+              @if (s.estimateError) {
+                <span class="hint error">{{ s.estimateError }}</span>
+              }
+            }
+          </div>
+
+          @if (advancedOpen()) {
+            <div class="advanced">
+              <div class="adv-row">
+                <span class="adv-label">Kích thước mục tiêu</span>
+                <mat-slider [min]="sliderMinBytes" [max]="data.maxUploadBytes" [step]="sliderStepBytes" class="adv-slider">
+                  <input matSliderThumb [value]="s.sizeBytes" (valueChange)="setSize(item.path, $event)" [attr.aria-label]="'Kích thước mục tiêu của ' + item.name" />
+                </mat-slider>
+                <span class="adv-value">{{ gb(s.sizeBytes) }} GB</span>
+              </div>
+              <div class="adv-row">
+                <span class="adv-label">Độ phân giải</span>
+                <mat-button-toggle-group [value]="s.maxHeight ?? 'source'" (change)="setResolution(item.path, $event.value)" hideSingleSelectionIndicator [attr.aria-label]="'Độ phân giải của ' + item.name">
+                  <mat-button-toggle value="source">Gốc{{ item.height > 0 ? ' (' + item.height + 'p)' : '' }}</mat-button-toggle>
+                  @for (h of resolutionOptions(item); track h) {
+                    <mat-button-toggle [value]="h">{{ h }}p</mat-button-toggle>
+                  }
+                </mat-button-toggle-group>
+              </div>
+              <div class="adv-row">
+                <span class="adv-label">Audio</span>
+                <mat-button-toggle-group [value]="s.audioBps" (change)="setAudio(item.path, $event.value)" hideSingleSelectionIndicator [attr.aria-label]="'Bitrate audio của ' + item.name">
+                  @for (a of audioChoices; track a) {
+                    <mat-button-toggle [value]="a">{{ kbps(a) }}</mat-button-toggle>
+                  }
+                </mat-button-toggle-group>
+              </div>
+              <button mat-button type="button" class="reset-auto" (click)="resetAuto(item)">Đặt lại về Tự động</button>
+            </div>
+          }
+        }
+      </li>
+    }
+  </ul>
+</mat-dialog-content>
+<mat-dialog-actions align="end">
+  <button mat-button type="button" [mat-dialog-close]="null">Huỷ upload</button>
+  <button mat-flat-button type="button" (click)="onConfirm()" [disabled]="anyEstimating()">
+    {{ selectedCount() > 0 ? 'Tiếp tục (' + selectedCount() + ' file nén lại)' : 'Tiếp tục' }}
+  </button>
+</mat-dialog-actions>

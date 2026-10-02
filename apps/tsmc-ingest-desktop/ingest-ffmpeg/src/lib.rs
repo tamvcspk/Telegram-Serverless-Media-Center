@@ -23,6 +23,7 @@
 //! không tin tưởng như mọi input khác (lỗi trả `Result`, không `unwrap()`).
 
 mod audio_layout;
+mod estimate;
 mod progress;
 mod reencode;
 mod remux;
@@ -30,7 +31,8 @@ mod subtitles;
 mod thumbnail;
 
 pub use progress::{CancelFlag, PipelineProgress, PipelineProgressSink};
-pub use reencode::reencode_to_mp4;
+pub use estimate::{estimate_reencode, EstimateSample};
+pub use reencode::{reencode_to_mp4, reencode_with_options, ReencodeOptions};
 pub use remux::remux;
 pub use subtitles::extract_subtitles;
 pub use thumbnail::extract_thumbnail;
@@ -82,6 +84,8 @@ pub struct ProbeVideoStream {
     pub codec: String,
     pub width: u32,
     pub height: u32,
+    /// Khung hình/giây trung bình (`avg_frame_rate`); 0 nếu container không khai.
+    pub fps: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -162,7 +166,9 @@ pub fn probe(path: &str) -> Result<ProbeResult, ProbeError> {
                     .and_then(|ctx| ctx.decoder().video())
                     .map(|dec| (dec.width(), dec.height()))
                     .unwrap_or((0, 0));
-                video = Some(ProbeVideoStream { codec: codec_name, width: dimensions.0, height: dimensions.1 });
+                let rate = stream.avg_frame_rate();
+                let fps = if rate.denominator() > 0 { f64::from(rate.numerator()) / f64::from(rate.denominator()) } else { 0.0 };
+                video = Some(ProbeVideoStream { codec: codec_name, width: dimensions.0, height: dimensions.1, fps });
             }
             MediaType::Audio => {
                 audio.push(ProbeAudioStream { codec: params.id().name().to_string(), lang, index });

@@ -1,9 +1,10 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { ProbeResult } from '@tsmc/core-ingest';
+import type { EstimateSample, ProbeResult, ReencodePlan } from '@tsmc/core-ingest';
 import type {
   ChannelVideoDocumentDto,
   CurrentTaskDto,
+  EstimateSampleDto,
   IngestRpcErrorDto,
   LoginOutcomeDto,
   PinnedCatalogDto,
@@ -19,6 +20,7 @@ import type {
   TmdbErrorDto,
   TmdbKind,
   TmdbSearchResultDto,
+  UiPrefsDto,
   UploadedRefDto,
   UploadProgressDto
 } from './ingest-rpc.types';
@@ -213,9 +215,42 @@ export function prepareUpload(
   inputPath: string,
   mode: RemuxModeDto,
   subtitleTracks: SubtitleTrackDto[],
-  targetVideoBitrateBps?: number
+  reencode?: ReencodePlan
 ): Promise<PreparedUploadDto> {
-  return invoke<PreparedUploadDto>('prepare_upload', { taskId, inputPath, mode, subtitleTracks, targetVideoBitrate: targetVideoBitrateBps ?? null });
+  return invoke<PreparedUploadDto>('prepare_upload', {
+    taskId,
+    inputPath,
+    mode,
+    subtitleTracks,
+    targetVideoBitrate: reencode?.targetVideoBitrateBps ?? null,
+    maxHeight: reencode?.maxHeight ?? null,
+    audioBitrate: reencode?.audioBitrateBps ?? null
+  });
+}
+
+/** "Ước tính chính xác" của dialog tiền kiểm (Giai đoạn 2) — Rust encode thử ~3
+ * đoạn 8s bằng ĐÚNG tham số `reencode` rồi trả số thô; ngoại suy dung lượng/ETA
+ * cả file là việc của `estimateFromSamples()` (`@tsmc/core-ingest`). Huỷ giữa
+ * chừng bằng `cancelUpload(taskId)` (cùng `active_cancel` với `prepareUpload`)
+ * → ném `{ kind: 'Cancelled' }`. */
+export async function estimateReencode(taskId: string, inputPath: string, reencode: ReencodePlan): Promise<EstimateSample[]> {
+  const samples = await invoke<EstimateSampleDto[]>('estimate_reencode', {
+    taskId,
+    inputPath,
+    targetVideoBitrate: reencode.targetVideoBitrateBps ?? null,
+    maxHeight: reencode.maxHeight ?? null,
+    audioBitrate: reencode.audioBitrateBps ?? null
+  });
+  return samples.map((s) => ({ outBytes: s.out_bytes, mediaSec: s.media_sec, wallSec: s.wall_sec }));
+}
+
+/** Tuỳ chọn giao diện nhớ ở app-data (Rust), không `localStorage` — xem `UiPrefsDto`. */
+export function loadUiPrefs(): Promise<UiPrefsDto> {
+  return invoke<UiPrefsDto>('load_ui_prefs');
+}
+
+export function saveUiPrefs(prefs: UiPrefsDto): Promise<void> {
+  return invoke<void>('save_ui_prefs', { prefs });
 }
 
 /** Dọn thư mục tạm của `prepareUpload()` sau khi upload xong (thành công hay

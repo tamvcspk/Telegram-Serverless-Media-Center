@@ -9,7 +9,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { Router } from '@angular/router';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import type { CompatRank } from '@tsmc/core-ingest';
+import type { CompatRank, ReencodePlan } from '@tsmc/core-ingest';
 import {
   assertChannelWritable,
   assignToSeries,
@@ -65,7 +65,7 @@ import type { PreparedUploadDto, RemuxModeDto } from '../core/ingest-rpc.types';
 import { QueueStore, type UploadQueueItem, type UploadStage } from '../core/queue-store';
 import { SelectedChannelStore } from '../core/selected-channel';
 import { DialogService } from '../shared/dialog/dialog.service';
-import type { SizeCapDialogItem } from '../shared/dialog/size-cap-dialog';
+import type { PreflightDialogItem } from '../shared/dialog/preflight-dialog';
 
 type FillDownField = 'title' | 'season' | 'year';
 
@@ -73,8 +73,9 @@ type FillDownField = 'title' | 'season' | 'year';
 interface UploadPlan {
   /** File SẼ chạy, đúng thứ tự bảng metadata. */
   runnable: QueueItem[];
-  /** `path` → bitrate video mục tiêu (bps) — chỉ file đã được đồng ý nén theo kế hoạch. */
-  reencodeBps: ReadonlyMap<string, number>;
+  /** `path` → tham số nén (bitrate mục tiêu/độ phân giải/audio) — chỉ file đã
+   * được đồng ý nén ở dialog tiền kiểm. */
+  reencodePlans: ReadonlyMap<string, ReencodePlan>;
   maxUploadBytes: number;
 }
 
@@ -90,7 +91,7 @@ function formatEtaShort(sec: number): string {
 
 /** `"420 MB"`/`"1.2 GB"` — dùng cho dung lượng dự phóng cuối ở
  * `pipelineProgressDetailText()`. Chỉ hai bậc (MB/GB, decimal 1000-based,
- * khớp `SizeCapDialog::gb()` đã dùng `1_000_000_000`) — không cần KB/TB cho
+ * khớp `PreflightDialog::gb()` đã dùng `1_000_000_000`) — không cần KB/TB cho
  * kích thước file video thật tế. */
 function formatBytesShort(bytes: number): string {
   if (bytes >= 1_000_000_000) {
@@ -378,7 +379,16 @@ export class Workspace implements OnInit {
     try {
       const dto = await probeMedia(path);
       const { rank, reasons } = classifyCompatRank(toProbeResult(dto));
-      const patch: Partial<QueueItem> = { status: 'ready', rank, reasons, durationSec: dto.duration_sec, sourceBytes: dto.file_size_bytes };
+      const patch: Partial<QueueItem> = {
+        status: 'ready',
+        rank,
+        reasons,
+        durationSec: dto.duration_sec,
+        sourceBytes: dto.file_size_bytes,
+        videoWidth: dto.video?.width,
+        videoHeight: dto.video?.height,
+        fps: dto.video?.fps
+      };
       if (rank === 'D') {
         patch.selected = false;
       }
@@ -833,7 +843,7 @@ export class Workspace implements OnInit {
     if (!plan || plan.runnable.length === 0) {
       return;
     }
-    const { runnable, reencodeBps, maxUploadBytes } = plan;
+    const { runnable, reencodePlans, maxUploadBytes } = plan;
 
     this.uploading.set(true);
     this.publishError.set(null);
@@ -871,7 +881,7 @@ export class Workspace implements OnInit {
       const taskId = queued.taskId;
       this.currentUploadTaskId.set(taskId);
       try {
-        const finalMetadata = await this.processItem(queued, maxUploadBytes, reencodeBps.get(queued.path));
+        const finalMetadata = await this.processItem(queued, maxUploadBytes, reencodePlans.get(queued.path));
         newItems.push(finalMetadata);
         this.updateQueueItem(taskId, { stage: 'done' });
       } catch (err) {
@@ -924,69 +934,56 @@ export class Workspace implements OnInit {
       return null;
     }
 
-    const sizePlans = new Map(
-      candidates.map((c) => [c.path, planSizeCap({ sourceBytes: c.sourceBytes ?? 0, durationSec: c.durationSec ?? 0, maxUploadBytes })] as const)
-    );
-    const toGb = (bytes: number | undefined): string => ((bytes ?? 0) / 1_000_000_000).toFixed(2);
-    const estimateMinOf = (c: QueueItem): number => Math.max(1, Math.ceil((c.durationSec ?? 0) / 60));
+    const overCap = (c: QueueItem): boolean =>
+      planSizeCap({ sourceBytes: c.sourceBytes ?? 0, durationSec: c.durationSec ?? 0, maxUploadBytes }).exceedsCap;
 
-    // Hạng D — re-encode video THẬT, đắt hơn hẳn remux. MỘT dialog tổng hợp
-    // cho CẢ BATCH, toggle riêng từng file (mặc định checked) — thay bản
-    // trước hỏi TỪNG FILE một dialog riêng (ADR-0018 § "Quyết định kèm
-    // theo": giữ quyền kiểm soát hạt nhân, không ép all-or-nothing). File bị
-    // bỏ tick vẫn ở lại Draft, không vào hàng đợi, batch vẫn chạy tiếp cho
-    // các file còn lại.
-    const gradeDCandidates = candidates.filter((c) => c.rank === 'D');
+    // Hạng D KHÔNG vượt trần — re-encode video THẬT, đắt hơn hẳn remux. MỘT
+    // dialog tổng hợp cho CẢ BATCH, toggle riêng từng file (mặc định checked)
+    // — thay bản trước hỏi TỪNG FILE một dialog riêng (ADR-0018 § "Quyết định
+    // kèm theo": giữ quyền kiểm soát hạt nhân, không ép all-or-nothing). File
+    // bị bỏ tick vẫn ở lại Draft, không vào hàng đợi, batch vẫn chạy tiếp cho
+    // các file còn lại. Hạng D VƯỢT trần không qua đây: đã nằm trong dialog
+    // tiền kiểm bên dưới (cùng việc hỏi "có nén lại không", kèm tham số nén).
+    const gradeDCandidates = candidates.filter((c) => c.rank === 'D' && !overCap(c));
     const confirmedGradeD =
       gradeDCandidates.length > 0
         ? await this.dialogService.confirmGradeD(
-            gradeDCandidates.map((c) => ({
-              path: c.path,
-              name: c.name,
-              estimateMin: estimateMinOf(c),
-              note: sizePlans.get(c.path)?.exceedsCap
-                ? `nặng ${toGb(c.sourceBytes)} GB, vượt trần ${toGb(maxUploadBytes)} GB — nén thẳng theo bitrate mục tiêu để vừa trần`
-                : undefined
-            }))
+            gradeDCandidates.map((c) => ({ path: c.path, name: c.name, estimateMin: Math.max(1, Math.ceil((c.durationSec ?? 0) / 60)) }))
           )
         : undefined;
-    const afterGradeD = candidates.filter((c) => c.rank !== 'D' || confirmedGradeD?.has(c.path));
+    const afterGradeD = candidates.filter((c) => !gradeDCandidates.includes(c) || confirmedGradeD?.has(c.path));
 
-    // `path` → bitrate video mục tiêu (bps) cho MỘT lần re-encode duy nhất.
-    // Hạng D vượt trần: user đã đồng ý re-encode ở dialog trên, chỉ gộp bitrate
-    // vào lần encode đó (trước đây chạy default rồi lại nén lần hai nếu vượt).
-    // Hạng A/B/C vượt trần: bắt buộc hỏi riêng (mockup A.2 mục 1 — re-encode
-    // video luôn phải hỏi, chúng vốn chỉ stream-copy).
-    const reencodeBps = new Map<string, number>();
-    const askSizeCap: SizeCapDialogItem[] = [];
-    for (const c of afterGradeD) {
-      const bps = sizePlans.get(c.path)?.targetVideoBitrateBps;
-      if (bps === undefined) {
-        continue;
-      }
-      if (c.rank === 'D') {
-        reencodeBps.set(c.path, bps);
-      } else {
-        askSizeCap.push({ path: c.path, name: c.name, sourceBytes: c.sourceBytes ?? 0, estimateMin: estimateMinOf(c) });
-      }
-    }
+    // Mọi file vượt trần (Hạng A/B/C lẫn D) → MỘT dialog tiền kiểm (Giai đoạn
+    // 2): thẻ Nén lại/Chia phần/Bỏ qua + panel Nâng cao. Hạng A/B/C vốn chỉ
+    // stream-copy nên nén lại luôn phải hỏi (mockup A.2 mục 1). `path` →
+    // tham số nén cho MỘT lần re-encode duy nhất (trước đây Hạng D chạy mặc
+    // định rồi nén lần hai nếu vượt).
+    const reencodePlans = new Map<string, ReencodePlan>();
+    const askPreflight: PreflightDialogItem[] = afterGradeD.filter(overCap).map((c) => ({
+      path: c.path,
+      name: c.name,
+      sourceBytes: c.sourceBytes ?? 0,
+      durationSec: c.durationSec ?? 0,
+      width: c.videoWidth ?? 0,
+      height: c.videoHeight ?? 0,
+      fps: c.fps ?? 0,
+      mustReencode: c.rank === 'D'
+    }));
 
     let skipped = new Set<string>();
-    if (askSizeCap.length > 0) {
-      const chosen = await this.dialogService.confirmSizeCap(askSizeCap, maxUploadBytes);
+    if (askPreflight.length > 0) {
+      const chosen = await this.dialogService.confirmPreflight(askPreflight, maxUploadBytes);
       if (chosen === null) {
         return null; // huỷ cả lượt — mọi file còn nguyên trong bảng metadata
       }
-      skipped = new Set(askSizeCap.filter((i) => !chosen.has(i.path)).map((i) => i.path));
-      for (const item of askSizeCap) {
-        const bps = sizePlans.get(item.path)?.targetVideoBitrateBps;
-        if (chosen.has(item.path) && bps !== undefined) {
-          reencodeBps.set(item.path, bps);
-        }
+      const chosenPaths = new Set(chosen.map((c) => c.path));
+      skipped = new Set(askPreflight.filter((i) => !chosenPaths.has(i.path)).map((i) => i.path));
+      for (const choice of chosen) {
+        reencodePlans.set(choice.path, choice.plan);
       }
     }
 
-    return { runnable: afterGradeD.filter((c) => !skipped.has(c.path)), reencodeBps, maxUploadBytes };
+    return { runnable: afterGradeD.filter((c) => !skipped.has(c.path)), reencodePlans, maxUploadBytes };
   }
 
   /** Một item hàng đợi: probe lại lấy danh sách track phụ đề TEXT (lọc bỏ
@@ -997,13 +994,13 @@ export class Workspace implements OnInit {
    * `startUpload()` đánh dấu đúng item đó Lỗi mà KHÔNG dừng các item còn lại
    * trong batch.
    *
-   * `plannedTargetBps` có giá trị = bước TIỀN KIỂM (`startUpload()`) đã dự đoán
-   * file vượt trần và đã được đồng ý nén: đi THẲNG `reencode_all` với bitrate
-   * đó, MỘT lần encode duy nhất (không remux thử trước). `undefined` = dự
+   * `plannedReencode` có giá trị = bước TIỀN KIỂM (`startUpload()`) đã dự đoán
+   * file vượt trần và đã được đồng ý nén: đi THẲNG `reencode_all` với tham số
+   * đó (bitrate/độ phân giải/audio), MỘT lần encode duy nhất (không remux thử trước). `undefined` = dự
    * đoán là vừa trần → đường thường theo hạng; nếu dung lượng THẬT sau đó vẫn
    * vượt thì rơi vào lưới an toàn bên dưới. */
-  private async processItem(item: UploadQueueItem, maxUploadBytes: number, plannedTargetBps?: number): Promise<CatalogItemV1> {
-    const mode: RemuxModeDto = plannedTargetBps !== undefined || item.rank === 'D' ? 'reencode_all' : item.rank === 'C' ? 'reencode_audio' : 'copy';
+  private async processItem(item: UploadQueueItem, maxUploadBytes: number, plannedReencode?: ReencodePlan): Promise<CatalogItemV1> {
+    const mode: RemuxModeDto = plannedReencode !== undefined || item.rank === 'D' ? 'reencode_all' : item.rank === 'C' ? 'reencode_audio' : 'copy';
 
     const probeDto = await probeMedia(item.path);
     const subtitleTracks = probeDto.subtitles
@@ -1011,7 +1008,7 @@ export class Workspace implements OnInit {
       .map((s) => ({ index: s.index, lang: s.lang }));
 
     this.updateQueueItem(item.taskId, { stage: mode === 'reencode_all' ? 'reencoding' : 'remuxing' });
-    let prepared: PreparedUploadDto = await prepareUpload(item.taskId, item.path, mode, subtitleTracks, plannedTargetBps);
+    let prepared: PreparedUploadDto = await prepareUpload(item.taskId, item.path, mode, subtitleTracks, plannedReencode);
 
     try {
       // Chuẩn hoá size — chặn TRƯỚC khi mở kết nối `uploadVideo()` (option A,
@@ -1019,7 +1016,7 @@ export class Workspace implements OnInit {
       // remux/re-encode đã tốn xong thời gian. Ném lỗi bên trong `try` (không
       // trước nó) để `finally` dưới vẫn dọn `temp_dir` như mọi lỗi khác.
       if (prepared.file_size_bytes > maxUploadBytes) {
-        if (plannedTargetBps !== undefined) {
+        if (plannedReencode !== undefined) {
           // Đã nén theo bitrate mục tiêu MỘT lần mà vẫn vượt — `h264_mf` có mức
           // sàn theo nội dung (không hạ dưới mức đó dù target thấp hơn, xem
           // ADR-0017 § addendum 2026-09-19 Option C). Không encode lặp lại.
@@ -1052,7 +1049,7 @@ export class Workspace implements OnInit {
         // (`finally` bên dưới chỉ dọn bản CUỐI CÙNG).
         void cleanupTempDir(prepared.temp_dir);
         this.updateQueueItem(item.taskId, { stage: 'reencoding' });
-        prepared = await prepareUpload(item.taskId, item.path, 'reencode_all', subtitleTracks, targetBps);
+        prepared = await prepareUpload(item.taskId, item.path, 'reencode_all', subtitleTracks, { targetVideoBitrateBps: targetBps });
 
         if (prepared.file_size_bytes > maxUploadBytes) {
           throw new Error(

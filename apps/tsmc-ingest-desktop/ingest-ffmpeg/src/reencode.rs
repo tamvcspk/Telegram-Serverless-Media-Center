@@ -90,12 +90,66 @@ pub fn reencode_to_mp4(
     progress: PipelineProgressSink<'_>,
     cancel: &CancelFlag,
 ) -> Result<(), ProcessError> {
+    let options = ReencodeOptions { target_video_bitrate_bps, ..ReencodeOptions::default() };
+    reencode_with_options(input_path, output_path, &options, duration_sec, progress, cancel)
+}
+
+/// Tham số một lần re-encode do tầng gọi quyết (Giai đoạn 2, dialog tiền kiểm
+/// — công thức ở `libs/core-ingest/src/reencode-plan.ts`, crate này chỉ thực
+/// thi). `Default` = hành vi Hạng D thường.
+#[derive(Debug, Clone, Default)]
+pub struct ReencodeOptions {
+    /// Xem doc `reencode_to_mp4()`.
+    pub target_video_bitrate_bps: Option<u64>,
+    /// Hạ độ phân giải về chiều cao này (giữ tỉ lệ, không phóng to).
+    pub max_height: Option<u32>,
+    /// Bitrate AAC; `None` = 160 kbps như trước.
+    pub audio_bitrate_bps: Option<u32>,
+    /// `(bắt đầu, độ dài)` giây — CHỈ encode một đoạn (encode thử để ước tính
+    /// dung lượng/tốc độ, `estimate_reencode()`). Seek về keyframe gần nhất
+    /// trước `start` nên đoạn thật có thể dài hơn một chút.
+    pub window: Option<(f64, f64)>,
+}
+
+/// Kích thước đầu ra khi hạ về `max_height` — PHẢI khớp `scaledSize()` ở
+/// `libs/core-ingest/src/reencode-plan.ts`: giữ tỉ lệ, cả hai chiều làm tròn
+/// XUỐNG số chẵn (yêu cầu của 4:2:0), không phóng to.
+fn scaled_dimensions(src_width: u32, src_height: u32, max_height: Option<u32>) -> (u32, u32) {
+    match max_height {
+        Some(max_h) if max_h > 0 && src_height > 0 && max_h < src_height => {
+            let width = (f64::from(src_width) * f64::from(max_h) / f64::from(src_height)).floor() as u32;
+            (round_down_even(width).max(2), round_down_even(max_h).max(2))
+        }
+        _ => (round_down_even(src_width).max(2), round_down_even(src_height).max(2)),
+    }
+}
+
+pub fn reencode_with_options(
+    input_path: &str,
+    output_path: &str,
+    options: &ReencodeOptions,
+    duration_sec: f64,
+    progress: PipelineProgressSink<'_>,
+    cancel: &CancelFlag,
+) -> Result<(), ProcessError> {
     ensure_init();
+    let target_video_bitrate_bps = options.target_video_bitrate_bps;
+    let audio_bitrate_bps = options.audio_bitrate_bps.unwrap_or(160_000);
 
     let mut in_opts = Dictionary::new();
     in_opts.set("fflags", "+genpts");
     let mut ictx = format::input_with_dictionary(input_path, in_opts)?;
     let mut octx = format::output(output_path)?;
+    // Encode thử một đoạn: seek về keyframe gần nhất TRƯỚC điểm bắt đầu (cùng
+    // cách `thumbnail.rs`), vòng packet bên dưới dừng khi vượt điểm kết thúc.
+    // Seek lỗi → bỏ qua (encode từ đầu file) — vẫn cho ra mẫu, chỉ kém đại diện.
+    let window_end = options.window.map(|(start, len)| start + len);
+    if let Some((start, _)) = options.window {
+        if start > 0.0 {
+            let target_ts = (start * f64::from(ffmpeg::ffi::AV_TIME_BASE)) as i64;
+            let _ = ictx.seek(target_ts, ..target_ts);
+        }
+    }
 
     let video_in_index = ictx.streams().best(MediaType::Video).ok_or(ffmpeg::Error::StreamNotFound)?.index();
     let audio_in_index = ictx.streams().best(MediaType::Audio).ok_or(ffmpeg::Error::StreamNotFound)?.index();
@@ -111,8 +165,7 @@ pub fn reencode_to_mp4(
     let mut video_decoder = video_dec_ctx.decoder().video()?;
 
     const ENC_PIXEL_FORMAT: Pixel = Pixel::YUV420P;
-    let enc_width = round_down_even(video_decoder.width()).max(2);
-    let enc_height = round_down_even(video_decoder.height()).max(2);
+    let (enc_width, enc_height) = scaled_dimensions(video_decoder.width(), video_decoder.height(), options.max_height);
     // Bắt buộc theo dõi dts cuối đã mux của VIDEO (khác chuẩn hoá format/pts
     // của audio ở trên) — phát hiện thật 2026-09-17, file AVI Xvid "packed
     // B-frames" (`ffmpeg` tự cảnh báo "non-standard and wasteful way to
@@ -182,7 +235,7 @@ pub fn reencode_to_mp4(
     audio_enc_ctx.set_rate(audio_decoder.rate() as i32);
     audio_enc_ctx.set_channel_layout(channel_layout);
     audio_enc_ctx.set_format(aac.formats().expect("aac formats").next().unwrap());
-    audio_enc_ctx.set_bit_rate(160_000);
+    audio_enc_ctx.set_bit_rate(audio_bitrate_bps as usize);
     audio_enc_ctx.set_time_base((1, audio_decoder.rate() as i32));
     aost.set_time_base((1, audio_decoder.rate() as i32));
 
@@ -234,6 +287,13 @@ pub fn reencode_to_mp4(
 
     for (stream, packet) in ictx.packets() {
         let in_index = stream.index();
+        if let Some(end) = window_end {
+            // Dừng khi packet VIDEO đã vượt điểm kết thúc đoạn thử; audio đi
+            // trước/sau video chỉ vài trăm ms do interleave nên không cần đợi.
+            if in_index == video_in_index && packet.pts().is_some_and(|pts| pts as f64 * f64::from(video_ist_time_base) >= end) {
+                break;
+            }
+        }
         if in_index == video_in_index {
             video_decoder.send_packet(&packet)?;
             drain_video(&mut video_decoder, &mut video_scaler, &mut video_encoder, &mut octx, video_ist_time_base, video_out_index, &mut last_video_dts, duration_sec, output_path, progress, cancel, &mut last_emit)?;
