@@ -36,6 +36,16 @@ fn sample_starts(duration_sec: f64) -> Vec<f64> {
     SAMPLE_POSITIONS.iter().map(|p| (duration_sec * p).min(duration_sec - SAMPLE_LEN_SEC).max(0.0)).collect()
 }
 
+/// Timestamp đầu ra KHÔNG được rebase về 0 (pts giữ nguyên theo nguồn) nên
+/// `probe().duration_sec` là điểm KẾT THÚC trên timeline gốc (≈ `start` + 8s),
+/// không phải độ dài đoạn — phát hiện thật 2026-10-02: đoạn 3 báo 4252s thay vì
+/// 8s, ước tính dung lượng nhỏ đi hàng trăm lần. Trừ `start` để ra độ dài thật;
+/// kết quả không hợp lệ (≤ 0, NaN) → rơi về `SAMPLE_LEN_SEC`.
+fn sample_media_sec(end_sec: f64, start: f64) -> f64 {
+    let len = end_sec - start;
+    if len.is_finite() && len > 0.0 { len } else { SAMPLE_LEN_SEC }
+}
+
 /// `options.window` bị ghi đè cho từng đoạn. File tạm ghi vào `work_dir` (tầng
 /// gọi tạo + dọn thư mục này) và được xoá ngay sau khi đo.
 pub fn estimate_reencode(input_path: &str, options: &ReencodeOptions, duration_sec: f64, work_dir: &Path, cancel: &CancelFlag) -> Result<Vec<EstimateSample>, ProcessError> {
@@ -54,8 +64,8 @@ pub fn estimate_reencode(input_path: &str, options: &ReencodeOptions, duration_s
         let wall_sec = began.elapsed().as_secs_f64();
         let measured = result.and_then(|()| {
             let out_bytes = std::fs::metadata(&out_path).map(|m| m.len()).map_err(|_| ProcessError::Ffmpeg(ffmpeg_next::Error::Unknown))?;
-            let media_sec = probe(&out_str).map(|p| p.duration_sec).unwrap_or(SAMPLE_LEN_SEC);
-            Ok(EstimateSample { out_bytes, media_sec: if media_sec > 0.0 { media_sec } else { SAMPLE_LEN_SEC }, wall_sec })
+            let end_sec = probe(&out_str).map(|p| p.duration_sec).unwrap_or(start + SAMPLE_LEN_SEC);
+            Ok(EstimateSample { out_bytes, media_sec: sample_media_sec(end_sec, start), wall_sec })
         });
         let _ = std::fs::remove_file(&out_path);
         samples.push(measured?);
@@ -65,7 +75,19 @@ pub fn estimate_reencode(input_path: &str, options: &ReencodeOptions, duration_s
 
 #[cfg(test)]
 mod tests {
-    use super::sample_starts;
+    use super::{sample_media_sec, sample_starts};
+
+    #[test]
+    fn media_sec_subtracts_window_start() {
+        assert!((sample_media_sec(1069.04, 1061.2) - 7.84).abs() < 1e-9);
+        assert!((sample_media_sec(8.1, 0.0) - 8.1).abs() < 1e-9);
+    }
+
+    #[test]
+    fn media_sec_invalid_falls_back_to_sample_len() {
+        assert_eq!(sample_media_sec(0.0, 1061.0), 8.0);
+        assert_eq!(sample_media_sec(f64::NAN, 0.0), 8.0);
+    }
 
     #[test]
     fn short_video_single_sample_from_start() {

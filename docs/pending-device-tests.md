@@ -777,7 +777,7 @@ Liên quan: [ADR-0017 § addendum 2026-10-01, Giai đoạn 2](./adr/0017-grammer
 ### Chuẩn bị
 
 - [x] `cargo check --workspace --examples`, `cargo test -p ingest-ffmpeg estimate`, `ng build`, `npm run lint`, `npm run test:libs` (344 test) sạch — 2026-10-01.
-- [ ] Ước tính chạy độc lập, không cần tài khoản: `cargo run --release --example check_estimate -p ingest-ffmpeg -- <video> [target_bps] [max_height]` — in 3 đoạn (dung lượng, media-giây, tường) + ngoại suy. So dung lượng ngoại suy với file nén thật cùng tham số (`check_reencode_bitrate`): lệch bao nhiêu %? (ghi lại để hiệu chỉnh khoảng 0.5x–1.5x).
+- [x] Ước tính chạy độc lập, không cần tài khoản: `cargo run --release --example check_estimate -p ingest-ffmpeg -- <video> [target_bps] [max_height]` — in 3 đoạn (dung lượng, media-giây, tường) + ngoại suy. So dung lượng ngoại suy với file nén thật cùng tham số (`check_reencode_bitrate`). ✅ 2026-10-04: lần chạy đầu (2026-10-02) lệch hàng trăm lần do lỗi đo `media_sec` (đã sửa); sau sửa, phim 1080p 5306s ở 1500 kbps: ước tính 1,162.8 MB, thực tế 1,093.3 MB (+6.4%). Số "552.86 MB" lúc đầu là lần nén KHÔNG có target. Chi tiết + ABR +0.2%…+3.2% trên 3 phép đo: [ADR-0017 § addendum 2026-10-04](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-10-04-verify-giai-đoạn-2-sửa-lỗi-đo-thời-lượng-mẫu-đặc-tính-rate-control-của-h264_mf). Khoảng 0.5x–1.5x chưa đổi.
 
 ### Các bước
 
@@ -787,7 +787,7 @@ Liên quan: [ADR-0017 § addendum 2026-10-01, Giai đoạn 2](./adr/0017-grammer
 - [ ] Đổi slider/độ phân giải/audio sau khi đo → hiện "kết quả cũ không còn khớp", đo lại ra số mới.
 - [ ] Panel Nâng cao: mở → tắt app → mở lại → còn nhớ trạng thái (file `ui_prefs.json` ở app-data). Chế độ Tự động khởi tạo: file 1080p bitrate thấp được đề xuất hạ xuống 720p/576p; nút "Đặt lại về Tự động" khôi phục.
 - [ ] Nén với độ phân giải hạ (vd 720p) + audio 96 kbps → file ra đúng kích thước khung hình/âm thanh nghe được, dung lượng nằm dưới trần/slider; chạy tới upload xong.
-- [ ] Chỉ báo bits/pixel hợp lý (thấp → chữ đỏ); hình thật của bản nén ở mức "thấp" có lộ block không? (ghi lại để chỉnh `AUTO_MIN_BITS_PER_PIXEL` 0.06).
+- [ ] Chỉ báo bits/pixel hợp lý (thấp → chữ đỏ); hình thật của bản nén ở mức "thấp" có lộ block không? (ghi lại để chỉnh `AUTO_MIN_BITS_PER_PIXEL` 0.06). Đã có số đo VMAF: dưới ~0.045 bits/pixel (1080p24) ABR của `h264_mf` sụp (VMAF <60) — xem ADR-0017 addendum 2026-10-04; vẫn cần xem bằng mắt.
 - [ ] "Huỷ upload"/Esc → không file nào xử lý; bỏ qua một file → ở lại bảng metadata.
 
 ### Nếu có gì vỡ

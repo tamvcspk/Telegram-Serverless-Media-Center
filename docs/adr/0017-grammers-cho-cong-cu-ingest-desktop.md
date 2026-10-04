@@ -541,3 +541,50 @@ Thực hiện Giai đoạn 2 của [kế hoạch chuẩn hoá dung lượng](#c�
 **Còn mở:** đo thật để hiệu chỉnh ba hằng số tạm (`REENCODE_DEFAULT_MAX_REDUCTION` 15%, `AUTO_MIN_BITS_PER_PIXEL` 0.06, khoảng 0.5x–1.5x); spike đo phân bổ CPU (decode/scale/encode) của Giai đoạn 1 vẫn chưa làm; thẻ Chia phần chờ Giai đoạn 3-4.
 
 **Verify:** `cargo check --workspace --examples`, 3 test Rust mới (`estimate::tests`), `ng build`, `npm run lint`, `npm run test:libs` (344 test, `reencode-plan.spec.ts` mới) sạch. CHƯA verify bằng file thật — `[Cần kiểm chứng thiết bị thật]`, checklist ở [docs/pending-device-tests.md](../pending-device-tests.md).
+
+## Cập nhật sau khi Accepted (2026-10-04, verify Giai đoạn 2: sửa lỗi đo thời lượng mẫu, đặc tính rate control của h264_mf)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết
+> định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó —
+> quyết định gốc **vẫn đứng vững**.
+
+**Nguồn:** chạy tay `check_estimate` + `check_progress_and_cancel` trên file thật (2026-10-02) báo ước tính 3.48 MB so với 552.86 MB ("lệch 158x"). Điều tra + đo bổ sung 2026-10-03/04 trên file thật cục bộ (không tài khoản Telegram). Chỉ SỬA một lỗi code (`estimate.rs`); mọi thứ còn lại bên dưới là SỐ LIỆU và hệ quả thiết kế, chưa đổi hành vi nào khác.
+
+### 1. Lỗi đo và độ chính xác của "Ước tính chính xác"
+
+- **Lỗi thật:** `estimate_reencode()` lấy `media_sec` của mẫu từ `probe(file_mẫu).duration_sec`. Timestamp đầu ra của mẫu KHÔNG được rebase về 0 (encoder giữ pts nguồn), nên `duration_sec` là điểm KẾT THÚC trên timeline gốc (`start` + 8s), không phải độ dài mẫu: ba đoạn báo 1069s/2660s/4252s thay vì ~8s, bytes/giây nhỏ đi hơn 300 lần. Sửa: `sample_media_sec(end, start)` = `duration_sec − start` (rơi về 8s nếu không hợp lệ), kèm test. Sau sửa mẫu đo 7.93–7.98s.
+- **"158x" là so sánh sai baseline:** 552.86 MB là lần nén KHÔNG đặt target bitrate (`None`, ~558 MB khi chạy lại). Cùng file, cùng tham số (1500 kbps): ước tính sau sửa **1,162.8 MB**, thực tế **1,093.3 MB** (nén `Some(1500000)`) — lệch **+6.4%** (cao hơn thực tế, hướng an toàn). Lần nén có target ra file **gấp 1.96×** bản mặc định vì file nguồn ~1504 kbps còn `h264_mf` mặc định chỉ ~840 kbps: đặt target ≥ bitrate mà encoder tự chọn thì nén lại không giảm gì.
+- **Độ chính xác ngoại suy 3 mẫu (20/50/80%, 8s) so với encode cả file, video thuần:**
+
+| Nguồn | Chế độ | Lệch |
+|---|---|---|
+| phim 1080p, 5300s | ABR 3 Mbps | **+0.2%** |
+| sitcom tập 1 / tập 2 (~22 phút) | ABR 1.5 Mbps | **+2.2% / +3.2%** |
+| phim 1080p | `quality` q=40 | **−21.8%** |
+| sitcom tập 1 / tập 2 | `quality` q=30 | −19.5% / −19.6% |
+| sitcom tập 1 / tập 2 | `quality` q=50 | −20.7% / −21.2% |
+
+  Thử độ nhạy (sitcom tập 1, q=30): 3 đoạn 8s −19.5%; 3 đoạn 20s −11.8%; 3 đoạn 40s −1.0%; 4 đoạn 8s ở vị trí khác −30.3%; 10 đoạn 8s đều −9.6%. Nên đó KHÔNG phải hệ số cố định mà là phương sai theo nội dung: bitrate của `quality` biến thiên mạnh theo cảnh, mẫu ít bỏ sót cảnh tốn bit (5/5 lần thấp hơn). ABR bị target chặn nên ổn định.
+
+### 2. Đặc tính rate control của `h264_mf` (build vcpkg, không có `libx264`)
+
+Đo bằng `check_mf_rate_control` (VMAF với `libvmaf` + PSNR, clip lossless 3–6s, 4 nội dung: sitcom, stock 1080p, stock 4K60 hạ 1080p, phim 1080p) và `check_quality_sampling`:
+
+- **`set_bit_rate()` mặc định ≡ `rate_control=cbr`:** byte-identical. `max_bit_rate` đặt một mình KHÔNG có tác dụng; kèm `pc_vbr` đổi nhẹ kích thước nhưng không chặn được đỉnh. **Không có chế độ cận trên dung lượng** (không có CRF có trần như `-crf -maxrate`).
+- **`pc_vbr` / `u_vbr`:** không hơn ABR ở cùng bitrate, kém dự đoán hơn (actual/target 0.75–1.17).
+- **ABR có MỨC SÀN và chất lượng sụp ở bitrate thấp (không đơn điệu):** phim 1080p đặt 600/1050/1500 kbps ra thực **1291/1377/1670 kbps** với VMAF **23.7/38.3/57.4**; stock 1080p đặt 600/1050 ra 1768/1840 kbps, VMAF 30.7/36.4 (đặt 1500 lại ra 1537 kbps, VMAF 82.3). Hạ target làm file TO HƠN mà hình TỆ HƠN (nguyên nhân chưa điều tra, nghi rate control thiếu ngân sách). Từ khoảng 2.3–3 Mbps (≈ 0.045–0.06 bits/pixel ở 1080p24) ABR mới ổn: phim 2250/3750/6000 kbps → VMAF 79.4/89.6/93.3. Trên ngưỡng đó ABR bám target (+1–5% ở đoạn 10s, +0.2–3.2% cả file).
+- **`rate_control=quality` + `quality=q` (0–100) hoạt động thật:** dung lượng và VMAF đơn điệu theo q, bitrate mượt (đỉnh 1s sát trung bình), **không có mức sàn cứng** (q=0 → 646 / 309 / 485 kbps trung bình cho phim / sitcom / stock; ABR không xuống được vùng này), cùng bitrate thì VMAF ≥ ABR và hơn rõ ở bitrate thấp (phim q=30 1672 kbps VMAF 70.7 so với ABR 1670 kbps VMAF 57.4; tiết kiệm ~10–25% bitrate cho cùng VMAF ở bitrate thấp-trung bình, ngang nhau từ ~2.3 Mbps). Nhưng dung lượng theo q phụ thuộc nội dung rất mạnh (q=50: 1.1–2.9 Mbps) và ngoại suy mẫu lệch như bảng trên. Chưa đo VMAF ở q<20.
+- **Tham chiếu x264 (số dev, ffmpeg CLI `libx264`; KHÔNG phải quyết định dùng libx264):** cùng bitrate ~1500 kbps x264 1-pass đạt VMAF 80.9 / 89.0 / 92.6 cho phim / stock 1080p / sitcom so với 57.4 / 82.3 / 88.6 của `h264_mf` ABR; x264 cần ~0.58–0.61× bitrate để bằng chất lượng đó (0.85× với nội dung dễ như stock 4K60). Từ ~3.7 Mbps chênh còn 2–6 VMAF. 2-pass hơn 1-pass thêm ~0.4–3 VMAF; lợi ích chính của 2-pass là khớp dung lượng (2-pass ra sát target ±2%, còn 1-pass có lúc thấp hơn target tới ~12%). Thêm `libx264` kéo theo giấy phép GPL, build vcpkg và FFI thống kê pass — cần ADR riêng nếu cân nhắc.
+
+### 3. Hệ quả cho thiết kế (CHƯA code — chờ quyết định)
+
+1. **Chế độ chính vẫn là ABR, hiệu chỉnh target bằng mẫu thử:** tính `r` = dung lượng mẫu / dự kiến theo target, đặt `target' = target / r`. Sai số ngoại suy ABR ≲3% cho phép giảm `SIZE_SAFETY_MARGIN` 0.92 xuống ~0.95–0.96 SAU khi đã hiệu chỉnh. Margin 0.92 hiện tại KHÔNG đủ khi chưa hiệu chỉnh: 0.92 × 1.099 (lệch đã đo, phim 1.5 Mbps) ≈ 1.011 × trần.
+2. **Cần chặn dưới bitrate theo độ phân giải.** `MIN_VIDEO_BITRATE_BPS` = 100 kbps (`size-normalize.ts`) thấp hơn mức sàn thật của `h264_mf` hàng chục lần. Khi bitrate cần thiết thấp hơn mức an toàn (khoảng 0.045–0.06 bits/pixel, khớp ngưỡng tham khảo `AUTO_MIN_BITS_PER_PIXEL` = 0.06) thì không nén ABR: hạ độ phân giải (Option D, đã có), chia phần (Giai đoạn 3-4), hoặc `quality` có margin. Số đo ở trên là bằng chứng đầu tiên cho `AUTO_MIN_BITS_PER_PIXEL`, nhưng chưa phải hiệu chỉnh bằng mắt người.
+3. **`quality` không dùng để ĐIỀU KHIỂN dung lượng bằng 3 mẫu.** Nếu dùng (bitrate rất thấp mà không muốn hạ độ phân giải): margin lớn (≥25–30%) hoặc vòng kín dựa vào dung lượng dự phóng ở ~10% tiến độ rồi chạy lại với q thấp hơn.
+4. Khoảng ước tính tức thì 0.5x–1.5x (`estimateReencodeRangeBytes()`) chưa có dữ liệu mới nào thay đổi; giữ nguyên.
+
+**Giới hạn của số đo:** một phim dài thật (WANZ-823) và hai tập sitcom giống nhau; clip VMAF dài 3–6s (một đoạn mỗi nguồn, `n_subsample=2`), ảnh hưởng khởi động của rate control có thể làm xấu thêm số `h264_mf` ở bitrate thấp; đo dung lượng là video thuần (container ~1–2% thêm vào cả hai phía). VMAF/PSNR đo bằng filter `libvmaf`/`psnr` của ffmpeg CLI: bắt buộc ép timestamp hai luồng theo chỉ số frame (`setpts=N/FRAME_RATE/TB`) — lần đầu để mặc định cho VMAF sai (x264 CRF 20 ra 65 thay vì 98.4, PSNR luma tụt ~13 dB dù chroma bình thường) vì timebase clip FFV1 (1/1000) lệch mp4 và framesync ghép sai frame.
+
+**Còn mở:** hiện thực hiệu chỉnh target + chặn dưới (xem [roadmap](../roadmap.md#ingest)); đo thêm 1–2 nội dung khác (hoạt hình, nhiễu cao) để xác nhận ABR ±3%; đo VMAF của `quality` ở q<20; quyết định có mở ADR cho `libx264` hay không.
+
+**Verify:** `cargo test -p ingest-ffmpeg estimate` (5 test, 2 test mới cho `sample_media_sec`) sạch; hai example mới `check_mf_rate_control.rs` (encode ma trận chế độ ra mp4, chấm điểm bằng script ngoài) và `check_quality_sampling.rs` (mẫu so với cả file, biến môi trường `SAMPLE_LEN`/`SAMPLE_POS`). `[Cần kiểm chứng thiết bị thật]` phần dialog tiền kiểm vẫn ở [docs/pending-device-tests.md](../pending-device-tests.md).
