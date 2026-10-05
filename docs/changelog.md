@@ -6,7 +6,7 @@
 
 ## 2026-10-05 — Dialog tiền kiểm: hiện thêm GiB cạnh dung lượng nguồn
 
-Windows báo 4.96 "GB" còn app báo 5.33 GB: Windows chia 1024³ (GiB) nhưng ghi nhãn GB, app dùng GB thập phân 10⁹ (cùng đơn vị với trần upload và mọi số khác trong dialog). Dialog giờ hiện "5.33 GB (4.96 GiB, như Windows hiện)" cho file nguồn; không đổi cách tính. Sau sửa lỗi trôi, user xác nhận dung lượng đo lại ổn định 3.80 GB; chặn cứng (vượt trần/dưới sàn) và cảnh báo nén vô nghĩa chưa kích hoạt được trên file thật — chỉ có test đơn vị.
+Windows báo 4.96 "GB" còn app báo 5.33 GB: Windows chia 1024³ (GiB) nhưng ghi nhãn GB, app dùng GB thập phân 10⁹ (cùng đơn vị với trần upload và mọi số khác trong dialog). Dialog giờ hiện "5.33 GB (4.96 GiB, như Windows hiện)" cho file nguồn; không đổi cách tính. Sau sửa lỗi trôi, user xác nhận dung lượng đo lại ổn định 3.80 GB; chặn cứng dưới sàn ABR đã được user kiểm chứng trên app thật; chặn khi vượt trần và cảnh báo nén vô nghĩa chưa kích hoạt được trên file thật — chỉ có test đơn vị.
 
 ## 2026-10-05 — Sửa lỗi hiệu chỉnh target trôi khi "Đo lại" (3.8 → 4.07 → 4.38 → 4.74 GB)
 

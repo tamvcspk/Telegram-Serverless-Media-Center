@@ -791,7 +791,7 @@ Liên quan: [ADR-0017 § addendum 2026-10-01, Giai đoạn 2](./adr/0017-grammer
 - [ ] "Huỷ upload"/Esc → không file nào xử lý; bỏ qua một file → ở lại bảng metadata.
 - [ ] (2b, 2026-10-05) Sau "Ước tính chính xác": target tự đổi, dung lượng hiện "dự kiến sau hiệu chỉnh"; nén thật xong dung lượng có nằm dưới trần, sát ~95% (không vượt)? "Đo lại" trên plan đã hiệu chỉnh không nới margin chồng.
 - [ ] (2b, sửa lỗi trôi) Bấm "Đo lại" 4–5 lần liên tiếp trên cùng file (vd 4.9 GB): dung lượng dự kiến phải ỔN ĐỊNH quanh ~95% trần, không tăng dần; nếu vượt trần thì nút Tiếp tục khoá.
-- [ ] (2b) File 1080p ép xuống target rất thấp: cảnh báo sàn + nút Tiếp tục khoá; "Hạ về Xp" mở khoá; không mức nào đạt thì chỉ còn "Bỏ qua".
+- [x] (2b) File 1080p ép xuống target rất thấp: cảnh báo sàn + nút Tiếp tục khoá; "Hạ về Xp" mở khoá; không mức nào đạt thì chỉ còn "Bỏ qua". — chặn cứng dưới sàn đã được user kiểm chứng trên app thật (2026-10-05); chưa thử riêng nhánh "không mức nào đạt".
 - [ ] (2b) Cảnh báo "nén lại gần như không giảm" xuất hiện đúng khi target ≈ bitrate nguồn, không hiện khi đã hạ độ phân giải.
 
 ### Nếu có gì vỡ
