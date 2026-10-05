@@ -197,7 +197,9 @@ pub fn reencode_with_options(
     video_enc_ctx.set_width(enc_width);
     video_enc_ctx.set_aspect_ratio(video_decoder.aspect_ratio());
     video_enc_ctx.set_format(ENC_PIXEL_FORMAT);
-    video_enc_ctx.set_frame_rate(video_decoder.frame_rate());
+    // WMV/VC-1: decoder không báo frame_rate (None) → h264_mf "could not set output type" (lỗi STAR-505/502, 2026-10-05); rơi về avg_frame_rate của stream.
+    let in_frame_rate = video_decoder.frame_rate().or_else(|| Some(ictx.stream(video_in_index).unwrap().avg_frame_rate()).filter(|r| r.numerator() > 0 && r.denominator() > 0));
+    video_enc_ctx.set_frame_rate(in_frame_rate);
     video_enc_ctx.set_time_base(video_ist_time_base);
     if global_header {
         video_enc_ctx.set_flags(codec::flag::Flags::GLOBAL_HEADER);

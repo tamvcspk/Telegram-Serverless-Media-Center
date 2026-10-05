@@ -29,6 +29,9 @@
             @if (q) {
               <span class="card-line quality" [class]="'quality-' + q.level">Chất lượng: {{ q.label }} ({{ q.bpp.toFixed(3) }} bit/pixel)</span>
             }
+            @if (belowFloor(item)) {
+              <span class="card-line quality quality-low">Bitrate dưới mức sàn của bộ nén — file có thể ra lớn hơn dự kiến và hình kém; nên hạ độ phân giải.</span>
+            }
           </button>
           <button type="button" class="card" disabled [attr.aria-disabled]="true">
             <span class="card-title">Chia phần @if (isSuggested(item, 'split')) { <span class="badge">Gợi ý</span> }</span>
@@ -51,6 +54,9 @@
               <button mat-stroked-button type="button" [disabled]="anyEstimating() || item.durationSec <= 0" (click)="runEstimate(item)">
                 {{ validEstimate(item) ? 'Đo lại' : 'Ước tính chính xác' }}
               </button>
+              @if (canCalibrate(item)) {
+                <button mat-button type="button" (click)="applyCalibration(item)">Hiệu chỉnh bitrate theo kết quả đo</button>
+              }
               @if (estimateStale(item)) {
                 <span class="hint">Kết quả cũ không còn khớp tuỳ chọn hiện tại — đo lại để cập nhật.</span>
               }

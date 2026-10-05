@@ -38,7 +38,11 @@ export {
 
 export {
   AUDIO_BITRATE_CHOICES_BPS,
+  ABR_FLOOR_BITS_PER_PIXEL,
   AUTO_MIN_BITS_PER_PIXEL,
+  calibrateTargetBps,
+  isBelowAbrFloor,
+  minAbrVideoBitrateBps,
   chooseAutoResolution,
   estimateFromSamples,
   estimateReencodeRangeBytes,

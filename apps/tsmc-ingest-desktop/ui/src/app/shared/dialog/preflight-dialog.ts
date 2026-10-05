@@ -6,11 +6,13 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSliderModule } from '@angular/material/slider';
 import {
   AUDIO_BITRATE_CHOICES_BPS,
+  calibrateTargetBps,
   chooseAutoResolution,
   chooseDefaultStrategy,
   computeTargetVideoBitrateBps,
   estimateFromSamples,
   estimateReencodeRangeBytes,
+  isBelowAbrFloor,
   qualityLevel,
   REENCODE_AUDIO_BITRATE_BPS,
   reencodeQuality,
@@ -64,7 +66,9 @@ interface ItemState {
   audioBps: number;
   /** Kết quả "ước tính chính xác" — gắn với plan đã dùng (`planKey`) để biết
    * khi nào hết hiệu lực vì user đổi tuỳ chọn. */
-  estimate: { planKey: string; value: ReencodeEstimate } | null;
+  estimate: { planKey: string; value: ReencodeEstimate; calibratedBps: number | null } | null;
+  /** Target đã hiệu chỉnh theo mẫu thử (ghi đè công thức từ `sizeBytes`) — xoá khi user đổi tuỳ chọn. */
+  targetOverrideBps: number | null;
   estimatingTaskId: string | null;
   estimateError: string | null;
 }
@@ -144,6 +148,7 @@ export class PreflightDialog implements OnInit {
       maxHeight: chooseAutoResolution({ width: item.width, height: item.height, fps: item.fps, videoBitrateBps: videoBps }),
       audioBps,
       estimate: null,
+      targetOverrideBps: null,
       estimatingTaskId: null,
       estimateError: null
     };
@@ -168,10 +173,34 @@ export class PreflightDialog implements OnInit {
   protected plan(item: PreflightDialogItem): ReencodePlan {
     const s = this.state(item.path);
     return {
-      targetVideoBitrateBps: computeTargetVideoBitrateBps(s.sizeBytes, item.durationSec, s.audioBps),
+      targetVideoBitrateBps: this.videoBps(item),
       maxHeight: s.maxHeight,
       audioBitrateBps: s.audioBps === REENCODE_AUDIO_BITRATE_BPS ? undefined : s.audioBps
     };
+  }
+
+  private videoBps(item: PreflightDialogItem): number {
+    const s = this.state(item.path);
+    return s.targetOverrideBps ?? computeTargetVideoBitrateBps(s.sizeBytes, item.durationSec, s.audioBps);
+  }
+
+  /** Target dưới mức sàn ABR của `h264_mf` → file ra to hơn dự kiến, hình sụp (ADR-0017 § addendum 2026-10-04). */
+  protected belowFloor(item: PreflightDialogItem): boolean {
+    return isBelowAbrFloor({ width: item.width, height: item.height, fps: item.fps, videoBitrateBps: this.videoBps(item), maxHeight: this.state(item.path).maxHeight });
+  }
+
+  /** Ước tính đã đo vượt kích thước mục tiêu và có target hiệu chỉnh khác đáng kể → cho áp dụng. */
+  protected canCalibrate(item: PreflightDialogItem): boolean {
+    const exact = this.validEstimate(item);
+    const cal = this.state(item.path).estimate?.calibratedBps ?? null;
+    return exact !== null && cal !== null && exact.estimatedBytes > this.state(item.path).sizeBytes && cal < this.videoBps(item) * 0.99;
+  }
+
+  protected applyCalibration(item: PreflightDialogItem): void {
+    const cal = this.state(item.path).estimate?.calibratedBps ?? null;
+    if (cal !== null) {
+      this.patch(item.path, { targetOverrideBps: cal });
+    }
   }
 
   protected resolutionOptions(item: PreflightDialogItem): number[] {
@@ -180,7 +209,7 @@ export class PreflightDialog implements OnInit {
 
   protected qualityOf(item: PreflightDialogItem): { bpp: number; level: QualityLevel; label: string } | null {
     const s = this.state(item.path);
-    const videoBps = computeTargetVideoBitrateBps(s.sizeBytes, item.durationSec, s.audioBps);
+    const videoBps = this.videoBps(item);
     const bpp = reencodeQuality({ width: item.width, height: item.height, fps: item.fps, videoBitrateBps: videoBps, maxHeight: s.maxHeight });
     const level = qualityLevel(bpp);
     return bpp === null || level === null ? null : { bpp, level, label: QUALITY_LABEL[level] };
@@ -224,20 +253,20 @@ export class PreflightDialog implements OnInit {
   }
 
   protected setSize(path: string, bytes: number): void {
-    this.patch(path, { sizeBytes: bytes });
+    this.patch(path, { sizeBytes: bytes, targetOverrideBps: null });
   }
 
   protected setResolution(path: string, value: number | 'source'): void {
-    this.patch(path, { maxHeight: value === 'source' ? undefined : value });
+    this.patch(path, { maxHeight: value === 'source' ? undefined : value, targetOverrideBps: null });
   }
 
   protected setAudio(path: string, bps: number): void {
-    this.patch(path, { audioBps: bps });
+    this.patch(path, { audioBps: bps, targetOverrideBps: null });
   }
 
   protected resetAuto(item: PreflightDialogItem): void {
     const auto = this.autoState(item);
-    this.patch(item.path, { sizeBytes: auto.sizeBytes, maxHeight: auto.maxHeight, audioBps: auto.audioBps });
+    this.patch(item.path, { sizeBytes: auto.sizeBytes, maxHeight: auto.maxHeight, audioBps: auto.audioBps, targetOverrideBps: null });
   }
 
   protected toggleAdvanced(): void {
@@ -253,7 +282,8 @@ export class PreflightDialog implements OnInit {
     try {
       const samples = await estimateReencode(taskId, item.path, plan);
       const value = estimateFromSamples(samples, item.durationSec);
-      this.patch(item.path, { estimate: value ? { planKey: JSON.stringify(plan), value } : null, estimateError: value ? null : 'Không đo được (file quá ngắn hoặc lỗi).' });
+      const calibratedBps = calibrateTargetBps({ targetVideoBitrateBps: plan.targetVideoBitrateBps ?? 0, audioBitrateBps: plan.audioBitrateBps, samples });
+      this.patch(item.path, { estimate: value ? { planKey: JSON.stringify(plan), value, calibratedBps } : null, estimateError: value ? null : 'Không đo được (file quá ngắn hoặc lỗi).' });
     } catch (err) {
       const e = toIngestRpcError(err);
       this.patch(item.path, { estimateError: e.kind === 'Cancelled' ? null : describeIngestError(e) });

@@ -101,6 +101,51 @@ export function estimateReencodeRangeBytes(input: { targetVideoBitrateBps: numbe
   };
 }
 
+/** Dưới ngưỡng bits/pixel này `h264_mf` ABR có MỨC SÀN: file ra TO HƠN target
+ * mà VMAF sụp (ADR-0017 § addendum 2026-10-04: phim 1080p đặt 600 kbps ra thực
+ * 1291 kbps, VMAF 23.7). Số đo đầu tiên, chưa phải hiệu chỉnh bằng mắt người. */
+export const ABR_FLOOR_BITS_PER_PIXEL = 0.045;
+
+/** Bitrate video tối thiểu mà ABR còn bám target ở độ phân giải đầu ra này. 0 nếu thiếu số liệu. */
+export function minAbrVideoBitrateBps(input: { width: number; height: number; fps: number; maxHeight?: number }): number {
+  const size = scaledSize(input.width, input.height, input.maxHeight);
+  const pixelsPerSec = size.width * size.height * input.fps;
+  return pixelsPerSec > 0 ? Math.ceil(pixelsPerSec * ABR_FLOOR_BITS_PER_PIXEL) : 0;
+}
+
+/** `true` nếu target thấp hơn mức sàn ABR ở độ phân giải đầu ra — nén sẽ ra file lớn hơn dự kiến, hình tệ. */
+export function isBelowAbrFloor(input: { width: number; height: number; fps: number; videoBitrateBps: number; maxHeight?: number }): boolean {
+  const floor = minAbrVideoBitrateBps(input);
+  return floor > 0 && input.videoBitrateBps < floor;
+}
+
+/** Hệ số r kẹp trong khoảng này — ngoài khoảng là mẫu hỏng, không tin để hiệu chỉnh. */
+const CALIBRATION_R_MIN = 0.5;
+const CALIBRATION_R_MAX = 2;
+
+/**
+ * Hiệu chỉnh target ABR theo mẫu thử: `r` = dung lượng VIDEO đo được / dự kiến
+ * theo target, trả `target / r` (ADR-0017 § addendum 2026-10-04 §3.1). Chỉ đúng
+ * với ABR (sai số ngoại suy ≲3%); `rate_control=quality` lệch −10…−30% nên KHÔNG
+ * dùng hàm này. `null` nếu không có mẫu hợp lệ. Dung lượng mẫu gồm audio +
+ * overhead container nên trừ đi trước khi so với phần video.
+ */
+export function calibrateTargetBps(input: { targetVideoBitrateBps: number; audioBitrateBps?: number; samples: readonly EstimateSample[] }): number | null {
+  const valid = input.samples.filter((s) => s.mediaSec > 0 && s.outBytes >= 0);
+  if (valid.length === 0 || !(input.targetVideoBitrateBps > 0)) {
+    return null;
+  }
+  const totalMedia = valid.reduce((a, s) => a + s.mediaSec, 0);
+  const totalBytes = valid.reduce((a, s) => a + s.outBytes, 0);
+  const audioBps = input.audioBitrateBps ?? REENCODE_AUDIO_BITRATE_BPS;
+  const videoBps = ((totalBytes / totalMedia) * 8) / ESTIMATE_OVERHEAD - audioBps;
+  if (!(videoBps > 0)) {
+    return null;
+  }
+  const r = Math.min(CALIBRATION_R_MAX, Math.max(CALIBRATION_R_MIN, videoBps / input.targetVideoBitrateBps));
+  return Math.floor(input.targetVideoBitrateBps / r);
+}
+
 /** Một đoạn encode thử (khớp `EstimateSampleDto`, Rust). */
 export interface EstimateSample {
   /** Dung lượng file đầu ra của đoạn thử. */

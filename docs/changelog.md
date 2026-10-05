@@ -4,6 +4,14 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-10-05 — Sửa lỗi re-encode WMV/VC-1: "Generic error in an external library"
+
+STAR-505.wmv / STAR-502.wmv (VC-1 720p29.97) lỗi ngay khi mở encoder: `h264_mf could not set output type (80004005)`. Nguyên nhân: decoder VC-1 không báo `frame_rate` (None) nên encoder được mở không có frame rate; PPPD-335 (1080p59.94) vẫn chạy được. Sửa ở `reencode.rs`: rơi về `avg_frame_rate` của stream khi decoder không có. Tái hiện + xác nhận bằng `check_progress_and_cancel` trên cả hai file (encode chạy, cancel sạch); chưa chạy trọn file/upload.
+
+## 2026-10-05 — GUI ingest desktop: Giai đoạn 2b — hiệu chỉnh target theo mẫu + cảnh báo dưới mức sàn ABR
+
+`libs/core-ingest/reencode-plan.ts` thêm `calibrateTargetBps()` (target' = target / r, r kẹp [0.5, 2], chỉ dành cho ABR), `minAbrVideoBitrateBps()` / `isBelowAbrFloor()` (sàn 0.045 bit/pixel theo độ phân giải đầu ra). Dialog tiền kiểm: cảnh báo đỏ khi target dưới sàn; sau "Ước tính chính xác" nếu ước tính vượt kích thước mục tiêu thì có nút "Hiệu chỉnh bitrate theo kết quả đo" (đặt target mới, kết quả đo cũ hết hiệu lực để đo lại; đổi slider/độ phân giải/audio thì bỏ hiệu chỉnh). `SIZE_SAFETY_MARGIN` giữ 0.92 — việc hiệu chỉnh đang là thao tác chủ động, chưa tự động, nên chưa có cơ sở nới margin. Chưa làm: chặn cứng dưới sàn, cảnh báo target ≥ bitrate nguồn, đo thêm nội dung. Test: 97 test `core-ingest` sạch, `ng build` sạch. `[Cần kiểm chứng thiết bị thật]`.
+
 ## 2026-10-04 — GUI ingest desktop: Giai đoạn 2 — sửa lỗi đo "Ước tính chính xác" + đo đặc tính rate control `h264_mf`
 
 Verify thật lần đầu (2026-10-02) báo ước tính 3.48 MB so với 552.86 MB. Gốc rễ: `estimate_reencode()` lấy độ dài mẫu từ `probe()` của file mẫu, nhưng timestamp đầu ra không được rebase về 0 nên `duration_sec` là điểm KẾT THÚC trên timeline gốc (~`start`+8s) — sửa bằng `sample_media_sec(end, start)` + test. "158x" còn do so sai baseline (552.86 MB là lần nén KHÔNG có target). Sau sửa, cùng file/cùng 1500 kbps: ước tính 1,162.8 MB, thực tế 1,093.3 MB (**+6.4%**). Đo thêm trên file thật cục bộ: ngoại suy 3 mẫu chính xác cho ABR (+0.2% đến +3.2% cả file, 3 phép đo) nhưng lệch −10% đến −30% cho `rate_control=quality`; `h264_mf` ABR có mức sàn bitrate và chất lượng VMAF sụp ở bitrate thấp (phim 1080p đặt 600 kbps ra 1291 kbps, VMAF 23.7), không có chế độ cận trên (`max_bit_rate` vô tác dụng), x264 tham chiếu cần ~0.6× bitrate cho cùng chất lượng ở vùng khó. Hai example mới `check_mf_rate_control.rs` + `check_quality_sampling.rs`. Chỉ sửa MỘT lỗi code; hiệu chỉnh target theo mẫu + chặn dưới bitrate là việc còn lại ở [roadmap](./roadmap.md#ingest). Số liệu đầy đủ + hệ quả thiết kế: [ADR-0017 § addendum 2026-10-04](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-10-04-verify-giai-đoạn-2-sửa-lỗi-đo-thời-lượng-mẫu-đặc-tính-rate-control-của-h264_mf).

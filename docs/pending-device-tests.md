@@ -794,3 +794,5 @@ Liên quan: [ADR-0017 § addendum 2026-10-01, Giai đoạn 2](./adr/0017-grammer
 
 - `estimate_reencode` ra dung lượng lệch xa thực tế (seek về keyframe xa, đoạn đại diện kém): ghi lại file + số liệu, chỉnh vị trí/độ dài đoạn ở `estimate.rs` (`SAMPLE_POSITIONS`/`SAMPLE_LEN_SEC`).
 - Crash khi nén có hạ độ phân giải: chạy `check_reencode_bitrate` với cùng `max_height`; rủi ro native FFI ở ADR-0013 § addendum 2026-09-03.
+
+**Kết quả thật 2026-10-05 (Giai đoạn 2/2b):** PPPD-335.HD.wmv (4.9 GB, 1080p) — ước tính ~27 phút, nén thực 26 phút 15 giây, upload thành công; đo lại ước tính sau đó ~26 phút (khá chính xác). STAR-505/502.wmv: lỗi `h264_mf` do thiếu frame rate đã sửa, chạy được bằng example; chưa upload trọn file.

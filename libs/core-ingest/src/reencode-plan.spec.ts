@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chooseAutoResolution, estimateFromSamples, estimateReencodeRangeBytes, resolutionChoices, scaledSize } from './reencode-plan';
+import { calibrateTargetBps, chooseAutoResolution, estimateFromSamples, estimateReencodeRangeBytes, isBelowAbrFloor, minAbrVideoBitrateBps, resolutionChoices, scaledSize } from './reencode-plan';
 import { REENCODE_AUDIO_BITRATE_BPS } from './size-normalize';
 
 describe('scaledSize / resolutionChoices', () => {
@@ -57,5 +57,42 @@ describe('estimateFromSamples', () => {
   it('không có mẫu hợp lệ: null', () => {
     expect(estimateFromSamples([], 3600)).toBeNull();
     expect(estimateFromSamples([{ outBytes: 1, mediaSec: 0, wallSec: 1 }], 3600)).toBeNull();
+  });
+});
+
+describe('minAbrVideoBitrateBps / isBelowAbrFloor', () => {
+  it('1080p24 ≈ 2.24 Mbps; hạ độ phân giải thì sàn giảm', () => {
+    const full = minAbrVideoBitrateBps({ width: 1920, height: 1080, fps: 24 });
+    expect(full).toBeCloseTo(1920 * 1080 * 24 * 0.045, -2);
+    expect(minAbrVideoBitrateBps({ width: 1920, height: 1080, fps: 24, maxHeight: 720 })).toBeLessThan(full);
+  });
+  it('phim 1080p đặt 1.5 Mbps nằm dưới sàn, 3 Mbps thì không', () => {
+    const base = { width: 1920, height: 1080, fps: 24 };
+    expect(isBelowAbrFloor({ ...base, videoBitrateBps: 1_500_000 })).toBe(true);
+    expect(isBelowAbrFloor({ ...base, videoBitrateBps: 3_000_000 })).toBe(false);
+  });
+  it('thiếu số liệu: không báo dưới sàn', () => {
+    expect(isBelowAbrFloor({ width: 0, height: 0, fps: 0, videoBitrateBps: 1 })).toBe(false);
+  });
+});
+
+describe('calibrateTargetBps', () => {
+  const audio = REENCODE_AUDIO_BITRATE_BPS;
+  const sampleAt = (videoBps: number) => ({ outBytes: ((videoBps + audio) * 8 * 1.02) / 8, mediaSec: 8, wallSec: 4 });
+  it('mẫu cao hơn dự kiến 10% → hạ target ~10%', () => {
+    const t = calibrateTargetBps({ targetVideoBitrateBps: 2_000_000, samples: [sampleAt(2_200_000)] });
+    expect(t).toBeGreaterThan(1_800_000);
+    expect(t).toBeLessThan(1_830_000);
+  });
+  it('mẫu đúng dự kiến → giữ target', () => {
+    const t = calibrateTargetBps({ targetVideoBitrateBps: 2_000_000, samples: [sampleAt(2_000_000)] });
+    expect(t).toBeGreaterThanOrEqual(1_999_000);
+    expect(t).toBeLessThanOrEqual(2_000_000);
+  });
+  it('r bị kẹp [0.5, 2]', () => {
+    expect(calibrateTargetBps({ targetVideoBitrateBps: 1_000_000, samples: [sampleAt(10_000_000)] })).toBe(500_000);
+  });
+  it('không có mẫu hợp lệ: null', () => {
+    expect(calibrateTargetBps({ targetVideoBitrateBps: 1_000_000, samples: [] })).toBeNull();
   });
 });
