@@ -15,7 +15,13 @@ const MUX_OVERHEAD_FRACTION = 0.02;
 
 /** Nhắm DƯỚI trần thật thay vì đúng khít — SPIKE-11 cho thấy rate control của
  * `h264_mf` có thể overshoot target ở nội dung phức tạp. */
-const SIZE_SAFETY_MARGIN = 0.92;
+export const SIZE_SAFETY_MARGIN = 0.92;
+
+/** Margin SAU khi target đã hiệu chỉnh theo mẫu thử (`calibrateTargetBps`): ABR
+ * bám target ±3% sau hiệu chỉnh (ADR-0017 § addendum 2026-10-04) nên 0.955 ×
+ * 1.03 ≈ 0.984 vẫn dưới trần. Chỉ dùng cho target đã hiệu chỉnh — chưa hiệu
+ * chỉnh thì overshoot tới +10% (0.92 × 1.099 ≈ 1.011) nên PHẢI giữ 0.92. */
+export const CALIBRATED_SAFETY_MARGIN = 0.955;
 
 /** Sàn cứng — dưới mức này hình gần như vô dụng; nếu vẫn vượt trần thì để bước
  * kiểm tra dung lượng sau re-encode báo lỗi rõ ràng thay vì hạ thêm. */
@@ -26,11 +32,11 @@ export const MIN_VIDEO_BITRATE_BPS = 100_000;
  * kẹp dưới bởi `MIN_VIDEO_BITRATE_BPS`. `durationSec <= 0` (probe không đọc
  * được) trả về sàn — không chia cho 0.
  */
-export function computeTargetVideoBitrateBps(maxUploadBytes: number, durationSec: number, audioBitrateBps: number = REENCODE_AUDIO_BITRATE_BPS): number {
+export function computeTargetVideoBitrateBps(maxUploadBytes: number, durationSec: number, audioBitrateBps: number = REENCODE_AUDIO_BITRATE_BPS, safetyMargin: number = SIZE_SAFETY_MARGIN): number {
   if (!(durationSec > 0)) {
     return MIN_VIDEO_BITRATE_BPS;
   }
-  const totalBudgetBps = (maxUploadBytes * SIZE_SAFETY_MARGIN * 8) / durationSec;
+  const totalBudgetBps = (maxUploadBytes * safetyMargin * 8) / durationSec;
   const videoBudgetBps = totalBudgetBps * (1 - MUX_OVERHEAD_FRACTION) - audioBitrateBps;
   return Math.max(Math.floor(videoBudgetBps), MIN_VIDEO_BITRATE_BPS);
 }

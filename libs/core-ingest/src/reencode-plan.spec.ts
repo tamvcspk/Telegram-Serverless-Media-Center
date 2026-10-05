@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calibrateTargetBps, chooseAutoResolution, estimateFromSamples, estimateReencodeRangeBytes, isBelowAbrFloor, minAbrVideoBitrateBps, resolutionChoices, scaledSize } from './reencode-plan';
+import { calibrateTargetBps, chooseAutoResolution, estimateFromSamples, estimateReencodeRangeBytes, isBelowAbrFloor, isReencodeFutile, minAbrVideoBitrateBps, rescaleEstimateBytes, resolutionChoices, resolveAbrFloor, scaledSize } from './reencode-plan';
 import { REENCODE_AUDIO_BITRATE_BPS } from './size-normalize';
 
 describe('scaledSize / resolutionChoices', () => {
@@ -94,5 +94,74 @@ describe('calibrateTargetBps', () => {
   });
   it('không có mẫu hợp lệ: null', () => {
     expect(calibrateTargetBps({ targetVideoBitrateBps: 1_000_000, samples: [] })).toBeNull();
+  });
+});
+
+describe('calibrateTargetBps — desiredVideoBitrateBps', () => {
+  const audio = REENCODE_AUDIO_BITRATE_BPS;
+  const sampleAt = (videoBps: number) => ({ outBytes: ((videoBps + audio) * 8 * 1.02) / 8, mediaSec: 8, wallSec: 4 });
+  it('hội tụ, không trôi: bộ nén ra 0.93× target, đo lại nhiều lần', () => {
+    const rho = 0.93;
+    const desired = 2_000_000;
+    let target = 1_900_000;
+    const history: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      target = calibrateTargetBps({ targetVideoBitrateBps: target, samples: [sampleAt(target * rho)], desiredVideoBitrateBps: desired }) as number;
+      history.push(target);
+    }
+    // đầu ra thực = target × rho phải ≈ desired ở mọi lần sau lần đầu
+    for (const t of history.slice(1)) {
+      expect(Math.abs(t * rho - desired) / desired).toBeLessThan(0.005);
+    }
+    expect(Math.abs(history[4] - history[1]) / history[1]).toBeLessThan(0.005);
+  });
+  it('overshoot +9.9% (ca thật): đầu ra sau hiệu chỉnh ≈ mức muốn', () => {
+    const desired = 2_000_000;
+    const t = calibrateTargetBps({ targetVideoBitrateBps: 1_900_000, samples: [sampleAt(1_900_000 * 1.099)], desiredVideoBitrateBps: desired }) as number;
+    expect(Math.abs(t * 1.099 - desired) / desired).toBeLessThan(0.005);
+  });
+});
+
+describe('rescaleEstimateBytes', () => {
+  it('video tỉ lệ target, audio + overhead giữ nguyên', () => {
+    const duration = 1000;
+    const audioBytes = (REENCODE_AUDIO_BITRATE_BPS * duration) / 8;
+    const before = (1_000_000 * duration / 8 + audioBytes) * 1.02;
+    const after = rescaleEstimateBytes({ estimatedBytes: before, durationSec: duration, fromVideoBps: 1_000_000, toVideoBps: 500_000 });
+    expect(after).toBeCloseTo((500_000 * duration / 8 + audioBytes) * 1.02, 0);
+  });
+  it('thiếu số liệu: giữ nguyên', () => {
+    expect(rescaleEstimateBytes({ estimatedBytes: 123, durationSec: 0, fromVideoBps: 1, toVideoBps: 2 })).toBe(123);
+  });
+});
+
+describe('resolveAbrFloor', () => {
+  const src = { width: 1920, height: 1080, fps: 24 };
+  it('đã đạt sàn: giữ nguyên độ phân giải', () => {
+    expect(resolveAbrFloor({ ...src, videoBitrateBps: 5_000_000 })).toEqual({ resolution: undefined });
+    expect(resolveAbrFloor({ ...src, videoBitrateBps: 5_000_000, maxHeight: 720 })).toEqual({ resolution: 720 });
+  });
+  it('dưới sàn ở 1080p: hạ về mức cao nhất còn đạt', () => {
+    // sàn 1080p24 ≈ 2.24 Mbps; 720p24 ≈ 1.0 Mbps.
+    expect(resolveAbrFloor({ ...src, videoBitrateBps: 1_200_000 })).toEqual({ resolution: 720 });
+  });
+  it('không mức nào đạt: null', () => {
+    expect(resolveAbrFloor({ ...src, videoBitrateBps: 50_000 })).toBeNull();
+  });
+});
+
+describe('isReencodeFutile', () => {
+  const base = { sourceBytes: 2_000_000_000, durationSec: 1000, sourceHeight: 1080 };
+  it('target ≥ bitrate video nguồn: vô nghĩa', () => {
+    expect(isReencodeFutile({ ...base, targetVideoBitrateBps: 16_000_000 })).toBe(true);
+  });
+  it('target thấp hơn rõ rệt: có tác dụng', () => {
+    expect(isReencodeFutile({ ...base, targetVideoBitrateBps: 8_000_000 })).toBe(false);
+  });
+  it('đã hạ độ phân giải: không cảnh báo', () => {
+    expect(isReencodeFutile({ ...base, targetVideoBitrateBps: 16_000_000, maxHeight: 720 })).toBe(false);
+  });
+  it('thiếu số liệu: không cảnh báo', () => {
+    expect(isReencodeFutile({ ...base, durationSec: 0, targetVideoBitrateBps: 16_000_000 })).toBe(false);
   });
 });

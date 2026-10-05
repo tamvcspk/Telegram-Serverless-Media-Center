@@ -16,7 +16,7 @@
         <div class="item-head">
           <span class="item-name">{{ item.name }}</span>
           <span class="item-meta">
-            {{ gb(item.sourceBytes) }} GB@if (item.height > 0) { · {{ item.width }}×{{ item.height }} }@if (item.mustReencode) { · Hạng D }
+            {{ gb(item.sourceBytes) }} GB ({{ gib(item.sourceBytes) }} GiB, như Windows hiện)@if (item.height > 0) { · {{ item.width }}×{{ item.height }} }@if (item.mustReencode) { · Hạng D }
           </span>
         </div>
 
@@ -30,7 +30,13 @@
               <span class="card-line quality" [class]="'quality-' + q.level">Chất lượng: {{ q.label }} ({{ q.bpp.toFixed(3) }} bit/pixel)</span>
             }
             @if (belowFloor(item)) {
-              <span class="card-line quality quality-low">Bitrate dưới mức sàn của bộ nén — file có thể ra lớn hơn dự kiến và hình kém; nên hạ độ phân giải.</span>
+              <span class="card-line quality quality-low">Bitrate dưới mức sàn của bộ nén — file sẽ ra lớn hơn dự kiến và hình kém. Hạ độ phân giải hoặc bỏ qua mới tiếp tục được.</span>
+            }
+            @if (overCap(item)) {
+              <span class="card-line quality quality-low">Dung lượng dự kiến vượt trần — hạ kích thước/độ phân giải rồi đo lại, hoặc bỏ qua.</span>
+            }
+            @if (futile(item)) {
+              <span class="card-line quality quality-ok">Bitrate mục tiêu gần bằng bitrate nguồn — nén lại gần như không giảm được dung lượng.</span>
             }
           </button>
           <button type="button" class="card" disabled [attr.aria-disabled]="true">
@@ -54,8 +60,13 @@
               <button mat-stroked-button type="button" [disabled]="anyEstimating() || item.durationSec <= 0" (click)="runEstimate(item)">
                 {{ validEstimate(item) ? 'Đo lại' : 'Ước tính chính xác' }}
               </button>
-              @if (canCalibrate(item)) {
-                <button mat-button type="button" (click)="applyCalibration(item)">Hiệu chỉnh bitrate theo kết quả đo</button>
+              @if (belowFloor(item)) {
+                @let fix = floorFix(item);
+                @if (fix) {
+                  <button mat-stroked-button type="button" (click)="applyFloorFix(item)">Hạ về {{ fix.resolution ? fix.resolution + 'p' : 'gốc' }}</button>
+                } @else {
+                  <span class="hint error">Không độ phân giải nào đạt mức sàn — chọn "Bỏ qua" (chia phần chưa khả dụng).</span>
+                }
               }
               @if (estimateStale(item)) {
                 <span class="hint">Kết quả cũ không còn khớp tuỳ chọn hiện tại — đo lại để cập nhật.</span>
@@ -102,7 +113,7 @@
 </mat-dialog-content>
 <mat-dialog-actions align="end">
   <button mat-button type="button" [mat-dialog-close]="null">Huỷ upload</button>
-  <button mat-flat-button type="button" (click)="onConfirm()" [disabled]="anyEstimating()">
+  <button mat-flat-button type="button" (click)="onConfirm()" [disabled]="anyEstimating() || blockedCount() > 0 || overCapCount() > 0">
     {{ selectedCount() > 0 ? 'Tiếp tục (' + selectedCount() + ' file nén lại)' : 'Tiếp tục' }}
   </button>
 </mat-dialog-actions>

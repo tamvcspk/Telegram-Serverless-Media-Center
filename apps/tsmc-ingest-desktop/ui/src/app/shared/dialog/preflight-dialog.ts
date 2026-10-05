@@ -6,6 +6,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSliderModule } from '@angular/material/slider';
 import {
   AUDIO_BITRATE_CHOICES_BPS,
+  CALIBRATED_SAFETY_MARGIN,
   calibrateTargetBps,
   chooseAutoResolution,
   chooseDefaultStrategy,
@@ -13,10 +14,13 @@ import {
   estimateFromSamples,
   estimateReencodeRangeBytes,
   isBelowAbrFloor,
+  isReencodeFutile,
   qualityLevel,
   REENCODE_AUDIO_BITRATE_BPS,
   reencodeQuality,
+  rescaleEstimateBytes,
   resolutionChoices,
+  resolveAbrFloor,
   type QualityLevel,
   type ReencodeEstimate,
   type ReencodePlan,
@@ -65,9 +69,10 @@ interface ItemState {
   maxHeight: number | undefined;
   audioBps: number;
   /** Kết quả "ước tính chính xác" — gắn với plan đã dùng (`planKey`) để biết
-   * khi nào hết hiệu lực vì user đổi tuỳ chọn. */
-  estimate: { planKey: string; value: ReencodeEstimate; calibratedBps: number | null } | null;
-  /** Target đã hiệu chỉnh theo mẫu thử (ghi đè công thức từ `sizeBytes`) — xoá khi user đổi tuỳ chọn. */
+   * khi nào hết hiệu lực vì user đổi tuỳ chọn. `extrapolated`: số dung lượng là
+   * ngoại suy sau khi tự hiệu chỉnh target, CHƯA đo lại. */
+  estimate: { planKey: string; value: ReencodeEstimate; extrapolated: boolean } | null;
+  /** Target đã TỰ hiệu chỉnh theo mẫu thử (ghi đè công thức từ `sizeBytes`, margin 0.955) — xoá khi user đổi tuỳ chọn. */
   targetOverrideBps: number | null;
   estimatingTaskId: string | null;
   estimateError: string | null;
@@ -119,6 +124,10 @@ export class PreflightDialog implements OnInit {
     this.data.items.map((i) => [i.path, chooseDefaultStrategy({ sourceBytes: i.sourceBytes, maxUploadBytes: this.data.maxUploadBytes, mustReencode: i.mustReencode })] as const)
   );
   protected readonly anyEstimating = computed(() => [...this.states().values()].some((s) => s.estimatingTaskId !== null));
+  /** Số file đang chọn nén lại mà target dưới mức sàn ABR — chặn cứng nút Tiếp tục tới khi hạ độ phân giải hoặc bỏ qua. */
+  protected readonly blockedCount = computed(() => this.data.items.filter((i) => this.state(i.path).strategy === 'reencode' && this.belowFloor(i)).length);
+  /** Số file đang chọn nén lại mà dung lượng đã đo/dự kiến vượt trần — cũng chặn "Tiếp tục". */
+  protected readonly overCapCount = computed(() => this.data.items.filter((i) => this.state(i.path).strategy === 'reencode' && this.overCap(i)).length);
   protected readonly selectedCount = computed(() => [...this.states().values()].filter((s) => s.strategy === 'reencode').length);
 
   constructor() {
@@ -189,17 +198,26 @@ export class PreflightDialog implements OnInit {
     return isBelowAbrFloor({ width: item.width, height: item.height, fps: item.fps, videoBitrateBps: this.videoBps(item), maxHeight: this.state(item.path).maxHeight });
   }
 
-  /** Ước tính đã đo vượt kích thước mục tiêu và có target hiệu chỉnh khác đáng kể → cho áp dụng. */
-  protected canCalibrate(item: PreflightDialogItem): boolean {
+  /** Dung lượng đã đo/dự kiến (sau "Ước tính chính xác") vượt trần upload. Chưa đo thì không biết → `false`. */
+  protected overCap(item: PreflightDialogItem): boolean {
     const exact = this.validEstimate(item);
-    const cal = this.state(item.path).estimate?.calibratedBps ?? null;
-    return exact !== null && cal !== null && exact.estimatedBytes > this.state(item.path).sizeBytes && cal < this.videoBps(item) * 0.99;
+    return exact !== null && exact.estimatedBytes > this.data.maxUploadBytes;
   }
 
-  protected applyCalibration(item: PreflightDialogItem): void {
-    const cal = this.state(item.path).estimate?.calibratedBps ?? null;
-    if (cal !== null) {
-      this.patch(item.path, { targetOverrideBps: cal });
+  /** Nén lại gần như không giảm gì so với nguồn (target ≥ ~90% bitrate video nguồn). */
+  protected futile(item: PreflightDialogItem): boolean {
+    return isReencodeFutile({ targetVideoBitrateBps: this.videoBps(item), sourceBytes: item.sourceBytes, durationSec: item.durationSec, maxHeight: this.state(item.path).maxHeight, sourceHeight: item.height });
+  }
+
+  /** Độ phân giải cao nhất còn đạt mức sàn ABR (`undefined` = gốc), `null` = không mức nào đạt. Chỉ có nghĩa khi `belowFloor`. */
+  protected floorFix(item: PreflightDialogItem): { resolution: number | undefined } | null {
+    return resolveAbrFloor({ width: item.width, height: item.height, fps: item.fps, videoBitrateBps: this.videoBps(item), maxHeight: this.state(item.path).maxHeight });
+  }
+
+  protected applyFloorFix(item: PreflightDialogItem): void {
+    const fix = this.floorFix(item);
+    if (fix !== null) {
+      this.patch(item.path, { maxHeight: fix.resolution });
     }
   }
 
@@ -219,7 +237,7 @@ export class PreflightDialog implements OnInit {
   protected sizeText(item: PreflightDialogItem): string {
     const exact = this.validEstimate(item);
     if (exact) {
-      return `~${this.gb(exact.estimatedBytes)} GB (đã đo)`;
+      return this.state(item.path).estimate?.extrapolated ? `~${this.gb(exact.estimatedBytes)} GB (dự kiến sau hiệu chỉnh — đo lại để xác nhận)` : `~${this.gb(exact.estimatedBytes)} GB (đã đo)`;
     }
     const plan = this.plan(item);
     const range = estimateReencodeRangeBytes({ targetVideoBitrateBps: plan.targetVideoBitrateBps ?? 0, audioBitrateBps: plan.audioBitrateBps, durationSec: item.durationSec });
@@ -282,8 +300,25 @@ export class PreflightDialog implements OnInit {
     try {
       const samples = await estimateReencode(taskId, item.path, plan);
       const value = estimateFromSamples(samples, item.durationSec);
-      const calibratedBps = calibrateTargetBps({ targetVideoBitrateBps: plan.targetVideoBitrateBps ?? 0, audioBitrateBps: plan.audioBitrateBps, samples });
-      this.patch(item.path, { estimate: value ? { planKey: JSON.stringify(plan), value, calibratedBps } : null, estimateError: value ? null : 'Không đo được (file quá ngắn hoặc lỗi).' });
+      if (!value) {
+        this.patch(item.path, { estimate: null, estimateError: 'Không đo được (file quá ngắn hoặc lỗi).' });
+        return;
+      }
+      // Tự hiệu chỉnh target theo mẫu đo (ABR bám ±3% sau hiệu chỉnh). So đầu ra đo
+      // được với mức video MUỐN đạt (margin 0.955, cố định theo kích thước mục tiêu),
+      // KHÔNG so với target hiện tại — nếu không mỗi lần đo lại sẽ hiệu chỉnh chồng và
+      // target trôi mãi.
+      const target = plan.targetVideoBitrateBps ?? 0;
+      const s = this.state(item.path);
+      const desiredVideoBitrateBps = computeTargetVideoBitrateBps(s.sizeBytes, item.durationSec, s.audioBps, CALIBRATED_SAFETY_MARGIN);
+      const calibrated = calibrateTargetBps({ targetVideoBitrateBps: target, audioBitrateBps: plan.audioBitrateBps, samples, desiredVideoBitrateBps });
+      if (calibrated !== null && target > 0 && Math.abs(calibrated / target - 1) > 0.02) {
+        this.patch(item.path, { targetOverrideBps: calibrated });
+        const estimatedBytes = rescaleEstimateBytes({ estimatedBytes: value.estimatedBytes, durationSec: item.durationSec, fromVideoBps: target, toVideoBps: calibrated, audioBitrateBps: plan.audioBitrateBps });
+        this.patch(item.path, { estimate: { planKey: JSON.stringify(this.plan(item)), value: { ...value, estimatedBytes }, extrapolated: true }, estimateError: null });
+      } else {
+        this.patch(item.path, { estimate: { planKey: JSON.stringify(plan), value, extrapolated: false }, estimateError: null });
+      }
     } catch (err) {
       const e = toIngestRpcError(err);
       this.patch(item.path, { estimateError: e.kind === 'Cancelled' ? null : describeIngestError(e) });
@@ -301,6 +336,11 @@ export class PreflightDialog implements OnInit {
 
   protected gb(bytes: number): string {
     return (bytes / 1_000_000_000).toFixed(2);
+  }
+
+  /** GiB (1024³) — đơn vị Windows Explorer hiện nhưng vẫn ghi nhãn "GB"; các số khác trong dialog là GB thập phân (10⁹). */
+  protected gib(bytes: number): string {
+    return (bytes / 1_073_741_824).toFixed(2);
   }
 
   protected kbps(bps: number): string {

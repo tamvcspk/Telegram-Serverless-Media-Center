@@ -4,6 +4,18 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-10-05 — Dialog tiền kiểm: hiện thêm GiB cạnh dung lượng nguồn
+
+Windows báo 4.96 "GB" còn app báo 5.33 GB: Windows chia 1024³ (GiB) nhưng ghi nhãn GB, app dùng GB thập phân 10⁹ (cùng đơn vị với trần upload và mọi số khác trong dialog). Dialog giờ hiện "5.33 GB (4.96 GiB, như Windows hiện)" cho file nguồn; không đổi cách tính. Sau sửa lỗi trôi, user xác nhận dung lượng đo lại ổn định 3.80 GB; chặn cứng (vượt trần/dưới sàn) và cảnh báo nén vô nghĩa chưa kích hoạt được trên file thật — chỉ có test đơn vị.
+
+## 2026-10-05 — Sửa lỗi hiệu chỉnh target trôi khi "Đo lại" (3.8 → 4.07 → 4.38 → 4.74 GB)
+
+User đo lại 4 lần file 4.9 GB: dung lượng dự kiến tăng ~7–8% mỗi lần và vượt trần từ lần 2 mà "Tiếp tục" vẫn không bị chặn. Nguyên nhân: `calibrateTargetBps` tính `target / r` với `r` = đầu ra đo / **target hiện tại** — chỉ đúng khi target chính là mức muốn đạt (lần đầu); đo lại trên target đã hiệu chỉnh thì chia cho cùng `r` chồng thêm một lần. Sửa: so với mức video MUỐN đạt (`desiredVideoBitrateBps`, margin 0.955, cố định theo kích thước mục tiêu), bỏ `budgetScale`; test mô phỏng đo lại 5 lần xác nhận hội tụ. Thêm chặn cứng "Tiếp tục" khi dung lượng đã đo/dự kiến > trần. Chưa verify thiết bị thật.
+
+## 2026-10-05 — Ingest desktop: Giai đoạn 2b (tiếp) — tự hiệu chỉnh target + chặn cứng dưới sàn ABR + cảnh báo nén vô nghĩa
+
+`core-ingest`: `CALIBRATED_SAFETY_MARGIN` 0.955 (chỉ áp cho target ĐÃ hiệu chỉnh; chưa hiệu chỉnh vẫn 0.92 vì overshoot tới +10%), `calibrateTargetBps({budgetScale})` nới margin ở lần hiệu chỉnh đầu, `rescaleEstimateBytes()`, `resolveAbrFloor()` (độ phân giải cao nhất còn đạt sàn, hoặc `null`), `isReencodeFutile()` (target ≥ 90% bitrate video nguồn). Dialog tiền kiểm: sau "Ước tính chính xác" target TỰ hiệu chỉnh (không còn nút thủ công), dung lượng hiện nhãn "dự kiến sau hiệu chỉnh — đo lại để xác nhận"; target dưới sàn ABR → nút "Tiếp tục" bị khoá tới khi bấm "Hạ về Xp" hoặc "Bỏ qua"; cảnh báo khi nén lại gần như không giảm gì. 109 test libs xanh, `ng build` UI sạch; CHƯA chạy trên thiết bị thật. Phần (4) (đo thêm hoạt hình/nhiễu cao, VMAF q<20) hoãn tới khi có nguồn. Cảnh báo "vô nghĩa" mới so với bitrate NGUỒN — mức `h264_mf` tự chọn khi không đặt target chưa đo.
+
 ## 2026-10-05 — Sửa lỗi re-encode WMV/VC-1: "Generic error in an external library"
 
 STAR-505.wmv / STAR-502.wmv (VC-1 720p29.97) lỗi ngay khi mở encoder: `h264_mf could not set output type (80004005)`. Nguyên nhân: decoder VC-1 không báo `frame_rate` (None) nên encoder được mở không có frame rate; PPPD-335 (1080p59.94) vẫn chạy được. Sửa ở `reencode.rs`: rơi về `avg_frame_rate` của stream khi decoder không có. Tái hiện + xác nhận bằng `check_progress_and_cancel` trên cả hai file (encode chạy, cancel sạch); cả hai file sau đó nén + upload thành công trong app (user xác nhận 2026-10-05).

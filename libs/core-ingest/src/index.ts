@@ -26,6 +26,7 @@ export type { FlatMetadataRow } from './metadata-tree';
 
 export {
   bitsPerPixel,
+  CALIBRATED_SAFETY_MARGIN,
   chooseDefaultStrategy,
   computeTargetVideoBitrateBps,
   MIN_VIDEO_BITRATE_BPS,
@@ -42,6 +43,9 @@ export {
   AUTO_MIN_BITS_PER_PIXEL,
   calibrateTargetBps,
   isBelowAbrFloor,
+  isReencodeFutile,
+  rescaleEstimateBytes,
+  resolveAbrFloor,
   minAbrVideoBitrateBps,
   chooseAutoResolution,
   estimateFromSamples,

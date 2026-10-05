@@ -789,6 +789,10 @@ Liên quan: [ADR-0017 § addendum 2026-10-01, Giai đoạn 2](./adr/0017-grammer
 - [ ] Nén với độ phân giải hạ (vd 720p) + audio 96 kbps → file ra đúng kích thước khung hình/âm thanh nghe được, dung lượng nằm dưới trần/slider; chạy tới upload xong.
 - [ ] Chỉ báo bits/pixel hợp lý (thấp → chữ đỏ); hình thật của bản nén ở mức "thấp" có lộ block không? (ghi lại để chỉnh `AUTO_MIN_BITS_PER_PIXEL` 0.06). Đã có số đo VMAF: dưới ~0.045 bits/pixel (1080p24) ABR của `h264_mf` sụp (VMAF <60) — xem ADR-0017 addendum 2026-10-04; vẫn cần xem bằng mắt.
 - [ ] "Huỷ upload"/Esc → không file nào xử lý; bỏ qua một file → ở lại bảng metadata.
+- [ ] (2b, 2026-10-05) Sau "Ước tính chính xác": target tự đổi, dung lượng hiện "dự kiến sau hiệu chỉnh"; nén thật xong dung lượng có nằm dưới trần, sát ~95% (không vượt)? "Đo lại" trên plan đã hiệu chỉnh không nới margin chồng.
+- [ ] (2b, sửa lỗi trôi) Bấm "Đo lại" 4–5 lần liên tiếp trên cùng file (vd 4.9 GB): dung lượng dự kiến phải ỔN ĐỊNH quanh ~95% trần, không tăng dần; nếu vượt trần thì nút Tiếp tục khoá.
+- [ ] (2b) File 1080p ép xuống target rất thấp: cảnh báo sàn + nút Tiếp tục khoá; "Hạ về Xp" mở khoá; không mức nào đạt thì chỉ còn "Bỏ qua".
+- [ ] (2b) Cảnh báo "nén lại gần như không giảm" xuất hiện đúng khi target ≈ bitrate nguồn, không hiện khi đã hạ độ phân giải.
 
 ### Nếu có gì vỡ
 
