@@ -6,7 +6,7 @@
 
 ## 2026-10-05 — Sửa lỗi re-encode WMV/VC-1: "Generic error in an external library"
 
-STAR-505.wmv / STAR-502.wmv (VC-1 720p29.97) lỗi ngay khi mở encoder: `h264_mf could not set output type (80004005)`. Nguyên nhân: decoder VC-1 không báo `frame_rate` (None) nên encoder được mở không có frame rate; PPPD-335 (1080p59.94) vẫn chạy được. Sửa ở `reencode.rs`: rơi về `avg_frame_rate` của stream khi decoder không có. Tái hiện + xác nhận bằng `check_progress_and_cancel` trên cả hai file (encode chạy, cancel sạch); chưa chạy trọn file/upload.
+STAR-505.wmv / STAR-502.wmv (VC-1 720p29.97) lỗi ngay khi mở encoder: `h264_mf could not set output type (80004005)`. Nguyên nhân: decoder VC-1 không báo `frame_rate` (None) nên encoder được mở không có frame rate; PPPD-335 (1080p59.94) vẫn chạy được. Sửa ở `reencode.rs`: rơi về `avg_frame_rate` của stream khi decoder không có. Tái hiện + xác nhận bằng `check_progress_and_cancel` trên cả hai file (encode chạy, cancel sạch); cả hai file sau đó nén + upload thành công trong app (user xác nhận 2026-10-05).
 
 ## 2026-10-05 — GUI ingest desktop: Giai đoạn 2b — hiệu chỉnh target theo mẫu + cảnh báo dưới mức sàn ABR
 
