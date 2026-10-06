@@ -39,10 +39,14 @@
               <span class="card-line quality quality-ok">Bitrate mục tiêu gần bằng bitrate nguồn — nén lại gần như không giảm được dung lượng.</span>
             }
           </button>
-          <button type="button" class="card" disabled [attr.aria-disabled]="true">
+          <button type="button" class="card" [disabled]="!canSplit(item)" [class.selected]="s.strategy === 'split'" [attr.aria-pressed]="s.strategy === 'split'" (click)="setStrategy(item.path, 'split')">
             <span class="card-title">Chia phần @if (isSuggested(item, 'split')) { <span class="badge">Gợi ý</span> }</span>
-            <span class="card-line">Vài giây, không mất chất lượng</span>
-            <span class="card-line">Chưa khả dụng — đang phát triển (Giai đoạn 3-4)</span>
+            @if (canSplit(item)) {
+              <span class="card-line">~{{ splitPartCount(item) }} phần, mỗi phần ~{{ gb(item.sourceBytes / splitPartCount(item)) }} GB</span>
+              <span class="card-line">Nhanh (không mã hoá lại), không mất chất lượng. Mỗi phần là một video Telegram xem được riêng; web app nối liền.</span>
+            } @else {
+              <span class="card-line">Không khả dụng cho Hạng D — video phải mã hoá lại.</span>
+            }
           </button>
           <button type="button" class="card" [class.selected]="s.strategy === 'skip'" [attr.aria-pressed]="s.strategy === 'skip'" (click)="setStrategy(item.path, 'skip')">
             <span class="card-title">Bỏ qua</span>
@@ -114,6 +118,6 @@
 <mat-dialog-actions align="end">
   <button mat-button type="button" [mat-dialog-close]="null">Huỷ upload</button>
   <button mat-flat-button type="button" (click)="onConfirm()" [disabled]="anyEstimating() || blockedCount() > 0 || overCapCount() > 0">
-    {{ selectedCount() > 0 ? 'Tiếp tục (' + selectedCount() + ' file nén lại)' : 'Tiếp tục' }}
+    {{ selectedCount() + splitCount() > 0 ? 'Tiếp tục (' + selectedCount() + ' nén lại, ' + splitCount() + ' chia phần)' : 'Tiếp tục' }}
   </button>
 </mat-dialog-actions>

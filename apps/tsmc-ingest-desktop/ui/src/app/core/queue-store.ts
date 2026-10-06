@@ -12,6 +12,7 @@ export type UploadStage =
   | 'queued'
   | 'remuxing'
   | 'reencoding'
+  | 'splitting'
   | 'generating_thumbnail'
   | 'extracting_subtitles'
   | 'uploading_video'
@@ -40,6 +41,8 @@ export interface UploadQueueItem {
    * Ingest) — TÁCH khỏi `progress` (byte MẠNG upload) vì ý nghĩa khác hẳn.
    * `null` cho `speedXRealtime`/`etaSec` = "đang đo" (~20-30s đầu). */
   pipelineProgress?: { percent: number; speedXRealtime: number | null; etaSec: number | null; projectedFinalBytes: number | null };
+  /** Item chia phần (ADR-0022): đang xử lý/upload phần `index` trên tổng `count` (1-based). */
+  partProgress?: { index: number; count: number };
   error?: string;
   /** Đếm ngược `FLOOD_WAIT` (giây còn lại) — ĐỘC LẬP với `stage` (mockup A.5). */
   floodWaitSeconds?: number;

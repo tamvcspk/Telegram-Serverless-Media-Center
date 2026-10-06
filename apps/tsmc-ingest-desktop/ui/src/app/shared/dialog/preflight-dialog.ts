@@ -21,6 +21,7 @@ import {
   rescaleEstimateBytes,
   resolutionChoices,
   resolveAbrFloor,
+  SPLIT_SAFETY_MARGIN,
   type QualityLevel,
   type ReencodeEstimate,
   type ReencodePlan,
@@ -48,18 +49,15 @@ export interface PreflightDialogData {
   maxUploadBytes: number;
 }
 
-/** Một file ĐƯỢC chọn nén lại cùng tham số của nó. File không có trong
- * `choices` bị bỏ qua lượt này (ở lại bảng metadata). */
-export interface PreflightChoice {
-  path: string;
-  plan: ReencodePlan;
-}
+/** Một file ĐƯỢC chọn xử lý: nén lại (kèm tham số) hoặc chia phần (ADR-0022).
+ * File không có trong `choices` bị bỏ qua lượt này (ở lại bảng metadata). */
+export type PreflightChoice = { path: string; strategy: 'reencode'; plan: ReencodePlan } | { path: string; strategy: 'split' };
 
 export interface PreflightDialogResult {
   choices: PreflightChoice[];
 }
 
-type ItemStrategy = 'reencode' | 'skip';
+type ItemStrategy = 'reencode' | 'split' | 'skip';
 
 interface ItemState {
   strategy: ItemStrategy;
@@ -92,8 +90,9 @@ const QUALITY_LABEL: Record<QualityLevel, string> = {
  * Chế độ Tự động = giá trị khởi tạo của panel: kích thước = trần, độ phân giải
  * = cao nhất mà chất lượng còn ≥ ngưỡng (Option D).
  *
- * "Chia phần" CHƯA dùng được (cần Giai đoạn 3-4: ADR item nhiều phần + ingest
- * chia file) — thẻ hiện ra nhưng bị khoá, để user thấy gợi ý mặc định.
+ * "Chia phần" (Giai đoạn 4, ADR-0022): stream-copy, cắt tại keyframe, mỗi phần là
+ * video Telegram độc lập — chỉ có với Hạng A/B/C (Hạng D phải re-encode nên
+ * thẻ bị khoá). Thẻ được chọn sẵn theo gợi ý mặc định (`chooseDefaultStrategy`).
  * Trạng thái mở/đóng panel Nâng cao lưu ở app-data (Rust), KHÔNG `localStorage`
  * (tách theo origin, bài học 2026-09-11) — MỘT cờ chung cho mọi file.
  *
@@ -118,7 +117,7 @@ export class PreflightDialog implements OnInit {
   protected readonly sliderStepBytes = 10_000_000;
 
   protected readonly advancedOpen = signal(false);
-  private readonly states = signal<ReadonlyMap<string, ItemState>>(new Map(this.data.items.map((i) => [i.path, this.autoState(i)] as const)));
+  private readonly states = signal<ReadonlyMap<string, ItemState>>(new Map(this.data.items.map((i) => [i.path, { ...this.autoState(i), strategy: this.initialStrategy(i) }] as const)));
   /** Gợi ý mặc định theo ADR-0017 quyết định #1 — hiện làm nhãn "Gợi ý" ở thẻ. */
   protected readonly suggestions = new Map<string, SizeCapStrategy | null>(
     this.data.items.map((i) => [i.path, chooseDefaultStrategy({ sourceBytes: i.sourceBytes, maxUploadBytes: this.data.maxUploadBytes, mustReencode: i.mustReencode })] as const)
@@ -129,6 +128,7 @@ export class PreflightDialog implements OnInit {
   /** Số file đang chọn nén lại mà dung lượng đã đo/dự kiến vượt trần — cũng chặn "Tiếp tục". */
   protected readonly overCapCount = computed(() => this.data.items.filter((i) => this.state(i.path).strategy === 'reencode' && this.overCap(i)).length);
   protected readonly selectedCount = computed(() => [...this.states().values()].filter((s) => s.strategy === 'reencode').length);
+  protected readonly splitCount = computed(() => [...this.states().values()].filter((s) => s.strategy === 'split').length);
 
   constructor() {
     inject(DestroyRef).onDestroy(() => {
@@ -145,6 +145,21 @@ export class PreflightDialog implements OnInit {
     void loadUiPrefs()
       .then((prefs) => this.advancedOpen.set(prefs.preflight_advanced_open))
       .catch(() => undefined);
+  }
+
+  /** Chiến lược chọn sẵn: gợi ý mặc định (ADR-0017 quyết định #1), Hạng D luôn nén lại. */
+  private initialStrategy(item: PreflightDialogItem): ItemStrategy {
+    return this.canSplit(item) ? (chooseDefaultStrategy({ sourceBytes: item.sourceBytes, maxUploadBytes: this.data.maxUploadBytes, mustReencode: false }) ?? 'reencode') : 'reencode';
+  }
+
+  /** Hạng D không có đường stream-copy để chia. */
+  protected canSplit(item: PreflightDialogItem): boolean {
+    return !item.mustReencode;
+  }
+
+  /** Số phần TỐI THIỂU (chia đều) — thực tế `planSplit()` có thể cần thêm một phần nếu keyframe thưa. */
+  protected splitPartCount(item: PreflightDialogItem): number {
+    return Math.max(2, Math.ceil(item.sourceBytes / (this.data.maxUploadBytes * SPLIT_SAFETY_MARGIN)));
   }
 
   /** Chế độ Tự động (Option D): kích thước = trần, độ phân giải = cao nhất còn đạt ngưỡng chất lượng. */
@@ -348,7 +363,15 @@ export class PreflightDialog implements OnInit {
   }
 
   protected onConfirm(): void {
-    const choices: PreflightChoice[] = this.data.items.filter((i) => this.state(i.path).strategy === 'reencode').map((i) => ({ path: i.path, plan: this.plan(i) }));
+    const choices: PreflightChoice[] = [];
+    for (const item of this.data.items) {
+      const strategy = this.state(item.path).strategy;
+      if (strategy === 'reencode') {
+        choices.push({ path: item.path, strategy, plan: this.plan(item) });
+      } else if (strategy === 'split') {
+        choices.push({ path: item.path, strategy });
+      }
+    }
     this.dialogRef.close({ choices });
   }
 }

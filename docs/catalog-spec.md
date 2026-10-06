@@ -86,6 +86,29 @@ Thiếu `compat` thì client **không được** giả định là `full` — co
 
 **`topic`** — nguyên văn tên [Forum Topic](https://core.telegram.org/api/forum) của kênh (nếu kênh bật Forum), vd "Phim lẻ", "Phim bộ", "Anime". Khác `genres`: `genres` mô tả **nội dung phim** (thể loại), `topic` mô tả **cách kênh tự tổ chức** (do admin đặt tên tuỳ ý, không phải đặc tính của phim) — client **không được** suy luận `kind`/`series` từ giá trị này (tên topic có thể là tiếng Anh, có emoji, hoặc không theo quy ước nào — ADR-0010).
 
+### Item nhiều phần (`parts`)
+
+Một phim vượt trần dung lượng upload của Telegram được chia thành nhiều video **độc lập** (mỗi phần xem được riêng trên Telegram) nhưng vẫn là **một** item logic ([ADR-0022](./adr/0022-item-nhieu-phan-trong-catalog.md)):
+
+```jsonc
+{
+  "msgId": 4567,                    // = parts[0].msgId — client không biết `parts` vẫn phát được phần 1
+  "runtime": 9960,                  // TỔNG các phần
+  "size": 6012345678,               // TỔNG các phần
+  "subs": [{ "lang": "vi", "msgId": 4600 }],   // BẢN SAO parts[0].subs, cho client cũ
+  "parts": [
+    { "msgId": 4567, "runtime": 4980, "size": 3006172839, "subs": [{ "lang": "vi", "msgId": 4600 }] },
+    { "msgId": 4568, "runtime": 4980, "size": 3006172839, "subs": [{ "lang": "vi", "msgId": 4601 }] }
+  ]
+}
+```
+
+- `parts[i]` = `msgId` (bắt buộc), `runtime` (giây, bắt buộc, > 0), `size`, `subs` (đã **rebase về 0 tại đầu phần**; cue vắt ngang điểm cắt được nhân đôi và cắt ngắn).
+- Client hiểu `parts` phát lần lượt các phần như một video liền và chỉ đọc `parts[i].subs`; client không hiểu thì thấy một phim, phát phần đầu.
+- **Không bump version** — thêm trường optional không đổi nghĩa trường cũ (xem § Phiên bản).
+- **Client phải validate**: 2–50 phần; `msgId` nguyên dương và đôi một khác nhau; `parts[0].msgId === msgId` của item; không phần nào trùng message của **item khác** trong cùng catalog. Sai điều kiện nào → **bỏ riêng `parts`**, giữ item (phát như phim một phần). Không tin `runtime`/`size` của phần để cấp phát bộ nhớ.
+- Quy ước đặt tên phần (để quét mồ côi và tầng quét lịch sử nhận diện): tên file `X.partIofN.mp4`, caption `Tiêu đề — Phần i/N`. Catalog mới là nguồn sự thật cho việc phần nào thuộc phim nào.
+
 ## Client đọc catalog phải làm gì
 
 1. **Validate schema** (Valibot/Zod). Item sai kiểu thì **loại bỏ item đó**, không "sửa tạm cho chạy".

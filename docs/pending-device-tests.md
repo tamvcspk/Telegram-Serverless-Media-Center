@@ -800,3 +800,22 @@ Liên quan: [ADR-0017 § addendum 2026-10-01, Giai đoạn 2](./adr/0017-grammer
 - Crash khi nén có hạ độ phân giải: chạy `check_reencode_bitrate` với cùng `max_height`; rủi ro native FFI ở ADR-0013 § addendum 2026-09-03.
 
 **Kết quả thật 2026-10-05 (Giai đoạn 2/2b):** PPPD-335.HD.wmv (4.9 GB, 1080p) — ước tính ~27 phút, nén thực 26 phút 15 giây, upload thành công; đo lại ước tính sau đó ~26 phút (khá chính xác). STAR-505/502.wmv: lỗi `h264_mf` do thiếu frame rate đã sửa; cả hai nén + upload thành công trong app (bản thân user xác nhận).
+
+
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — Giai đoạn 4: chia phần (2026-10-05)
+
+Liên quan: [ADR-0022 § addendum 2026-10-05](./adr/0022-item-nhieu-phan-trong-catalog.md#cập-nhật-sau-khi-accepted-2026-10-05-giai-đoạn-4-ingest-chia-file), [changelog § 2026-10-05, Giai đoạn 4](./changelog.md).
+
+**KHÔNG chạy hộ bằng agent/Claude** — cần đăng nhập MTProto thật. Admin tự chạy trong `apps/tsmc-ingest-desktop/` (`cargo tauri dev`), kênh của chính mình (Kho Cá Nhân). Cần file thật vượt trần của tài khoản (Hạng A/B hoặc C), tốt nhất một file H.264 vài GB.
+
+- [ ] Thả file vượt trần → dialog tiền kiểm: thẻ "Chia phần" bật, có nhãn "Gợi ý" khi cần giảm > 15%, hiện "~N phần, mỗi phần ~X GB". Hạng D: thẻ khoá.
+- [ ] Chọn "Chia phần" → Tiếp tục: hàng đợi hiện lần lượt "Đang remux…" → "Đang chia phần…" (có %) → "Đang upload video… (phần i/N)"; nút Huỷ dừng được ở cả giai đoạn chia.
+- [ ] Kênh Telegram có đúng N video: tên `X.partIofN.mp4`, caption "Tiêu đề — Phần i/N" + hashtag; **mỗi phần mở và phát được riêng trên Telegram gốc** (có thumbnail, duration đúng, tua được).
+- [ ] Ghép các phần theo thứ tự: hình/tiếng khớp tại điểm nối (chỉ hụt vài khung hình, không lệch tiếng/hình).
+- [ ] Catalog sau "Publish": MỘT item, `msgId` = phần 1, `parts[]` đủ N, `runtime`/`size` = tổng; mở catalog-manager thấy một dòng.
+- [ ] File có phụ đề nhúng hoặc sidecar `.srt`: mỗi phần có phụ đề riêng, cue về đúng 0 tại đầu phần (mở phần 2 trên Telegram/VLC thấy phụ đề khớp hình, không lệch giờ).
+- [ ] File sau remux đã ≤ trần dù nguồn lớn hơn (bỏ track phụ): upload MỘT file, không có `parts`.
+- [ ] Catalog-manager: "Đối soát" đánh dấu hỏng nếu xoá tay một phần trên Telegram; "Tìm file mồ côi" sau khi xoá item khỏi catalog (không xoá message) gom đủ N phần thành MỘT mục và thêm lại được thành item có `parts`; "Xoá khỏi catalog + xoá message" hỏi xác nhận nêu "N message" rồi xoá hết; sửa năm/thể loại rồi "Lưu catalog" giữ "— Phần i/N" trong caption từng phần.
+- [ ] Lỗi giữa chừng (ngắt mạng khi upload phần 2): item báo lỗi; phần 1 còn trên kênh và hiện ở "Tìm file mồ côi" (chưa có auto-dọn — ghi nhận hành vi thật).
+- [ ] Dung lượng đĩa tạm: theo dõi `%TEMP%\tsmc-ingest-desktop-*` — kỳ vọng ≈ 2× dung lượng file trong lúc xử lý, dọn sạch sau khi xong/lỗi.
+- [ ] Kiểm cả nguồn MKV Hạng C (audio AC3 → AAC rồi cắt) và một nguồn có VFR/HEVC nếu có.

@@ -24,13 +24,17 @@ import {
   matchSidecarSubtitles,
   mergeCatalogItems,
   parseExistingCatalogItems,
+  composePartCaption,
+  partFileName,
   planSizeCap,
+  planSplit,
+  rebaseSubtitle,
   seasonGroupKey,
   seedMetadataFromFilename,
   seriesGroupKey,
   type FlatMetadataRow
 } from '@tsmc/core-ingest';
-import type { CatalogItemV1 } from '@tsmc/shared-models';
+import type { CatalogItemV1, CatalogPartV1 } from '@tsmc/shared-models';
 import { DraftStore, type QueueItem } from '../core/draft-store';
 import { withFloodWaitRetry } from '../core/flood-wait-retry';
 import {
@@ -51,6 +55,9 @@ import {
   probeMedia,
   publishCatalog,
   readPinnedCatalog,
+  readSubtitleText,
+  scanSplitCandidates,
+  splitVideo,
   tmdbDetails,
   tmdbHasKey,
   tmdbSaveKey,
@@ -59,7 +66,8 @@ import {
   toTmdbError,
   uploadSubtitle,
   uploadTmdbPoster,
-  uploadVideo
+  uploadVideo,
+  writeTempTextFile
 } from '../core/ingest-rpc';
 import type { PreparedUploadDto, RemuxModeDto } from '../core/ingest-rpc.types';
 import { QueueStore, type UploadQueueItem, type UploadStage } from '../core/queue-store';
@@ -76,6 +84,8 @@ interface UploadPlan {
   /** `path` → tham số nén (bitrate mục tiêu/độ phân giải/audio) — chỉ file đã
    * được đồng ý nén ở dialog tiền kiểm. */
   reencodePlans: ReadonlyMap<string, ReencodePlan>;
+  /** `path` của file được chọn "Chia phần" ở dialog tiền kiểm (ADR-0022). */
+  splitPaths: ReadonlySet<string>;
   maxUploadBytes: number;
 }
 
@@ -104,6 +114,7 @@ const UPLOAD_STAGE_LABEL: Record<UploadStage, string> = {
   queued: 'Trong hàng đợi…',
   remuxing: 'Đang remux…',
   reencoding: 'Đang re-encode video (chậm)…',
+  splitting: 'Đang chia phần…',
   generating_thumbnail: 'Đang tạo thumbnail…',
   extracting_subtitles: 'Đang rút phụ đề…',
   uploading_video: 'Đang upload video…',
@@ -119,6 +130,23 @@ const UPLOAD_STAGE_LABEL: Record<UploadStage, string> = {
  * `apps/tsmc-ingest/src/ffmpeg.ts::IMAGE_SUBTITLE_CODECS` — hai app tách
  * runtime hoàn toàn, không có lib UI dùng chung (ADR-0017). */
 const IMAGE_SUBTITLE_CODECS = new Set(['hdmv_pgs_subtitle', 'pgssub', 'dvd_subtitle', 'dvdsub']);
+
+function describeSplitFailure(reason: 'no-keyframes' | 'too-many-parts' | 'cannot-fit', fileBytes: number, maxBytes: number): string {
+  const size = `${formatBytesShort(fileBytes)} (trần ${formatBytesShort(maxBytes)})`;
+  switch (reason) {
+    case 'no-keyframes':
+      return `Không tìm thấy keyframe nào để cắt file ${size}. Thử "Nén lại" cho file này.`;
+    case 'too-many-parts':
+      return `File ${size} cần quá nhiều phần để chia (tối đa 50). Thử "Nén lại" cho file này.`;
+    case 'cannot-fit':
+      return `Keyframe của file ${size} quá thưa để chia đều dưới trần. Thử "Nén lại" cho file này.`;
+  }
+}
+
+/** Stage chạy CỤC BỘ trong Rust có %/tốc độ/ETA (khác `uploading_video` — byte mạng). */
+function isLocalPipelineStage(stage: UploadStage): boolean {
+  return stage === 'remuxing' || stage === 'reencoding' || stage === 'splitting';
+}
 
 function basename(path: string): string {
   const normalized = path.replace(/\\/g, '/');
@@ -727,7 +755,8 @@ export class Workspace implements OnInit {
     if (item.floodWaitSeconds !== undefined) {
       return `FLOOD_WAIT ${item.floodWaitSeconds}s`;
     }
-    const base = UPLOAD_STAGE_LABEL[item.stage];
+    const part = item.partProgress && item.stage === 'uploading_video' ? ` (phần ${item.partProgress.index}/${item.partProgress.count})` : '';
+    const base = `${UPLOAD_STAGE_LABEL[item.stage]}${part}`;
     const detail = this.pipelineProgressDetailText(item);
     return detail ? `${base} · ${detail}` : base;
   }
@@ -737,7 +766,7 @@ export class Workspace implements OnInit {
    * remux/re-encode ở `remuxing`/`reencoding` (Giai đoạn 1, `pipelineProgress`
    * — tiến trình cục bộ, KHÔNG phải byte mạng, xem doc comment `queue-store.ts`). */
   protected queueItemProgressPercent(item: UploadQueueItem): number {
-    if (item.stage === 'remuxing' || item.stage === 'reencoding') {
+    if (isLocalPipelineStage(item.stage)) {
       return item.pipelineProgress ? Math.round(item.pipelineProgress.percent) : 0;
     }
     if (!item.progress || item.progress.totalBytes <= 0) {
@@ -762,7 +791,7 @@ export class Workspace implements OnInit {
     // remuxing/reencoding.
     const hasRealProgress =
       (item.stage === 'uploading_video' && !!item.progress && item.progress.totalBytes > 0) ||
-      ((item.stage === 'remuxing' || item.stage === 'reencoding') && !!item.pipelineProgress && item.pipelineProgress.percent > 0);
+      (isLocalPipelineStage(item.stage) && !!item.pipelineProgress && item.pipelineProgress.percent > 0);
     return hasRealProgress && item.floodWaitSeconds === undefined ? 'determinate' : 'indeterminate';
   }
 
@@ -780,7 +809,7 @@ export class Workspace implements OnInit {
     if (item.stage === 'uploading_video' && item.progress && item.progress.totalBytes > 0) {
       return String(this.queueItemProgressPercent(item));
     }
-    if ((item.stage === 'remuxing' || item.stage === 'reencoding') && item.pipelineProgress) {
+    if (isLocalPipelineStage(item.stage) && item.pipelineProgress) {
       return String(this.queueItemProgressPercent(item));
     }
     return null;
@@ -791,7 +820,7 @@ export class Workspace implements OnInit {
    * docs/roadmap.md § Ingest). `null` cho `speedXRealtime` = "đang đo" (~20-30s
    * đầu, không bịa ETA từ quá ít mẫu). */
   private pipelineProgressDetailText(item: UploadQueueItem): string | null {
-    if (item.stage !== 'remuxing' && item.stage !== 'reencoding') {
+    if (!isLocalPipelineStage(item.stage)) {
       return null;
     }
     const p = item.pipelineProgress;
@@ -843,7 +872,7 @@ export class Workspace implements OnInit {
     if (!plan || plan.runnable.length === 0) {
       return;
     }
-    const { runnable, reencodePlans, maxUploadBytes } = plan;
+    const { runnable, reencodePlans, splitPaths, maxUploadBytes } = plan;
 
     this.uploading.set(true);
     this.publishError.set(null);
@@ -881,7 +910,7 @@ export class Workspace implements OnInit {
       const taskId = queued.taskId;
       this.currentUploadTaskId.set(taskId);
       try {
-        const finalMetadata = await this.processItem(queued, maxUploadBytes, reencodePlans.get(queued.path));
+        const finalMetadata = await this.processItem(queued, maxUploadBytes, reencodePlans.get(queued.path), splitPaths.has(queued.path));
         newItems.push(finalMetadata);
         this.updateQueueItem(taskId, { stage: 'done' });
       } catch (err) {
@@ -959,6 +988,7 @@ export class Workspace implements OnInit {
     // tham số nén cho MỘT lần re-encode duy nhất (trước đây Hạng D chạy mặc
     // định rồi nén lần hai nếu vượt).
     const reencodePlans = new Map<string, ReencodePlan>();
+    const splitPaths = new Set<string>();
     const askPreflight: PreflightDialogItem[] = afterGradeD.filter(overCap).map((c) => ({
       path: c.path,
       name: c.name,
@@ -979,11 +1009,15 @@ export class Workspace implements OnInit {
       const chosenPaths = new Set(chosen.map((c) => c.path));
       skipped = new Set(askPreflight.filter((i) => !chosenPaths.has(i.path)).map((i) => i.path));
       for (const choice of chosen) {
-        reencodePlans.set(choice.path, choice.plan);
+        if (choice.strategy === 'split') {
+          splitPaths.add(choice.path);
+        } else {
+          reencodePlans.set(choice.path, choice.plan);
+        }
       }
     }
 
-    return { runnable: afterGradeD.filter((c) => !skipped.has(c.path)), reencodePlans, maxUploadBytes };
+    return { runnable: afterGradeD.filter((c) => !skipped.has(c.path)), reencodePlans, splitPaths, maxUploadBytes };
   }
 
   /** Một item hàng đợi: probe lại lấy danh sách track phụ đề TEXT (lọc bỏ
@@ -998,8 +1032,12 @@ export class Workspace implements OnInit {
    * file vượt trần và đã được đồng ý nén: đi THẲNG `reencode_all` với tham số
    * đó (bitrate/độ phân giải/audio), MỘT lần encode duy nhất (không remux thử trước). `undefined` = dự
    * đoán là vừa trần → đường thường theo hạng; nếu dung lượng THẬT sau đó vẫn
-   * vượt thì rơi vào lưới an toàn bên dưới. */
-  private async processItem(item: UploadQueueItem, maxUploadBytes: number, plannedReencode?: ReencodePlan): Promise<CatalogItemV1> {
+   * vượt thì rơi vào lưới an toàn bên dưới.
+   *
+   * `plannedSplit` = user chọn "Chia phần" ở tiền kiểm (ADR-0022): remux như
+   * thường (không nén), nếu file sau remux vẫn vượt trần thì cắt tại keyframe và
+   * upload N phần (`uploadSplitParts()`); nếu remux đã đủ nhỏ thì upload một file. */
+  private async processItem(item: UploadQueueItem, maxUploadBytes: number, plannedReencode?: ReencodePlan, plannedSplit = false): Promise<CatalogItemV1> {
     const mode: RemuxModeDto = plannedReencode !== undefined || item.rank === 'D' ? 'reencode_all' : item.rank === 'C' ? 'reencode_audio' : 'copy';
 
     const probeDto = await probeMedia(item.path);
@@ -1015,6 +1053,9 @@ export class Workspace implements OnInit {
       // brainstorm 2026-09-18), thay vì để `FileTooLarge` bắn muộn sau khi
       // remux/re-encode đã tốn xong thời gian. Ném lỗi bên trong `try` (không
       // trước nó) để `finally` dưới vẫn dọn `temp_dir` như mọi lỗi khác.
+      if (prepared.file_size_bytes > maxUploadBytes && plannedSplit) {
+        return await this.uploadSplitParts(item, prepared, maxUploadBytes);
+      }
       if (prepared.file_size_bytes > maxUploadBytes) {
         if (plannedReencode !== undefined) {
           // Đã nén theo bitrate mục tiêu MỘT lần mà vẫn vượt — `h264_mf` có mức
@@ -1129,6 +1170,121 @@ export class Workspace implements OnInit {
     } finally {
       void cleanupTempDir(prepared.temp_dir);
     }
+  }
+
+  /** Chia phần (ADR-0017 § addendum 2026-09-19 quyết định #4-5, ADR-0022): cắt file
+   * ĐÃ remux tại keyframe (stream-copy, không mất chất lượng), upload từng phần
+   * như một video Telegram độc lập (`X.partIofN.mp4`, caption "Tiêu đề — Phần
+   * i/N"), phụ đề rebase riêng từng phần. Trả về MỘT item catalog logic với
+   * `parts[]`, `msgId` = phần 1. Phần đã lên kênh mà các phần sau lỗi vẫn nằm trên
+   * kênh (chưa vào catalog) — "Tìm file mồ côi" gom lại qua quy ước tên `partIofN`. */
+  private async uploadSplitParts(item: UploadQueueItem, prepared: PreparedUploadDto, maxUploadBytes: number): Promise<CatalogItemV1> {
+    this.updateQueueItem(item.taskId, { stage: 'splitting', pipelineProgress: undefined });
+    const scan = await scanSplitCandidates(item.taskId, prepared.remuxed_path);
+    const splitPlan = planSplit({
+      keyframes: scan.keyframes.map((k) => ({ timeSec: k.time_sec, byteOffset: k.byte_offset })),
+      totalBytes: scan.total_packet_bytes,
+      durationSec: scan.duration_sec,
+      maxUploadBytes
+    });
+    if (!splitPlan.ok) {
+      throw new Error(describeSplitFailure(splitPlan.reason, prepared.file_size_bytes, maxUploadBytes));
+    }
+
+    const stem = stripExt(item.path);
+    const parts = await splitVideo(item.taskId, prepared.remuxed_path, prepared.temp_dir, stem, splitPlan.cuts.map((c) => c.timeSec));
+    const count = parts.length;
+    const oversize = parts.find((p) => p.file_size_bytes > maxUploadBytes);
+    if (oversize) {
+      throw new Error(`Sau khi cắt, một phần vẫn nặng ${formatBytesShort(oversize.file_size_bytes)} — vượt trần ${formatBytesShort(maxUploadBytes)}. Nên thử "Nén lại" cho file này.`);
+    }
+
+    const compat = deriveCompat(
+      prepared.final_probe.video ?? undefined,
+      prepared.final_probe.audio.map((a) => ({ codec: a.codec, lang: a.lang ?? undefined, index: a.index }))
+    );
+    // Cửa sổ thời gian từng phần = đúng các điểm cắt đã truyền cho Rust (Rust dịch mốc
+    // thời gian mỗi phần đúng bằng điểm cắt đó), nên rebase phụ đề khớp tuyệt đối.
+    const startSecs = [0, ...splitPlan.cuts.map((c) => c.timeSec)];
+    const endSecs = [...splitPlan.cuts.map((c) => c.timeSec), Number.POSITIVE_INFINITY];
+
+    const subtitleSources = await this.collectSubtitleSources(item, prepared);
+    const catalogParts: CatalogPartV1[] = [];
+    for (let i = 0; i < count; i++) {
+      const part = parts[i];
+      this.updateQueueItem(item.taskId, { stage: 'uploading_video', progress: undefined, partProgress: { index: i + 1, count } });
+      const uploaded = await withFloodWaitRetry(
+        (s) => this.updateQueueItem(item.taskId, { floodWaitSeconds: s ?? undefined }),
+        () =>
+          uploadVideo({
+            taskId: item.taskId,
+            filePath: part.path,
+            fileName: partFileName(stem, i + 1, count),
+            width: part.final_probe.video?.width ?? 0,
+            height: part.final_probe.video?.height ?? 0,
+            durationSec: Math.round(part.final_probe.duration_sec),
+            thumbnailPath: part.thumbnail_path,
+            caption: composePartCaption(item.metadata, i + 1, count)
+          })
+      );
+
+      this.updateQueueItem(item.taskId, { stage: 'uploading_subtitles' });
+      const subs: NonNullable<CatalogPartV1['subs']> = [];
+      for (const source of subtitleSources) {
+        const rebased = rebaseSubtitle(source.text, startSecs[i], endSecs[i]);
+        if (rebased === '') {
+          continue; // phần này không có thoại nào — không upload file rỗng
+        }
+        const tempPath = await writeTempTextFile(prepared.temp_dir, `sub-${source.key}-part${i + 1}.srt`, rebased);
+        const subFileName = `${partFileName(stem, i + 1, count).replace(/\.mp4$/, '')}${source.lang ? `.${source.lang}` : ''}.srt`;
+        const subUploaded = await withFloodWaitRetry(
+          (s) => this.updateQueueItem(item.taskId, { floodWaitSeconds: s ?? undefined }),
+          () => uploadSubtitle(tempPath, subFileName)
+        );
+        subs.push({ lang: source.lang ?? 'und', msgId: subUploaded.msg_id });
+      }
+      catalogParts.push({ msgId: uploaded.msg_id, runtime: Math.max(part.final_probe.duration_sec, 0.001), size: part.file_size_bytes, ...(subs.length > 0 ? { subs } : {}) });
+    }
+
+    let poster: CatalogItemV1['poster'];
+    if (item.pendingPosterPath) {
+      this.updateQueueItem(item.taskId, { stage: 'uploading_poster' });
+      const posterUploaded = await withFloodWaitRetry(
+        (s) => this.updateQueueItem(item.taskId, { floodWaitSeconds: s ?? undefined }),
+        () => uploadTmdbPoster(item.pendingPosterPath!, `${stem}.poster.jpg`)
+      );
+      poster = { msgId: posterUploaded.msg_id };
+    }
+
+    // Item-level: msgId/subs của phần 1, runtime/size là TỔNG — client cũ (không biết
+    // `parts`) vẫn phát được phần đầu (ADR-0022 §1).
+    const first = catalogParts[0];
+    return {
+      ...item.metadata,
+      msgId: first.msgId,
+      compat,
+      runtime: Math.round(catalogParts.reduce((sum, p) => sum + p.runtime, 0)),
+      size: catalogParts.reduce((sum, p) => sum + (p.size ?? 0), 0),
+      ...(first.subs ? { subs: first.subs } : {}),
+      ...(poster ? { poster } : {}),
+      parts: catalogParts
+    };
+  }
+
+  /** Mọi phụ đề text của item (nhúng đã rút + sidecar .srt/.vtt) — đọc nội dung để rebase theo phần. */
+  private async collectSubtitleSources(item: UploadQueueItem, prepared: PreparedUploadDto): Promise<{ key: string; lang?: string; text: string }[]> {
+    const sources: { key: string; lang?: string; text: string }[] = [];
+    prepared.subtitles.forEach((sub, idx) => sources.push({ key: `e${idx}`, lang: sub.lang ?? undefined, text: '' }));
+    for (let idx = 0; idx < prepared.subtitles.length; idx++) {
+      sources[idx].text = await readSubtitleText(prepared.subtitles[idx].path);
+    }
+    const dir = dirnameOf(item.path);
+    const siblingNames = await listDirEntries(dir);
+    const sidecars = matchSidecarSubtitles(basename(item.path), siblingNames);
+    for (let idx = 0; idx < sidecars.length; idx++) {
+      sources.push({ key: `s${idx}`, lang: sidecars[idx].lang, text: await readSubtitleText(`${dir}/${sidecars[idx].fileName}`) });
+    }
+    return sources;
   }
 
   /** Đọc lại catalog đang ghim NGAY LÚC publish (không dùng bản đã đọc lúc

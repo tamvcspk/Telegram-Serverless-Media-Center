@@ -428,3 +428,38 @@ pub struct TmdbDetailsDto {
     pub cast: Vec<String>,
     pub director: Option<String>,
 }
+
+/// Một keyframe làm ứng viên điểm cắt — khớp `KeyframeCandidate` của
+/// `ingest-ffmpeg`. Chọn điểm cắt nào là việc của TypeScript (`planSplit()`).
+#[derive(Debug, Serialize)]
+pub struct SplitCandidateDto {
+    pub time_sec: f64,
+    pub byte_offset: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SplitScanDto {
+    pub duration_sec: f64,
+    pub total_packet_bytes: u64,
+    pub keyframes: Vec<SplitCandidateDto>,
+}
+
+impl From<ingest_ffmpeg::SplitScan> for SplitScanDto {
+    fn from(scan: ingest_ffmpeg::SplitScan) -> Self {
+        Self {
+            duration_sec: scan.duration_sec,
+            total_packet_bytes: scan.total_packet_bytes,
+            keyframes: scan.keyframes.into_iter().map(|k| SplitCandidateDto { time_sec: k.time_sec, byte_offset: k.byte_offset }).collect(),
+        }
+    }
+}
+
+/// Một phần đã cắt xong: file + thumbnail riêng + probe lại (số THẬT, không
+/// ước lượng) — Angular so `file_size_bytes` với trần upload trước khi gửi.
+#[derive(Debug, Serialize)]
+pub struct SplitPartDto {
+    pub path: String,
+    pub thumbnail_path: String,
+    pub file_size_bytes: u64,
+    pub final_probe: ProbeResultDto,
+}

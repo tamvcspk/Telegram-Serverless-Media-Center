@@ -15,6 +15,8 @@ import type {
   RemuxModeDto,
   ResolvedChannelDto,
   SavedCredentialsDto,
+  SplitPartDto,
+  SplitScanDto,
   SubtitleTrackDto,
   TmdbDetailsDto,
   TmdbErrorDto,
@@ -242,6 +244,29 @@ export async function estimateReencode(taskId: string, inputPath: string, reenco
     audioBitrate: reencode.audioBitrateBps ?? null
   });
   return samples.map((s) => ({ outBytes: s.out_bytes, mediaSec: s.media_sec, wallSec: s.wall_sec }));
+}
+
+/** Liệt kê keyframe làm ứng viên điểm cắt của file ĐÃ remux (Giai đoạn 4, ADR-0022).
+ * Không chọn điểm cắt — đó là việc của `planSplit()`. Huỷ bằng `cancelUpload(taskId)`. */
+export function scanSplitCandidates(taskId: string, inputPath: string): Promise<SplitScanDto> {
+  return invoke<SplitScanDto>('scan_split_candidates', { taskId, inputPath });
+}
+
+/** Cắt file ĐÃ remux tại `cutTimesSec` (lấy từ `scanSplitCandidates`) thành N phần
+ * stream-copy trong `tempDir` (thư mục tạm của `prepareUpload`), kèm probe +
+ * thumbnail từng phần. Tên phần `{stem}.part{i}of{N}.mp4`. */
+export function splitVideo(taskId: string, inputPath: string, tempDir: string, stem: string, cutTimesSec: number[]): Promise<SplitPartDto[]> {
+  return invoke<SplitPartDto[]>('split_video', { taskId, inputPath, tempDir, stem, cutTimesSec });
+}
+
+/** Đọc phụ đề .srt/.vtt để rebase theo phần (`rebaseSubtitle()`). */
+export function readSubtitleText(path: string): Promise<string> {
+  return invoke<string>('read_subtitle_text', { path });
+}
+
+/** Ghi phụ đề đã rebase vào thư mục tạm của `prepareUpload`; trả đường dẫn để `uploadSubtitle()`. */
+export function writeTempTextFile(tempDir: string, fileName: string, content: string): Promise<string> {
+  return invoke<string>('write_temp_text_file', { tempDir, fileName, content });
 }
 
 /** Tuỳ chọn giao diện nhớ ở app-data (Rust), không `localStorage` — xem `UiPrefsDto`. */

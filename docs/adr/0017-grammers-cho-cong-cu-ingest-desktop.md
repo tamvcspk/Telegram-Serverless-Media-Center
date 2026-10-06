@@ -588,3 +588,12 @@ Thực hiện Giai đoạn 2 của [kế hoạch chuẩn hoá dung lượng](#c�
 **Còn mở:** hiện thực hiệu chỉnh target + chặn dưới (xem [roadmap](../roadmap.md#ingest)); đo thêm 1–2 nội dung khác (hoạt hình, nhiễu cao) để xác nhận ABR ±3%; đo VMAF của `quality` ở q<20; quyết định có mở ADR cho `libx264` hay không.
 
 **Verify:** `cargo test -p ingest-ffmpeg estimate` (5 test, 2 test mới cho `sample_media_sec`) sạch; hai example mới `check_mf_rate_control.rs` (encode ma trận chế độ ra mp4, chấm điểm bằng script ngoài) và `check_quality_sampling.rs` (mẫu so với cả file, biến môi trường `SAMPLE_LEN`/`SAMPLE_POS`). `[Cần kiểm chứng thiết bị thật]` phần dialog tiền kiểm vẫn ở [docs/pending-device-tests.md](../pending-device-tests.md).
+
+
+## Cập nhật sau khi Accepted (2026-10-05, Giai đoạn 4: ingest chia file)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết
+> định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó —
+> quyết định gốc **vẫn đứng vững**.
+
+Thẻ "Chia phần" của dialog tiền kiểm (khoá ở addendum 2026-10-01) đã mở cho Hạng A/B/C; Hạng D vẫn khoá. Không đổi `IngestRpc`/grammers; thêm bốn command Tauri thuần cục bộ (`scan_split_candidates`, `split_video`, `read_subtitle_text`, `write_temp_text_file`) và module `ingest-ffmpeg::split`. Luật nghiệp vụ (chọn điểm cắt, rebase phụ đề, đặt tên/caption phần) nằm ở TypeScript `libs/core-ingest` đúng điều kiện bắt buộc #4. Thiết kế schema ở [ADR-0022](./0022-item-nhieu-phan-trong-catalog.md); phạm vi đã làm/chưa làm/chưa kiểm chứng ở [ADR-0022 § addendum 2026-10-05](./0022-item-nhieu-phan-trong-catalog.md#cập-nhật-sau-khi-accepted-2026-10-05-giai-đoạn-4-ingest-chia-file). **Còn mở:** chấm điểm chuyển cảnh/im lặng và editor timeline chưa làm; chưa chạy bằng tài khoản thật.

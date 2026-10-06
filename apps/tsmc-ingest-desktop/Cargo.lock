@@ -2181,6 +2181,7 @@ dependencies = [
  "grammers-tl-types",
  "ingest-rpc-trait",
  "libsql",
+ "log",
  "rand",
  "tokio",
 ]

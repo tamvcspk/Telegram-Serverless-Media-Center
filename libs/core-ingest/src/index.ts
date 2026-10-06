@@ -61,3 +61,7 @@ export {
 } from './reencode-plan';
 
 export { assignToSeries, findRepresentativeEpisode, listSeriesNames, suggestNextEpisode } from './series-registry';
+
+export { rebaseSubtitle, parseSubtitleCues } from './subtitle-split';
+
+export { composePartCaption, MAX_SPLIT_PARTS, parsePartFileName, partFileName, planSplit, SPLIT_SAFETY_MARGIN, type SplitCandidate, type SplitPart, type SplitPlan } from './split-plan';

@@ -132,7 +132,7 @@ export interface CurrentTaskDto {
 export interface PipelineStageDto {
   task_id: string;
   path: string;
-  stage: 'remuxing' | 'reencoding' | 'generating_thumbnail' | 'extracting_subtitles';
+  stage: 'remuxing' | 'reencoding' | 'splitting' | 'generating_thumbnail' | 'extracting_subtitles';
 }
 
 /** Payload sự kiện `"pipeline-progress"` — %/tốc độ/ETA/dung lượng dự phóng
@@ -146,7 +146,7 @@ export interface PipelineStageDto {
 export interface PipelineProgressDto {
   task_id: string;
   path: string;
-  stage: 'remuxing' | 'reencoding';
+  stage: 'remuxing' | 'reencoding' | 'splitting';
   percent: number;
   speed_x_realtime: number | null;
   eta_sec: number | null;
@@ -197,6 +197,23 @@ export interface PreparedUploadDto {
   subtitles: PreparedSubtitleDto[];
   final_probe: ProbeResultDto;
   file_size_bytes: number;
+}
+
+/** Khớp `SplitScanDto` — keyframe làm ứng viên điểm cắt (Giai đoạn 4, ADR-0022).
+ * Chọn điểm cắt là việc của `planSplit()` (`@tsmc/core-ingest`). */
+export interface SplitScanDto {
+  duration_sec: number;
+  total_packet_bytes: number;
+  keyframes: { time_sec: number; byte_offset: number }[];
+}
+
+/** Khớp `SplitPartDto` — một phần đã cắt: file + thumbnail riêng + probe lại
+ * (dung lượng/thời lượng THẬT của phần đó). */
+export interface SplitPartDto {
+  path: string;
+  thumbnail_path: string;
+  file_size_bytes: number;
+  final_probe: ProbeResultDto;
 }
 
 /** Khớp `TmdbKindDto` (ADR-0019) — `'episode'` → `search/tv`, `'movie'` →

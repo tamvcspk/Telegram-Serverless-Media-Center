@@ -17,6 +17,7 @@ Quy tắc: **một spike chỉ đóng khi có số liệu từ thiết bị th�
 | [SPIKE-09](#spike-09) | `ffmpeg-next`/`ffmpeg-sys-next` (native Rust FFI) có khả thi thay shell-out CLI hiện tại của `tsmc-ingest`, với chi phí/tốc độ nào so với baseline 40.8x realtime đã đo? | [0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md) | 🟢 **Đạt, có caveat (2026-09-03, tích hợp thật + sửa số liệu 2026-09-04)** — cả 3 việc chạy được, 72.1x realtime (file mẫu tổng hợp), 7 DLL ~21.3 MB tự chứa (không cần PATH); hai rủi ro khác hẳn nhau đã đo được thật: sai tham số FFI → **segfault**, thiếu DLL → **DLL_NOT_FOUND** (không phải segfault) |
 | [SPIKE-10](#spike-10) | Trong 4 tổ hợp runtime khả dĩ cho GUI ingest desktop (Tauri), tổ hợp nào chịu được upload file ≥2 GB với RAM phẳng + có tiến trình/huỷ + không mất việc khi `FLOOD_WAIT` + crash FFmpeg không giết UI, với chi phí viết mới và đóng gói thấp nhất? | [0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md), [0003](../adr/0003-chon-thu-vien-mtproto-gramjs.md), [0012](../adr/0012-trien-khai-static-pwa-va-cau-truc-workspace.md), [0017](../adr/0017-grammers-cho-cong-cu-ingest-desktop.md) | 🟡 **Đã đóng, chấp nhận rủi ro (2026-09-07)** — chọn R3 (`grammers-client`), xem [ADR-0017](../adr/0017-grammers-cho-cong-cu-ingest-desktop.md). M1/M2/M3/M5/M7/M8/P1 ĐẠT thật trên tài khoản Telegram thật; R4 (ferogram) trượt M2 dứt khoát (transfer pool riêng, không public). M4 cải thiện 13.5%→24.4% nhưng chưa qua ngưỡng pass 80% (chấp nhận, không phải trần kiến trúc); **M6 (`FLOOD_WAIT`) để ngỏ có chủ đích, không chủ động ép** — đây là lý do đóng 🟡 thay vì 🟢, KHÔNG đổi dù Đ1/Đ2 sau này đều ĐẠT. **Cập nhật 2026-09-13:** Đ2 (giấy phép FFmpeg) đo thật lúc đóng gói `.exe` lần đầu — giữ LGPL, không kéo GPL (encoder H264 thật là `h264_mf` của Windows, không phải `libx264`). **Cập nhật tiếp cùng ngày:** Đ1 (đóng gói máy sạch) ĐẠT — user xác nhận cài+chạy bản đóng gói (MSI/NSIS kèm 7 DLL) trên máy không có vcpkg/LLVM/Rust/Node, không còn lỗi thiếu FFmpeg; Đ3 vẫn chưa đo |
 | [SPIKE-11](#spike-11) | `h264_mf` (encoder H264 thật của `reencode.rs`, xác nhận ở SPIKE-09/ADR-0013) có tôn trọng `set_bit_rate()` (field cứng `AVCodecContext`), hay bỏ qua thầm lặng giống hệt option `preset` (AVOption riêng của `libx264`) đã phát hiện trước đây? | [0013](../adr/0013-bot-dong-hanh-va-pipeline-ingest.md) (điều kiện tiên quyết Option C, "chuẩn hoá dung lượng vượt trần upload") | 🟢 **Đạt (2026-09-19)** — `set_bit_rate()` ĐƯỢC tôn trọng thật: kích thước output tăng đơn điệu theo target và actual/target hội tụ về gần 1 khi target đủ cao, trên nội dung tổng hợp độ phức tạp vừa phải ("plasma") |
+| [SPIKE-12](#spike-12) | Khi Player phát item nhiều phần ([ADR-0022](../adr/0022-item-nhieu-phan-trong-catalog.md)) bằng `<video>` progressive (không MSE), độ hụt lúc chuyển phần là bao nhiêu ở từng cách chuyển (đổi `src` / nạp trước / hai `<video>`), và iOS có chặn phát tự động phần kế không? | [0022](../adr/0022-item-nhieu-phan-trong-catalog.md), [0005](../adr/0005-streaming-qua-service-worker-http-range.md) | ⏳ Chưa dựng — giả thuyết, chưa có số đo |
 
 ---
 
@@ -1062,3 +1063,54 @@ Nội dung plasma, 125 frame (640×360@25fps, 5 giây):
 | `bit_rate` bị bỏ qua (kích thước không đổi/không đơn điệu bất kể target, giống case gradient ban đầu) | Công thức Option C KHÔNG dùng được nguyên trạng — cần điều tra AVOption riêng của `h264_mf` (nếu có expose qua `CODECAPI_AVEncCommonMeanBitRate` dạng option string) hoặc coi Option C là KHÔNG khả thi với encoder hiện tại, ghi rõ vào addendum ADR-0013/ADR-0017 — đóng spike 🔴, chặn Option C cho tới khi có hướng khác |
 
 **Kết quả thật khớp nhánh 1** — xem "Kết quả" ở trên. Đóng spike 🟢. Chi tiết áp dụng vào code Option C: [ADR-0017 § addendum 2026-09-19](../adr/0017-grammers-cho-cong-cu-ingest-desktop.md#cập-nhật-sau-khi-accepted-2026-09-19-option-c-tự-re-encode-theo-bitrate-mục-tiêu-khi-vượt-trần-spike-11-đạt).
+
+## SPIKE-12
+
+**Trạng thái:** ⏳ **Chưa dựng** (mở 2026-10-05, cùng [ADR-0022](../adr/0022-item-nhieu-phan-trong-catalog.md)). Không có số đo nào — mọi ngưỡng bên dưới là **giả thuyết khởi điểm** do người viết đề xuất, chốt lại trước khi chạy.
+
+**Câu hỏi:** Phát item nhiều phần bằng `<video>` progressive (ADR-0005 cấm MSE), từ lúc phần A `ended` tới lúc phần B hiện khung hình đầu (`requestVideoFrameCallback`) mất bao lâu, ở từng cách chuyển; và trên iOS/iPadOS phần B có tự phát được không khi người dùng không chạm gì?
+
+**Vì sao quan trọng:** ADR-0022 chọn "chia phần" thay "nén lại" làm đường chính cho phim vượt trần. Nếu chuyển phần giật rõ rệt hoặc iOS chặn phát tự động, hướng này kém hơn nén lại ở đúng nền tảng người dùng hay dùng (iPad, theo SPIKE-01) và Giai đoạn 5 phải tốn thêm công double-buffer. Cần biết **trước** khi code Giai đoạn 4-5.
+
+### Bàn thử nghiệm
+
+Trang tĩnh trong `tools/spike-12/` (xoá sau khi đóng spike), **không dùng Telegram** — cùng nguyên tắc cô lập SPIKE-01: nếu hỏng thì lỗi ở trình duyệt, không ở MTProto. Hai file MP4 faststart ngắn cắt từ cùng nguồn tại keyframe (`ffmpeg -c copy`), phục vụ qua một Service Worker giả lập HTTP Range **có chèn trễ byte đầu tiên** tuỳ chỉnh (0 / 150 / 400 ms) để mô phỏng độ trễ `fetchChunk` qua MTProto. Ba biến thể chuyển phần:
+
+- **V1:** đổi `src` của cùng một `<video>` khi `ended`.
+- **V2:** như V1 nhưng nạp trước phần kế bằng `<video preload="auto">` ẩn thứ hai ở ~80% phần hiện tại, rồi đổi `src` (cache HTTP/đoạn đầu đã ấm).
+- **V3:** hai `<video>` chồng nhau, phát phần B ẩn khi gần hết phần A rồi hoán đổi hiển thị.
+
+### Cách chạy
+
+Người dùng tự mở trang trên từng thiết bị (không cần đăng nhập gì); trang tự đo và hiện bảng + nút sao chép JSON tổng hợp.
+
+### Tiêu chí đạt/không đạt
+
+| Chỉ số | Đạt (V1 đủ dùng) | Cần V2/V3 | Không đạt |
+|---|---|---|---|
+| Hụt `ended`→khung hình đầu phần B, median trên 10 lần, trễ 150 ms | ≤ 700 ms | 700–2000 ms | > 2000 ms ở mọi biến thể |
+| Tự phát phần B không chạm trên iOS (sau một lần Play do người dùng bấm) | Có | — | Không (mọi biến thể) |
+| Âm thanh/hình lệch hoặc nháy đen kéo dài | Không | Có ở V1, hết ở V2/V3 | Còn ở cả V3 |
+
+(Ngưỡng 700/2000 ms là đề xuất khởi điểm — điều chỉnh được **trước** khi chạy, không sau khi thấy số.)
+
+### Ma trận thiết bị cần phủ
+
+| Thiết bị | Bắt buộc |
+|---|---|
+| Chrome desktop (Windows) | Có |
+| Safari iPad thật (WebKit) | **Có** — nơi iOS có thể chặn phát tự động |
+| Chrome Android thật | Có |
+
+### Kết quả
+
+*(để trống tới khi có số đo thật)*
+
+### Ta sẽ làm gì với từng kết quả
+
+| Kết quả | Hành động |
+|---|---|
+| V1 đạt trên cả ba thiết bị | Giai đoạn 5 dùng đổi `src` + prefetch đơn giản; đóng 🟢 |
+| V1 vượt ngưỡng nhưng V2 đạt | Giai đoạn 5 bắt buộc có bước nạp trước phần kế bằng `<video>` ẩn; ghi addendum vào ADR-0022 |
+| Chỉ V3 đạt | Giai đoạn 5 làm double-buffer hai `<video>`; ghi addendum ADR-0022 nêu chi phí và rủi ro iOS |
+| iOS chặn tự phát phần B ở mọi biến thể | Đánh giá lại: iOS hiện nút "Phần kế" bắt buộc chạm, hoặc ưu tiên nén lại cho nền tảng đó; viết ADR mới nếu đổi hướng ADR-0022 |

@@ -4,7 +4,7 @@
 // bản gốc phụ thuộc IndexStoragePort (Dexie, chỉ có trong trình duyệt) — CLI
 // không có index cục bộ, nguồn sự thật duy nhất là chính catalog.json vừa
 // đọc lại từ kênh (existingItems), không phải một DB nào khác.
-import { parseCatalogItem, type CatalogEnvelopeV1, type CatalogItemV1 } from '@tsmc/shared-models';
+import { dropCollidingParts, parseCatalogItem, type CatalogEnvelopeV1, type CatalogItemV1 } from '@tsmc/shared-models';
 
 const CATALOG_SPEC_V1 = 'tsmc-catalog/1' as const;
 
@@ -56,7 +56,7 @@ export function mergeCatalogItems(existingItems: CatalogItemV1[], newItems: Cata
   for (const item of newItems) {
     byMsgId.set(item.msgId, item);
   }
-  return Array.from(byMsgId.values());
+  return dropCollidingParts(Array.from(byMsgId.values()));
 }
 
 /** Sanitize lại TOÀN BỘ mảng qua schema Valibot trước khi đóng gói — catalog sắp ghi đè trở thành nguồn sự thật MỚI (cùng nguyên tắc publish-catalog.ts). */

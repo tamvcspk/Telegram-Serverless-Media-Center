@@ -1,6 +1,6 @@
 // T1 — catalog ghim trên kênh, ADR-0010 mục 1+3. "Dừng ở tầng đầu tiên
 // thành công": index-engine.ts chỉ rơi xuống T2/T3 khi hàm này trả null.
-import { parseCatalogEnvelope, parseCatalogItem, type CatalogItemV1 } from '@tsmc/shared-models';
+import { dropCollidingParts, parseCatalogEnvelope, parseCatalogItem, type CatalogItemV1 } from '@tsmc/shared-models';
 import type { IndexGateway, ResolvedIndexChannel } from './gateway-port';
 import type { IndexStoragePort, StoredMediaItem } from './storage-port';
 import { classifyFromCache, ensureChannelAdminListCached } from './trust';
@@ -59,9 +59,11 @@ export async function tryCatalogTier(
     return null;
   }
 
-  const items = extractRawItems(raw)
-    .map(parseCatalogItem)
-    .filter((item): item is CatalogItemV1 => item !== null)
+  const items = dropCollidingParts(
+    extractRawItems(raw)
+      .map(parseCatalogItem)
+      .filter((item): item is CatalogItemV1 => item !== null)
+  )
     // Trust của publisher CATALOG (không phải per-item) đã dứt khoát ở
     // trên — mọi item trong tài liệu này đều gắn nhãn 'catalog' đồng nhất.
     .map((item): StoredMediaItem => ({ ...item, trust: 'catalog' }));

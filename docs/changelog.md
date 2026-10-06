@@ -4,6 +4,22 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-10-06 — Tài liệu: kiến thức upload MTProto để cải thiện đường upload ingest
+
+Chỉ tài liệu, không code. Thêm [docs/upload-mtproto.md](./upload-mtproto.md): giao thức upload big file, số đo throughput/điểm vỡ (nguồn tgmirror, một tài khoản — chưa phải số của TSMC), AIMD/retry/xử lý 429 transport, nhịp đăng, danh sách chưa biết, và bảng đối chiếu với `multi_connection_upload` hiện tại cùng thứ tự cải thiện đề xuất. Mục mới ở [roadmap § Ingest](./roadmap.md).
+
+## 2026-10-07 — Ingest desktop: Giai đoạn 4 verify thiết bị thật + thử lại part khi server trả 5xx
+
+Chạy thật bằng tài khoản Telegram: chia phần upload được, gom lại thành một item trong catalog-manager. Lần chạy đầu một phần lỗi `500 RPC_CALL_FAIL` ở `upload.saveBigFilePart` — `multi_connection_upload` huỷ cả file khi một part lỗi. Sửa: thử lại đúng part đó (lỗi 500–599, backoff mũ + jitter, tối đa 5 lần, Huỷ vẫn dừng được, có log); `FLOOD_WAIT` và lỗi khác vẫn dừng ngay. User xác nhận trên thiết bị đã hết lỗi upload. Quét mồ côi chỉ gom phần theo quy ước tên `X.partIofN.mp4` — file cắt bằng công cụ ngoài (tên theo mốc thời gian) không gom được, cần luồng "Chia phần" của app. Phần chưa làm của Giai đoạn 4 (chuyển cảnh/im lặng, editor timeline, dọn phần upload dở, T2/T3) giữ nguyên ở [ADR-0022 § addendum](./adr/0022-item-nhieu-phan-trong-catalog.md#cập-nhật-sau-khi-accepted-2026-10-05-giai-đoạn-4-ingest-chia-file).
+
+## 2026-10-05 — Ingest desktop: Giai đoạn 4 — chia phần (ingest + schema `parts`), chưa chạy bằng tài khoản thật
+
+Thẻ "Chia phần" của dialog tiền kiểm đã dùng được cho Hạng A/B/C: remux → quét keyframe → `planSplit()` (chia đều, margin 3%) → cắt stream-copy → upload N video độc lập (`X.partIofN.mp4`, caption "Tiêu đề — Phần i/N") → phụ đề rebase từng phần → MỘT item catalog có `parts[]` (ADR-0022). Schema `parts` + kiểm trùng message giữa các item ở cả đường đọc lẫn đường gộp catalog. Trình quản lý catalog biết `parts` (đối soát, quét mồ côi gom đủ N phần thành một mục, xoá mọi phần, hashtag caption giữ "— Phần i/N"). Verify cục bộ: `check_split` trên fixture H.264+B-frame+AAC 60s cắt 3 phần (tổng thời lượng khớp, đúng 1500 khung hình, không lỗi giải mã, lệch A/V ≤ 15 ms), 394 test thư viện, build web + UI desktop, `cargo check` sạch. **Chưa làm:** chấm điểm chuyển cảnh/im lặng, editor timeline, tự dọn phần upload dở, nhóm `partIofN` ở T2/T3. **Chưa chạy end-to-end bằng tài khoản Telegram thật** — [pending-device-tests](./pending-device-tests.md#gui-ingest-desktop-appstsmc-ingest-desktop--giai-đoạn-4-chia-phần-2026-10-05). Chi tiết: [ADR-0022 § addendum](./adr/0022-item-nhieu-phan-trong-catalog.md#cập-nhật-sau-khi-accepted-2026-10-05-giai-đoạn-4-ingest-chia-file).
+
+## 2026-10-05 — Ingest desktop: Giai đoạn 3 — ADR-0022 item nhiều phần + mở SPIKE-12
+
+Chỉ tài liệu, không code. [ADR-0022](./adr/0022-item-nhieu-phan-trong-catalog.md): thêm trường optional `parts[]` (`msgId`, `runtime` bắt buộc, `size`, `subs` rebase theo phần) vào Catalog Spec v1 **không bump version**; `msgId` item = phần 1, `runtime`/`size`/`subs` cấp item giữ nghĩa cũ (tổng / bản sao phần 1) để client cũ vẫn phát được phần đầu. Validate: 2–50 phần, msgId duy nhất và `parts[0]`=`msgId` item, không trùng message của item khác — sai thì bỏ riêng `parts`. T2/T3 nhóm phần theo quy ước `partIofN`, nhóm thiếu phần hiện rời rạc thay vì giấu. Ràng buộc cho Giai đoạn 4 (quét mồ côi/xoá/gộp catalog bảo toàn `parts`, chỉ publish catalog sau khi đủ phần) và Giai đoạn 5 (timeline ảo, tiến độ toàn cục, SW/Core Worker không đổi). Khảo sát hiện trạng thấy Dexie không cần `version()` mới. [SPIKE-12](./spikes/README.md#spike-12) mở ở trạng thái ⏳ (chưa có số đo; ngưỡng 700/2000 ms là đề xuất khởi điểm) — thêm dòng rủi ro vào [architecture.md §7](./architecture.md#7-rủi-ro-lớn-nhất--trạng-thái-kiểm-chứng).
+
 ## 2026-10-05 — Dialog tiền kiểm: hiện thêm GiB cạnh dung lượng nguồn
 
 Windows báo 4.96 "GB" còn app báo 5.33 GB: Windows chia 1024³ (GiB) nhưng ghi nhãn GB, app dùng GB thập phân 10⁹ (cùng đơn vị với trần upload và mọi số khác trong dialog). Dialog giờ hiện "5.33 GB (4.96 GiB, như Windows hiện)" cho file nguồn; không đổi cách tính. Sau sửa lỗi trôi, user xác nhận dung lượng đo lại ổn định 3.80 GB; chặn cứng dưới sàn ABR đã được user kiểm chứng trên app thật; chặn khi vượt trần và cảnh báo nén vô nghĩa chưa kích hoạt được trên file thật — chỉ có test đơn vị.

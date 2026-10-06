@@ -29,3 +29,4 @@ Mỗi ADR ghi lại **một** quyết định kiến trúc: bối cảnh, các p
 | [0019](./0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md) | Tích hợp tra cứu metadata TMDB tại bước Draft — ingest desktop | Accepted |
 | [0020](./0020-ma-hoa-bi-mat-app-data-qua-os-keyring.md) | Mã hoá bí mật lưu ở app-data qua OS keyring, fallback plaintext — ingest desktop | Accepted |
 | [0021](./0021-ma-hoa-session-sqlite-qua-session-tu-implement.md) | Mã hoá `session.sqlite3` qua `Session` tự implement (libSQL encryption-at-rest) — ingest desktop | Accepted |
+| [0022](./0022-item-nhieu-phan-trong-catalog.md) | Item nhiều phần (`parts[]`) trong Catalog Spec v1 — một phim logic, N video Telegram độc lập | Accepted |

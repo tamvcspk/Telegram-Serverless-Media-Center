@@ -10,16 +10,19 @@ import {
   assignToSeries,
   buildCatalogEnvelope,
   composeCaption,
+  composePartCaption,
   findRepresentativeEpisode,
   flattenMetadataTree,
   mergeCatalogItems,
   parseExistingCatalogItems,
+  parsePartFileName,
   seasonGroupKey,
   seedMetadataFromFilename,
   seriesGroupKey,
   type FlatMetadataRow
 } from '@tsmc/core-ingest';
-import type { CatalogItemV1 } from '@tsmc/shared-models';
+import type { CatalogItemV1, CatalogPartV1 } from '@tsmc/shared-models';
+import type { ChannelVideoDocumentDto } from '../core/ingest-rpc.types';
 import { withFloodWaitRetry } from '../core/flood-wait-retry';
 import {
   checkDeletedMessages,
@@ -332,14 +335,16 @@ export class CatalogManager implements OnInit {
    * RPC tường minh (đúng nguyên tắc "Tra TMDB" cũng là nút thủ công, không
    * tự gọi lúc mở màn). */
   async onReconcile(): Promise<void> {
-    const msgIds = this.items().map((item) => item.msgId);
+    // Item nhiều phần (ADR-0022) hỏng nếu BẤT KỲ phần nào mất message — tra mọi
+    // msgId của các phần, rồi quy ngược về `msgId` item (khoá của `brokenIds`).
+    const msgIds = this.items().flatMap((item) => messageIdsOf(item));
     if (msgIds.length === 0) {
       return;
     }
     this.reconciling.set(true);
     try {
-      const missing = await checkDeletedMessages(msgIds);
-      this.brokenIds.set(new Set(missing));
+      const missing = new Set(await checkDeletedMessages(msgIds));
+      this.brokenIds.set(new Set(this.items().filter((item) => messageIdsOf(item).some((id) => missing.has(id))).map((item) => item.msgId)));
     } catch (err) {
       this.loadError.set(describeIngestError(toIngestRpcError(err)));
     } finally {
@@ -357,8 +362,9 @@ export class CatalogManager implements OnInit {
     this.scanningOrphans.set(true);
     try {
       const docs = await scanChannelVideos();
-      const catalogIds = new Set(this.items().map((item) => item.msgId));
-      const orphans = docs.filter((d) => !catalogIds.has(d.msg_id));
+      // Phần của item nhiều phần (ADR-0022) cũng là message đã có trong catalog.
+      const catalogIds = new Set(this.items().flatMap((item) => messageIdsOf(item)));
+      const orphans = groupOrphanParts(docs.filter((d) => !catalogIds.has(d.msg_id)));
 
       if (orphans.length === 0) {
         await this.dialogService.alert({
@@ -368,18 +374,18 @@ export class CatalogManager implements OnInit {
         return;
       }
 
-      const dialogItems: OrphanReviewDialogItem[] = orphans.map((d) => ({
-        msgId: d.msg_id,
-        fileName: d.file_name ?? `#${d.msg_id}`,
-        sizeLabel: `${(d.size / 1_000_000).toFixed(1)} MB`,
-        durationLabel: d.duration_sec ? formatDuration(d.duration_sec) : null
+      const dialogItems: OrphanReviewDialogItem[] = orphans.map((o) => ({
+        msgId: o.docs[0].msg_id,
+        fileName: o.fileName,
+        sizeLabel: `${(o.docs.reduce((sum, d) => sum + d.size, 0) / 1_000_000).toFixed(1)} MB${o.docs.length > 1 ? ` · ${o.docs.length} phần` : ''}`,
+        durationLabel: o.docs.every((d) => d.duration_sec) ? formatDuration(o.docs.reduce((sum, d) => sum + (d.duration_sec ?? 0), 0)) : null
       }));
       const selected = await this.dialogService.reviewOrphans(dialogItems);
       if (selected.size === 0) {
         return;
       }
 
-      const toAdd = orphans.filter((d) => selected.has(d.msg_id)).map((d) => seedMetadataFromFilename(d.msg_id, d.file_name ?? `#${d.msg_id}`));
+      const toAdd = orphans.filter((o) => selected.has(o.docs[0].msg_id)).map((o) => orphanToItem(o));
       this.items.update((items) => [...items, ...toAdd]);
       this.dirty.set(true);
     } catch (err) {
@@ -426,9 +432,11 @@ export class CatalogManager implements OnInit {
    * Lưu). Gỡ khỏi mảng đang sửa SAU KHI xoá message thành công. */
   async removeFromCatalogAndChannel(item: CatalogItemV1): Promise<void> {
     const label = item.title ?? `#${item.msgId}`;
+    const videoIds = (item.parts ?? [{ msgId: item.msgId }]).map((p) => p.msgId);
+    const what = videoIds.length > 1 ? `${videoIds.length} message (các phần của phim)` : 'message';
     const confirmed = await this.dialogService.confirm({
       title: 'Xoá message trên kênh?',
-      message: `"${label}" sẽ bị xoá HẲN khỏi kênh Telegram (không hoàn tác được), cộng gỡ khỏi catalog. Chỉ hiệu lực trên catalog sau khi bấm "Lưu catalog".`,
+      message: `"${label}": ${what} sẽ bị xoá HẲN khỏi kênh Telegram (không hoàn tác được), cộng gỡ khỏi catalog. Chỉ hiệu lực trên catalog sau khi bấm "Lưu catalog".`,
       confirmText: 'Xoá trên kênh',
       cancelText: 'Huỷ',
       tone: 'warn'
@@ -437,7 +445,9 @@ export class CatalogManager implements OnInit {
       return;
     }
     try {
-      await deleteMessage(item.msgId);
+      for (const id of videoIds) {
+        await deleteMessage(id);
+      }
     } catch (err) {
       this.loadError.set(describeIngestError(toIngestRpcError(err)));
       return;
@@ -571,7 +581,16 @@ export class CatalogManager implements OnInit {
       try {
         await withFloodWaitRetry(
           (s) => this.publishFloodWaitSeconds.set(s),
-          () => editMessageCaption(item.msgId, composeCaption(item))
+          async () => {
+            // Item nhiều phần: mỗi phần giữ "— Phần i/N" trong caption (ADR-0022 §3).
+            const parts = item.parts;
+            if (!parts) {
+              return editMessageCaption(item.msgId, composeCaption(item));
+            }
+            for (const [i, part] of parts.entries()) {
+              await editMessageCaption(part.msgId, composePartCaption(item, i + 1, parts.length));
+            }
+          }
         );
       } catch (err) {
         failures.push(`#${item.msgId}: ${describeIngestError(toIngestRpcError(err))}`);
@@ -598,4 +617,67 @@ function formatDuration(seconds: number): string {
   const m = Math.floor(total / 60);
   const s = total % 60;
   return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+/** Mọi message video của item: `msgId` (item một phần) hoặc `parts[].msgId` (ADR-0022). */
+function messageIdsOf(item: CatalogItemV1): number[] {
+  return item.parts ? item.parts.map((p) => p.msgId) : [item.msgId];
+}
+
+/** Một "file mồ côi" hiển thị cho user: một video đơn, hoặc đủ N phần `partIofN` gom lại. */
+interface OrphanGroup {
+  fileName: string;
+  /** Theo thứ tự phần (1..N); đơn lẻ thì đúng một phần tử. */
+  docs: ChannelVideoDocumentDto[];
+  /** Tên gốc (không có hậu tố `.partIofN`) — chỉ có với nhóm đủ phần. */
+  baseName?: string;
+}
+
+/**
+ * Gom các video mang tên `X.partIofN.ext` thành MỘT mục khi ĐỦ cả N phần (đủ chỉ
+ * số 1..N, mỗi chỉ số đúng một message, đều có duration — cần cho `runtime` của
+ * phần). Nhóm thiếu/trùng phần hoặc thiếu duration KHÔNG bị giấu: từng message
+ * hiện riêng như video mồ côi thường (ADR-0022 §3-4) để user tự xử lý.
+ */
+function groupOrphanParts(docs: ChannelVideoDocumentDto[]): OrphanGroup[] {
+  const groups = new Map<string, { count: number; byIndex: Map<number, ChannelVideoDocumentDto[]> }>();
+  const standalone = new Set(docs);
+  for (const doc of docs) {
+    const parsed = doc.file_name ? parsePartFileName(doc.file_name) : null;
+    if (!parsed) {
+      continue;
+    }
+    const key = `${parsed.baseName}\u0000${parsed.count}`;
+    const group = groups.get(key) ?? { count: parsed.count, byIndex: new Map() };
+    group.byIndex.set(parsed.index, [...(group.byIndex.get(parsed.index) ?? []), doc]);
+    groups.set(key, group);
+  }
+
+  const result: OrphanGroup[] = [];
+  for (const [key, group] of groups) {
+    const complete = group.byIndex.size === group.count && [...group.byIndex.values()].every((v) => v.length === 1);
+    const ordered = complete ? Array.from({ length: group.count }, (_, i) => group.byIndex.get(i + 1)![0]) : [];
+    if (complete && ordered.every((d) => (d.duration_sec ?? 0) > 0)) {
+      ordered.forEach((d) => standalone.delete(d));
+      const baseName = key.slice(0, key.lastIndexOf('\u0000'));
+      result.push({ fileName: baseName, baseName, docs: ordered });
+    }
+  }
+  for (const doc of docs) {
+    if (standalone.has(doc)) {
+      result.push({ fileName: doc.file_name ?? `#${doc.msg_id}`, docs: [doc] });
+    }
+  }
+  return result.sort((a, b) => a.docs[0].msg_id - b.docs[0].msg_id);
+}
+
+/** Seed metadata từ tên file; nhóm đủ phần → item có `parts[]` (msgId = phần 1, runtime/size = tổng). */
+function orphanToItem(group: OrphanGroup): CatalogItemV1 {
+  const first = group.docs[0];
+  const item = seedMetadataFromFilename(first.msg_id, group.baseName !== undefined ? `${group.baseName}.mp4` : (first.file_name ?? `#${first.msg_id}`));
+  if (group.baseName === undefined) {
+    return item;
+  }
+  const parts: CatalogPartV1[] = group.docs.map((d) => ({ msgId: d.msg_id, runtime: d.duration_sec ?? 0, size: d.size }));
+  return { ...item, msgId: first.msg_id, runtime: Math.round(parts.reduce((sum, p) => sum + p.runtime, 0)), size: parts.reduce((sum, p) => sum + (p.size ?? 0), 0), parts };
 }

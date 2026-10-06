@@ -56,4 +56,16 @@ describe('buildCatalogEnvelope', () => {
     const envelope = buildCatalogEnvelope({ id: '1', title: 'X' }, [{ msgId: undefined } as never]);
     expect(envelope.items).toEqual([]);
   });
+
+  it('mergeCatalogItems bỏ parts của item mượn message của item khác (ADR-0022 §2.4)', () => {
+    const existing = [{ msgId: 2, title: 'Phim khác' }];
+    const incoming = [{ msgId: 1, parts: [{ msgId: 1, runtime: 1 }, { msgId: 2, runtime: 1 }] }];
+    const merged = mergeCatalogItems(existing, incoming);
+    expect(merged.find((i) => i.msgId === 1)).toEqual({ msgId: 1 });
+  });
+
+  it('mergeCatalogItems giữ parts hợp lệ', () => {
+    const merged = mergeCatalogItems([], [{ msgId: 1, parts: [{ msgId: 1, runtime: 1 }, { msgId: 2, runtime: 1 }] }]);
+    expect(merged[0].parts).toHaveLength(2);
+  });
 });

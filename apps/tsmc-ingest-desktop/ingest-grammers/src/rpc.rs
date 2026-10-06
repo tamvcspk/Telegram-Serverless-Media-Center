@@ -99,6 +99,34 @@ fn to_rpc_error(err: InvocationError) -> IngestRpcError {
     IngestRpcError::Other(err.to_string())
 }
 
+/// Lỗi phía server Telegram, không phải lỗi của request (mã 500-599, vd
+/// `RPC_CALL_FAIL`, `INTERNAL`) — thử lại được. FLOOD_WAIT (mã 420) KHÔNG nằm
+/// trong nhóm này.
+fn is_transient_server_error(err: &InvocationError) -> bool {
+    matches!(err, InvocationError::Rpc(rpc) if (500..600).contains(&rpc.code))
+}
+
+/// `1s × 2^attempt` (kẹp 30s) × jitter 0.75–1.25.
+fn retry_delay(attempt: u32) -> std::time::Duration {
+    let base = (1u64 << attempt.min(5)).min(30) as f64;
+    std::time::Duration::from_secs_f64(base * (0.75 + rand::random::<f64>() * 0.5))
+}
+
+/// Ngủ nhưng thức dậy sớm (trả `Cancelled`) nếu user bấm Huỷ.
+async fn sleep_unless_cancelled(total: std::time::Duration, cancel: &CancelFlag) -> Result<(), IngestRpcError> {
+    let step = std::time::Duration::from_millis(250);
+    let mut slept = std::time::Duration::ZERO;
+    while slept < total {
+        if cancel.is_cancelled() {
+            return Err(IngestRpcError::Cancelled);
+        }
+        let chunk = step.min(total - slept);
+        tokio::time::sleep(chunk).await;
+        slept += chunk;
+    }
+    Ok(())
+}
+
 /// Kênh broadcast (`Peer::Channel`) HOẶC supergroup (`Peer::Group` mà
 /// `raw` là `tl::enums::Chat::Channel` — grammers tự phân loại một
 /// megagroup vào `Group` dù ở tầng TL nó vẫn là kiểu `Channel` với
@@ -503,6 +531,7 @@ impl GrammersIngestRpc {
     async fn multi_connection_upload(&self, path: &Path, total: u64, file_name: &str, progress: ProgressSink<'_>, cancel: &CancelFlag) -> Result<tl::enums::InputFile, IngestRpcError> {
         const PART_SIZE: u64 = 512 * 1024;
         const N_CONNS: usize = 3;
+        const PART_MAX_RETRIES: u32 = 5;
 
         let total_parts = i32::try_from(total.div_ceil(PART_SIZE)).map_err(|_| IngestRpcError::Other("file quá lớn cho i32 file_total_parts".into()))?;
         let n_workers = N_CONNS.min(total_parts.max(1) as usize).max(1);
@@ -560,10 +589,27 @@ impl GrammersIngestRpc {
                     file.seek(std::io::SeekFrom::Start(offset)).await.map_err(|e| IngestRpcError::Other(e.to_string()))?;
                     file.read_exact(&mut buf).await.map_err(|e| IngestRpcError::Other(e.to_string()))?;
 
-                    let ok = sender
-                        .invoke(&tl::functions::upload::SaveBigFilePart { file_id, file_part: part, file_total_parts: total_parts, bytes: buf })
-                        .await
-                        .map_err(to_rpc_error)?;
+                    // Lỗi server tạm thời (HTTP-like 5xx, vd `500 RPC_CALL_FAIL` gặp thật
+                    // 2026-10-06 giữa upload phần 1 của file chia phần) KHÔNG đáng huỷ cả
+                    // file nhiều GB: thử lại CHÍNH part đó với backoff mũ có jitter, tối đa
+                    // `PART_MAX_RETRIES` lần (docs/upload-mtproto.md §4.2-4.3). FLOOD_WAIT
+                    // và mọi lỗi khác vẫn dừng ngay và trả lên tầng trên (không né).
+                    let mut attempt = 0u32;
+                    let ok = loop {
+                        let result = sender
+                            .invoke(&tl::functions::upload::SaveBigFilePart { file_id, file_part: part, file_total_parts: total_parts, bytes: buf.clone() })
+                            .await;
+                        match result {
+                            Ok(ok) => break ok,
+                            Err(err) if attempt < PART_MAX_RETRIES && is_transient_server_error(&err) => {
+                                let delay = retry_delay(attempt);
+                                log::warn!("upload part {part}/{total_parts}: {err} — thử lại lần {} sau {:?}", attempt + 1, delay);
+                                attempt += 1;
+                                sleep_unless_cancelled(delay, cancel).await?;
+                            }
+                            Err(err) => return Err(to_rpc_error(err)),
+                        }
+                    };
                     if !ok {
                         return Err(IngestRpcError::Other(format!("server từ chối lưu part {part}")));
                     }

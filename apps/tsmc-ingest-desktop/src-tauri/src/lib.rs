@@ -6,6 +6,7 @@ mod pipeline;
 mod prefs;
 mod probe;
 mod secret_store;
+mod split;
 mod state;
 mod tmdb;
 mod upload;
@@ -75,6 +76,10 @@ pub fn run() {
             pipeline::prepare_upload,
             pipeline::cleanup_temp_dir,
             pipeline::estimate_reencode,
+            split::scan_split_candidates,
+            split::split_video,
+            split::read_subtitle_text,
+            split::write_temp_text_file,
             prefs::load_ui_prefs,
             prefs::save_ui_prefs,
             upload::get_max_upload_bytes,
