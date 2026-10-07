@@ -4,6 +4,7 @@ import type { EstimateSample, ProbeResult, ReencodePlan } from '@tsmc/core-inges
 import type {
   ChannelVideoDocumentDto,
   CurrentTaskDto,
+  CutSignalDto,
   EstimateSampleDto,
   IngestRpcErrorDto,
   LoginOutcomeDto,
@@ -257,6 +258,18 @@ export function scanSplitCandidates(taskId: string, inputPath: string): Promise<
  * thumbnail từng phần. Tên phần `{stem}.part{i}of{N}.mp4`. */
 export function splitVideo(taskId: string, inputPath: string, tempDir: string, stem: string, cutTimesSec: number[]): Promise<SplitPartDto[]> {
   return invoke<SplitPartDto[]>('split_video', { taskId, inputPath, tempDir, stem, cutTimesSec });
+}
+
+/** Số đo thô quanh các keyframe ứng viên (chuyển cảnh, mức audio) — chỉ phân tích cửa
+ * sổ nhỏ quanh từng thời điểm. Huỷ bằng `cancelUpload(taskId)`. */
+export function analyzeCutSignals(taskId: string, inputPath: string, timesSec: number[]): Promise<CutSignalDto[]> {
+  return invoke<CutSignalDto[]>('analyze_cut_signals', { taskId, inputPath, timesSec });
+}
+
+/** Khung hình JPEG (base64) tại keyframe gần `timeSec` — cho editor điểm cắt. Ghép
+ * `data:` URI bằng `toPosterDataUri()`. */
+export function extractPreviewFrame(inputPath: string, timeSec: number): Promise<string> {
+  return invoke<string>('extract_preview_frame', { inputPath, timeSec });
 }
 
 /** Đọc phụ đề .srt/.vtt để rebase theo phần (`rebaseSubtitle()`). */

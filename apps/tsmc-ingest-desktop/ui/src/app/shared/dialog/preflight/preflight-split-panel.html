@@ -1,0 +1,136 @@
+@let it = item();
+@let s = store.state(it.path);
+@let sp = s.split;
+
+@switch (sp.status) {
+  @case ('idle') {
+    <div class="status-row"><mat-spinner diameter="18" /><span>Đang chuẩn bị…</span></div>
+  }
+  @case ('loading') {
+    <div class="status-row">
+      <mat-spinner diameter="18" />
+      <span>Đang quét keyframe…</span>
+      <button mat-button type="button" (click)="store.stopSplitEditor(it.path)">Dừng</button>
+    </div>
+  }
+  @case ('error') {
+    <div class="status-row">
+      <span class="hint error">{{ sp.error }}</span>
+      <button mat-stroked-button type="button" (click)="store.openSplitEditor(it, s.mode === 'auto')">Thử lại</button>
+    </div>
+  }
+  @case ('ready') {
+    <div class="player">
+      <!-- MỘT khung hình: tại playhead. Giữ ảnh cũ trong lúc nạp ảnh mới. -->
+      <div class="frame">
+        @if (sp.preview.image) {
+          <img [src]="sp.preview.image" [alt]="'Khung hình tại ' + hms(sp.playheadSec)" />
+        } @else {
+          <div class="frame-empty">{{ sp.preview.loading ? 'Đang nạp khung hình…' : 'Không có ảnh xem trước' }}</div>
+        }
+        <div class="frame-time">
+          {{ hms(sp.playheadSec) }} / {{ hms(sp.durationSec) }}
+          @let at = playheadKeyframe();
+          @if (at) {
+            @for (tag of store.cutTags(at); track tag) { <span class="badge">{{ tag }}</span> }
+          }
+        </div>
+        @if (sp.preview.loading && sp.preview.image) {
+          <mat-spinner class="frame-spinner" diameter="20" />
+        }
+      </div>
+
+      <div class="transport">
+        <button mat-stroked-button type="button" (click)="store.stepPlayhead(it.path, -1)" aria-label="Seeker về keyframe trước" title="Seeker về keyframe trước">‹ Keyframe</button>
+        <button mat-stroked-button type="button" (click)="store.stepPlayhead(it.path, 1)" aria-label="Seeker tới keyframe sau" title="Seeker tới keyframe sau">Keyframe ›</button>
+        <span class="spacer"></span>
+        @if (s.mode === 'manual') {
+          @if (sp.selectedCut >= 0) {
+            <button mat-flat-button type="button" [disabled]="moveBlockedReason() !== null" (click)="store.moveSelectedCutToPlayhead(it.path)">Di chuyển điểm cắt {{ sp.selectedCut + 1 }} đến đây</button>
+            <button mat-stroked-button type="button" [disabled]="!store.canRemoveSelectedCut(it.path)" (click)="store.removeSelectedCut(it.path)" title="Gộp hai phần kề điểm cắt này (chỉ khi phần gộp vẫn vừa trần)">－ Bỏ điểm cắt {{ sp.selectedCut + 1 }}</button>
+          }
+          <button mat-stroked-button type="button" [disabled]="!store.canAddCutAtPlayhead(it.path)" (click)="store.addCutAtPlayhead(it.path)" title="Chia phần đang chứa seeker thành hai">＋ Thêm điểm cắt tại đây</button>
+        }
+      </div>
+      @if (s.mode === 'manual') {
+        @if (sp.selectedCut < 0) {
+          <span class="hint">Bấm một tay cầm trên thanh để chọn điểm cắt, rồi đưa seeker (bấm/lướt trên thanh, hoặc ‹ ›) tới vị trí mới và bấm "Di chuyển điểm cắt … đến đây".</span>
+        } @else {
+          <span class="hint">{{ moveRangeText() }}</span>
+          @if (moveBlockedReason(); as reason) {
+            <span class="hint error">{{ reason }}</span>
+          }
+        }
+      }
+
+      <!-- Kiểu LosslessCut: MỘT thanh, nhiều tay kéo, mỗi phần một màu. Bấm/lướt trên thanh = đặt playhead. -->
+      <div
+        class="lc-bar"
+        [attr.aria-label]="'Các phần của ' + it.name"
+        (pointerdown)="onBarPointerDown($event)"
+        (pointermove)="onBarPointerMove($event)"
+        (pointerup)="onBarPointerUp($event)"
+        (pointercancel)="onBarPointerUp($event)"
+      >
+        @for (part of store.splitParts(it.path); track $index) {
+          <div class="lc-seg" [class.over]="!store.partOk(part)" [style.left.%]="pct(part.startSec)" [style.width.%]="pct(part.endSec - part.startSec)" [style.background]="partColor($index)">
+            <span class="lc-seg-label">{{ $index + 1 }}</span>
+          </div>
+        }
+        @if (s.mode === 'manual' && sp.selectedCut >= 0) {
+          @let range = selectedRange();
+          @if (range) {
+            <div class="lc-range" [style.left.%]="range.left" [style.width.%]="range.width" aria-hidden="true"></div>
+          }
+        }
+        <div class="lc-playhead" [style.left.%]="pct(sp.playheadSec)" aria-hidden="true"></div>
+        @for (cut of sp.cuts; track cut.timeSec) {
+          <div
+            class="lc-handle"
+            [class.selected]="$index === sp.selectedCut"
+            role="button"
+            tabindex="0"
+            [attr.aria-pressed]="$index === sp.selectedCut"
+            [style.left.%]="pct(cut.timeSec)"
+            [attr.aria-label]="'Chọn điểm cắt ' + ($index + 1) + ' tại ' + hms(cut.timeSec)"
+            (pointerdown)="onHandlePointerDown($event, $index)"
+            (keydown)="onHandleKeydown($event, $index)"
+          >
+            <span class="lc-handle-grip"></span>
+          </div>
+        }
+      </div>
+      <div class="lc-scale">
+        <span>0:00</span>
+        <span>{{ hms(sp.durationSec) }}</span>
+      </div>
+
+      <ul class="part-list">
+        @for (part of store.splitParts(it.path); track $index) {
+          <li [class.over]="!store.partOk(part)">
+            <span class="swatch" [style.background]="partColor($index)"></span>
+            Phần {{ $index + 1 }}: {{ hms(part.startSec) }} → {{ hms(part.endSec) }} · ~{{ store.gb(part.approxBytes) }} GB
+            @if (!store.partOk(part)) { <span class="hint error">vượt trần</span> }
+          </li>
+        }
+      </ul>
+
+      <div class="status-row">
+        @if (sp.analyzing) {
+          <mat-spinner diameter="18" />
+          <span>Thuật toán đang đo chuyển cảnh/im lặng và chọn điểm cắt…</span>
+          <button mat-button type="button" (click)="store.stopSplitEditor(it.path)">Dừng</button>
+        } @else if (s.mode === 'manual') {
+          <button mat-button type="button" [disabled]="!store.splitEdited(it.path)" (click)="store.resetSplitCuts(it.path)">Đặt lại theo thuật toán</button>
+          <span class="hint">Dời/thêm/bớt điểm cắt chỉ ở keyframe, và không phần nào được vượt trần (vùng sáng phía trên thanh = nơi điểm cắt đang chọn dời tới được).</span>
+        } @else {
+          <span class="hint">Thuật toán chọn keyframe gần mốc chia đều nhất, ưu tiên chỗ chuyển cảnh/im lặng. Bấm/lướt trên thanh (seeker) để xem khung hình; chuyển sang "Thủ công" để tự chỉnh.</span>
+        }
+        @if (sp.error) {
+          <span class="hint error">{{ sp.error }}</span>
+        }
+        <span class="hint">Dung lượng tính trên file nguồn; sau remux có thể lệch vài %, nếu vượt trần app tự chọn lại điểm cắt.</span>
+      </div>
+    </div>
+  }
+}

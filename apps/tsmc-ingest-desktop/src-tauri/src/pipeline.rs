@@ -150,6 +150,9 @@ pub async fn prepare_upload(
     result
 }
 
+/// Tạo thư mục tạm rồi chuẩn bị upload trong đó; LỖI (kể cả huỷ) giữa chừng thì dọn luôn thư mục — trước đây chỉ
+/// `processItem()` dọn sau khi `prepare_upload` thành công, nên mỗi lần remux/nén lỗi để lại file dở nặng hàng GB
+/// trong `%TEMP%` (phát hiện 2026-10-07 khi thử file thật).
 #[allow(clippy::too_many_arguments)]
 fn prepare_upload_blocking(
     app: &AppHandle,
@@ -163,6 +166,25 @@ fn prepare_upload_blocking(
 ) -> Result<PreparedUploadDto, IngestRpcErrorDto> {
     let temp_dir = std::env::temp_dir().join(format!("tsmc-ingest-desktop-{}", unique_suffix()));
     std::fs::create_dir_all(&temp_dir).map_err(|e| IngestRpcErrorDto::other(e.to_string()))?;
+    let result = prepare_upload_in(&temp_dir, app, task_id, input_path, mode, subtitle_tracks, reencode_options, on_progress, cancel);
+    if result.is_err() {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_upload_in(
+    temp_dir: &std::path::Path,
+    app: &AppHandle,
+    task_id: &str,
+    input_path: &str,
+    mode: RemuxModeDto,
+    subtitle_tracks: &[SubtitleTrackDto],
+    reencode_options: &ingest_ffmpeg::ReencodeOptions,
+    on_progress: ingest_ffmpeg::PipelineProgressSink<'_>,
+    cancel: &ingest_ffmpeg::CancelFlag
+) -> Result<PreparedUploadDto, IngestRpcErrorDto> {
 
     let stem = std::path::Path::new(input_path).file_stem().and_then(|s| s.to_str()).unwrap_or("item");
 

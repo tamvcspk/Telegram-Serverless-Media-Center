@@ -7,7 +7,9 @@ use std::time::Instant;
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::dto::{CurrentTaskDto, IngestRpcErrorDto, PipelineProgressDto, ProbeResultDto, SplitPartDto, SplitScanDto};
+use base64::Engine;
+
+use crate::dto::{CurrentTaskDto, CutSignalDto, IngestRpcErrorDto, PipelineProgressDto, ProbeResultDto, SplitPartDto, SplitScanDto};
 use crate::state::{AppState, CancelHandle};
 
 /// Phụ đề lớn hơn mức này là bất thường (file SRT thật chỉ vài trăm KB).
@@ -100,6 +102,37 @@ pub async fn split_video(
 
     *state.active_cancel.lock().await = None;
     result
+}
+
+/// Số đo thô (chuyển cảnh, mức audio) quanh các keyframe ứng viên — chỉ phân tích
+/// cửa sổ nhỏ quanh từng thời điểm, không quét cả phim.
+#[tauri::command]
+pub async fn analyze_cut_signals(state: State<'_, AppState>, task_id: String, input_path: String, times_sec: Vec<f64>) -> Result<Vec<CutSignalDto>, IngestRpcErrorDto> {
+    let cancel = ingest_ffmpeg::CancelFlag::new();
+    *state.active_cancel.lock().await = Some((task_id, CancelHandle::Ffmpeg(cancel.clone())));
+    let result = tokio::task::spawn_blocking(move || ingest_ffmpeg::analyze_cut_signals(&input_path, &times_sec, &cancel))
+        .await
+        .map_err(|e| IngestRpcErrorDto::other(format!("tác vụ phân tích điểm cắt panic: {e}")))?;
+    *state.active_cancel.lock().await = None;
+    result
+        .map(|v| v.into_iter().map(|s| CutSignalDto { time_sec: s.time_sec, scene_diff: s.scene_diff, audio_rms_db: s.audio_rms_db }).collect())
+        .map_err(|e| map_process_error("phân tích điểm cắt lỗi", e))
+}
+
+/// Khung hình xem trước tại keyframe gần `time_sec` (editor điểm cắt) — JPEG base64,
+/// Angular ghép `data:` URI (`toPosterDataUri()`). Giải mã vài chục ms, không cần huỷ.
+#[tauri::command]
+pub async fn extract_preview_frame(input_path: String, time_sec: f64) -> Result<String, IngestRpcErrorDto> {
+    tokio::task::spawn_blocking(move || -> Result<String, IngestRpcErrorDto> {
+        let tmp = std::env::temp_dir().join(format!("{TEMP_DIR_PREFIX}preview-{}.jpg", std::process::id() as u64 * 1_000_000 + (time_sec * 1000.0) as u64 % 1_000_000));
+        let tmp_str = tmp.to_string_lossy().into_owned();
+        let result = ingest_ffmpeg::extract_thumbnail(&input_path, &tmp_str, time_sec.max(0.0), Some(320)).map_err(|e| IngestRpcErrorDto::other(format!("trích khung hình lỗi: {e}")));
+        let bytes = result.and_then(|()| std::fs::read(&tmp).map_err(|e| IngestRpcErrorDto::other(format!("đọc khung hình lỗi: {e}"))));
+        let _ = std::fs::remove_file(&tmp);
+        Ok(base64::engine::general_purpose::STANDARD.encode(bytes?))
+    })
+    .await
+    .map_err(|e| IngestRpcErrorDto::other(format!("tác vụ trích khung hình panic: {e}")))?
 }
 
 /// Chỉ nhận thư mục tạm do `prepare_upload` tạo (`<temp>/tsmc-ingest-desktop-*`)

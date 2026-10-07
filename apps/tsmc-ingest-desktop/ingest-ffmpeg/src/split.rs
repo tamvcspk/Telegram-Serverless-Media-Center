@@ -108,6 +108,27 @@ pub fn scan_keyframes(input_path: &str, cancel: &CancelFlag) -> Result<SplitScan
     Ok(SplitScan { duration_sec, total_packet_bytes: cumulative, keyframes })
 }
 
+/// Muxer MP4 từ chối dts không tăng nghiêm ngặt trong một luồng ("Application provided invalid, non monotonically
+/// increasing dts", `AVERROR(EINVAL)`). Nguồn thật có thể mang hai packet audio đầu CÙNG dts (Tokyo Hot n1313.mp4:
+/// mẫu đầu có thời lượng 0 → `remux()` ghi `-18, -18`, remux không bị chặn vì dts đầu = 0 bị muxer coi là "chưa đặt"),
+/// nhưng khi cắt mốc dịch đi và dts khác 0 thì bị chặn. CLI `ffmpeg` tự đẩy dts lên `last + 1` (`bump_dts`); API
+/// native không tự làm — làm tay ở đây và giữ `pts ≥ dts`.
+fn monotonic_dts(packet: &mut ffmpeg::Packet, last: &mut Option<i64>) {
+    if let Some(dts) = packet.dts() {
+        let fixed = match *last {
+            Some(prev) if dts <= prev => prev + 1,
+            _ => dts,
+        };
+        if fixed != dts {
+            packet.set_dts(Some(fixed));
+            if packet.pts().is_some_and(|pts| pts < fixed) {
+                packet.set_pts(Some(fixed));
+            }
+        }
+        *last = Some(fixed);
+    }
+}
+
 /// Cắt `input_path` thành `cut_times_sec.len() + 1` file stream-copy trong
 /// `out_dir`, tên `{stem}.part{i}of{N}.mp4` (i từ 1). `cut_times_sec` PHẢI là
 /// `time_sec` lấy từ [`scan_keyframes`] (so khớp keyframe theo thời điểm với
@@ -181,6 +202,8 @@ pub fn split_at(
     }
 
     let mut current_part = 0usize;
+    // dts cuối đã ghi của từng (phần, luồng) — xem `monotonic_dts()`.
+    let mut last_dts: Vec<[Option<i64>; 2]> = vec![[None; 2]; part_count];
     // Khoá đổi phần video: chỉ keyframe có pts_sec >= start của phần kế.
     let mut last_emit = Instant::now();
     for (stream, mut packet) in ictx.packets() {
@@ -207,6 +230,7 @@ pub fn split_at(
                 packet.set_dts(Some(d - shift));
             }
             packet.rescale_ts(video_tb, out_tb);
+            monotonic_dts(&mut packet, &mut last_dts[current_part][0]);
             packet.set_position(-1);
             packet.set_stream(0);
             packet.write_interleaved(&mut outputs[current_part])?;
@@ -227,6 +251,7 @@ pub fn split_at(
                 packet.set_dts(Some(d - shift));
             }
             packet.rescale_ts(tb, out_tb);
+            monotonic_dts(&mut packet, &mut last_dts[part][1]);
             packet.set_position(-1);
             packet.set_stream(1);
             packet.write_interleaved(&mut outputs[part])?;

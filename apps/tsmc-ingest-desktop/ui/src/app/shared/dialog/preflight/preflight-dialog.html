@@ -1,0 +1,114 @@
+<div class="pf-head">
+  <h2 mat-dialog-title>Tiền kiểm dung lượng</h2>
+  <span class="pf-sub">{{ data.items.length }} file · trần {{ store.maxGb }} GB</span>
+  <span class="spacer"></span>
+  <button mat-stroked-button type="button" [matMenuTriggerFor]="bulkMenu">Áp dụng cho tất cả…</button>
+  <mat-menu #bulkMenu="matMenu">
+    <button mat-menu-item type="button" (click)="store.applyStrategyToAll('reencode')">Nén lại — mọi file cần quyết định</button>
+    <button mat-menu-item type="button" (click)="store.applyStrategyToAll('split')">Chia phần — mọi file cần quyết định (trừ Hạng D)</button>
+    <button mat-menu-item type="button" (click)="store.applyStrategyToAll('skip')">Bỏ qua — mọi file cần quyết định</button>
+    <button mat-menu-item type="button" (click)="autoAll()">Chế độ Tự động cho tất cả (ghi đè chỉnh tay)</button>
+  </mat-menu>
+</div>
+
+<mat-dialog-content class="pf-body">
+  <aside class="pf-list" aria-label="Danh sách file">
+    <ul>
+      @for (item of data.items; track item.path) {
+        @let status = rowStatus(item);
+        <li>
+          <button type="button" class="pf-row" [class.active]="store.activePath() === item.path" [class.skipped]="status === 'skip'" [attr.aria-current]="store.activePath() === item.path" (click)="store.activate(item.path)">
+            <span class="pf-row-name" [title]="item.name">{{ item.name }}</span>
+            <span class="pf-row-sub">
+              <span class="pf-status" [class]="'status-' + status" [title]="status === 'blocked' ? blockerReasons(item) : ''">{{ status === 'ok' ? '✓' : status === 'blocked' ? '⚠' : '–' }}</span>
+              {{ rowLabel(item) }}
+            </span>
+          </button>
+        </li>
+      }
+    </ul>
+  </aside>
+
+  <section class="pf-detail">
+    @let item = store.activeItem();
+    @let s = store.state(item.path);
+    <div class="item-head">
+      <span class="item-name">{{ item.name }}</span>
+      <span class="item-meta">
+        {{ store.gb(item.sourceBytes) }} GB ({{ store.gib(item.sourceBytes) }} GiB, như Windows hiện)@if (item.height > 0) { · {{ item.width }}×{{ item.height }} } · Hạng {{ item.rank }}@if (item.overCap) { · vượt trần }
+      </span>
+    </div>
+
+    <div class="cards" role="group" [attr.aria-label]="'Cách xử lý ' + item.name">
+      @if (needsDecision(item)) {
+        <button type="button" class="card" [class.selected]="s.strategy === 'reencode'" [attr.aria-pressed]="s.strategy === 'reencode'" (click)="setStrategy(item.path, 'reencode')">
+          <span class="card-title">Nén lại @if (store.isSuggested(item, 'reencode')) { <span class="badge">Gợi ý</span> }</span>
+          <span class="card-line">{{ store.sizeText(item) }}</span>
+          <span class="card-line">{{ store.timeText(item) }}</span>
+        </button>
+        <button type="button" class="card" [disabled]="!store.canSplit(item)" [class.selected]="s.strategy === 'split'" [attr.aria-pressed]="s.strategy === 'split'" (click)="setStrategy(item.path, 'split')">
+          <span class="card-title">Chia phần @if (store.isSuggested(item, 'split')) { <span class="badge">Gợi ý</span> }</span>
+          @if (store.canSplit(item)) {
+            <span class="card-line">~{{ store.splitPartCount(item) }} phần, mỗi phần ~{{ store.gb(item.sourceBytes / store.splitPartCount(item)) }} GB</span>
+            <span class="card-line">Nhanh, không mất chất lượng; mỗi phần là một video Telegram xem được riêng.</span>
+          } @else {
+            <span class="card-line">Không khả dụng cho Hạng D — video phải mã hoá lại.</span>
+          }
+        </button>
+      } @else {
+        <button type="button" class="card" [class.selected]="s.strategy === 'upload'" [attr.aria-pressed]="s.strategy === 'upload'" (click)="setStrategy(item.path, 'upload')">
+          <span class="card-title">Upload nguyên</span>
+          <span class="card-line">Dưới trần, không cần xử lý thêm.</span>
+        </button>
+      }
+      <button type="button" class="card" [class.selected]="s.strategy === 'skip'" [attr.aria-pressed]="s.strategy === 'skip'" (click)="setStrategy(item.path, 'skip')">
+        <span class="card-title">Bỏ qua</span>
+        <span class="card-line">Để lại làm sau, vẫn nằm trong bảng metadata.</span>
+      </button>
+    </div>
+
+    @if (s.strategy === 'reencode' || s.strategy === 'split') {
+      <div class="mode-row">
+        <mat-button-toggle-group [value]="s.mode" (change)="store.setMode(item.path, $event.value)" hideSingleSelectionIndicator [attr.aria-label]="'Chế độ hiệu chỉnh của ' + item.name">
+          <mat-button-toggle value="auto">Tự động</mat-button-toggle>
+          <mat-button-toggle value="manual">Thủ công</mat-button-toggle>
+        </mat-button-toggle-group>
+        <span class="hint">{{ s.mode === 'auto' ? 'Thuật toán chọn, bạn chỉ xem.' : 'Bạn tự đặt, bắt đầu từ kết quả của thuật toán.' }}</span>
+      </div>
+    }
+
+    <div class="pf-panel">
+      @switch (s.strategy) {
+        @case ('reencode') {
+          <app-preflight-encode-panel [item]="item" />
+        }
+        @case ('split') {
+          <app-preflight-split-panel [item]="item" />
+        }
+        @case ('upload') {
+          <p class="note">File này dưới trần {{ store.maxGb }} GB — sẽ được upload như bình thường (remux theo hạng {{ item.rank }}).</p>
+        }
+        @case ('skip') {
+          <p class="note">File này sẽ không được upload lượt này và ở lại bảng metadata.</p>
+        }
+      }
+    </div>
+  </section>
+</mat-dialog-content>
+
+<mat-dialog-actions class="pf-actions">
+  <span class="pf-summary">
+    {{ store.reencodeCount() }} nén lại · {{ store.splitCount() }} chia phần · {{ store.uploadCount() }} upload nguyên · {{ store.skipCount() }} bỏ qua
+    @if (store.blockers().length > 0) {
+      <span class="pf-blockers">—
+        @for (b of store.blockers(); track $index) {
+          <button type="button" class="link" (click)="store.activate(b.path)">{{ b.name }}</button> ({{ b.reason }})@if (!$last) { , }
+        }
+      </span>
+    }
+  </span>
+  <button mat-button type="button" [mat-dialog-close]="null">Huỷ upload</button>
+  <button mat-flat-button type="button" (click)="onConfirm()" [disabled]="store.blockers().length > 0">Bắt đầu upload</button>
+</mat-dialog-actions>
+
+<div class="resize-grip" role="separator" aria-label="Kéo để đổi kích thước hộp thoại" title="Kéo để đổi kích thước" (pointerdown)="onResizePointerDown($event)"></div>

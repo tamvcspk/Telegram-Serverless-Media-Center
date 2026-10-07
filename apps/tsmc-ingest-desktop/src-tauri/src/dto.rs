@@ -463,3 +463,12 @@ pub struct SplitPartDto {
     pub file_size_bytes: u64,
     pub final_probe: ProbeResultDto,
 }
+
+/// Số đo thô quanh một ứng viên điểm cắt — khớp `CutSignal` của `ingest-ffmpeg`.
+/// Quy thành "chuyển cảnh"/"im lặng" là việc của `applySignals()` (TypeScript).
+#[derive(Debug, Serialize)]
+pub struct CutSignalDto {
+    pub time_sec: f64,
+    pub scene_diff: Option<f64>,
+    pub audio_rms_db: Option<f64>,
+}

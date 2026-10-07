@@ -11,7 +11,7 @@
 export const REENCODE_AUDIO_BITRATE_BPS = 160_000;
 
 /** Ước tính overhead container MP4 (moov/stbl/...) — trừ 2% ngân sách bit, không đo chính xác. */
-const MUX_OVERHEAD_FRACTION = 0.02;
+export const MUX_OVERHEAD_FRACTION = 0.02;
 
 /** Nhắm DƯỚI trần thật thay vì đúng khít — SPIKE-11 cho thấy rate control của
  * `h264_mf` có thể overshoot target ở nội dung phức tạp. */

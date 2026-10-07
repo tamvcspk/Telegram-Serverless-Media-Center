@@ -68,7 +68,12 @@ pub fn extract_thumbnail(input_path: &str, output_path: &str, seek_secs: f64, ta
     ost.set_parameters(&enc);
     ost.set_time_base((1, 25));
 
-    octx.write_header()?;
+    // muxer `image2` ghi MỘT ảnh vào tên file không có mẫu `%03d` thì cảnh báo mỗi lần ("does not contain an image
+    // sequence pattern") — `update=1` là cách chính thức nói "ghi đè một ảnh duy nhất", tắt cảnh báo làm ngập log khi
+    // kéo xem trước khung hình (editor điểm cắt gọi hàng chục lần/giây).
+    let mut header_opts = ffmpeg::Dictionary::new();
+    header_opts.set("update", "1");
+    octx.write_header_with(header_opts)?;
     enc.send_frame(&frame_to_encode)?;
     enc.send_eof()?;
     let mut encoded = ffmpeg::Packet::empty();

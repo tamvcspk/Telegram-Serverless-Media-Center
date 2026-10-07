@@ -216,6 +216,14 @@ export interface SplitPartDto {
   final_probe: ProbeResultDto;
 }
 
+/** Khớp `CutSignalDto` — số đo THÔ quanh một keyframe ứng viên. Quy thành
+ * chuyển cảnh/im lặng là việc của `applySignals()` (`@tsmc/core-ingest`). */
+export interface CutSignalDto {
+  time_sec: number;
+  scene_diff: number | null;
+  audio_rms_db: number | null;
+}
+
 /** Khớp `TmdbKindDto` (ADR-0019) — `'episode'` → `search/tv`, `'movie'` →
  * `search/movie`. Tầng gọi (`workspace.ts`) tự quyết theo `item.metadata.kind`. */
 export type TmdbKind = 'movie' | 'episode';

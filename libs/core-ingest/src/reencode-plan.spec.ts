@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { calibrateTargetBps, chooseAutoResolution, estimateFromSamples, estimateReencodeRangeBytes, isBelowAbrFloor, isReencodeFutile, minAbrVideoBitrateBps, rescaleEstimateBytes, resolutionChoices, resolveAbrFloor, scaledSize } from './reencode-plan';
-import { REENCODE_AUDIO_BITRATE_BPS } from './size-normalize';
+import { calibrateTargetBps, chooseAutoResolution, defaultReencodeBitrateBps, estimateFromSamples, estimateReencodeRangeBytes, isBelowAbrFloor, isReencodeFutile, minAbrVideoBitrateBps, rescaleEstimateBytes, resolutionChoices, resolveAbrFloor, scaledSize, sizeForVideoBitrateBps } from './reencode-plan';
+import { computeTargetVideoBitrateBps, REENCODE_AUDIO_BITRATE_BPS } from './size-normalize';
 
 describe('scaledSize / resolutionChoices', () => {
   it('hạ 1920x1080 về 720 giữ tỉ lệ, chẵn', () => {
@@ -163,5 +163,37 @@ describe('isReencodeFutile', () => {
   });
   it('thiếu số liệu: không cảnh báo', () => {
     expect(isReencodeFutile({ ...base, durationSec: 0, targetVideoBitrateBps: 16_000_000 })).toBe(false);
+  });
+});
+
+describe('defaultReencodeBitrateBps (Hạng D dưới trần)', () => {
+  // Caribbean 070307-487.wmv: 829_769_447 byte, 3346.191 s, 720×540, avg 30 fps — bộ nén tự chọn ~390 kbps làm hình vỡ.
+  const wmv = { sourceBytes: 829_769_447, durationSec: 3346.191, width: 720, height: 540, fps: 30, maxUploadBytes: 4_000_000_000 };
+
+  it('giữ gần bitrate video của nguồn, cao hơn nhiều mức ~390 kbps mà bộ nén tự chọn', () => {
+    const bps = defaultReencodeBitrateBps(wmv);
+    const sourceVideoBps = (829_769_447 * 8) / 3346.191 - REENCODE_AUDIO_BITRATE_BPS;
+    expect(bps).toBe(Math.floor(sourceVideoBps));
+    expect(bps).toBeGreaterThan(1_500_000);
+  });
+
+  it('không dưới mức sàn ABR ở độ phân giải đầu ra (nguồn bitrate rất thấp)', () => {
+    const bps = defaultReencodeBitrateBps({ ...wmv, sourceBytes: 100_000_000 });
+    expect(bps).toBeGreaterThanOrEqual(minAbrVideoBitrateBps(wmv));
+  });
+
+  it('không vượt mức vừa trần', () => {
+    const bps = defaultReencodeBitrateBps({ ...wmv, sourceBytes: 3_990_000_000 });
+    expect(bps).toBeLessThanOrEqual(computeTargetVideoBitrateBps(4_000_000_000, 3346.191));
+  });
+
+  it('thiếu số liệu nguồn → 0.1 bit/pixel (hoặc 2 Mbps khi cũng thiếu kích thước)', () => {
+    expect(defaultReencodeBitrateBps({ ...wmv, sourceBytes: 0 })).toBe(Math.floor(720 * 540 * 30 * 0.1));
+    expect(defaultReencodeBitrateBps({ sourceBytes: 0, durationSec: 0, width: 0, height: 0, fps: 0, maxUploadBytes: 4_000_000_000 })).toBe(100_000);
+  });
+
+  it('sizeForVideoBitrateBps là nghịch đảo của computeTargetVideoBitrateBps', () => {
+    const size = sizeForVideoBitrateBps(1_800_000, 3346.191);
+    expect(Math.abs(computeTargetVideoBitrateBps(size, 3346.191) - 1_800_000)).toBeLessThanOrEqual(1);
   });
 });

@@ -1,0 +1,82 @@
+:host {
+  display: block;
+}
+
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.line {
+  font-size: 0.9em;
+
+  &.warn {
+    color: var(--mat-sys-error, #b3261e);
+    font-weight: 500;
+  }
+}
+
+.quality-low {
+  color: var(--mat-sys-error, #b3261e);
+}
+
+.estimate-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.hint {
+  font-size: 0.85em;
+  opacity: 0.75;
+
+  &.error {
+    color: var(--mat-sys-error, #b3261e);
+    opacity: 1;
+  }
+}
+
+.params {
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  background: var(--mat-sys-surface-container, rgba(128, 128, 128, 0.08));
+}
+
+.param-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.param-label {
+  flex: 0 0 10rem;
+  font-size: 0.9em;
+}
+
+.param-slider {
+  flex: 1 1 12rem;
+  min-width: 12rem;
+}
+
+.param-value {
+  flex: 0 0 4.5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.num-input {
+  width: 7rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--mat-sys-outline, rgba(128, 128, 128, 0.6));
+  background: var(--mat-sys-surface, transparent);
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}

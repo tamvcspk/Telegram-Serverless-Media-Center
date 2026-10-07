@@ -76,12 +76,113 @@ function tryPlan(keyframes: SplitCandidate[], totalBytes: number, durationSec: n
     prevOffset = best.byteOffset;
   }
 
-  const bounds = [{ timeSec: 0, byteOffset: 0 }, ...cuts, { timeSec: durationSec, byteOffset: totalBytes }];
-  const parts: SplitPart[] = [];
-  for (let i = 0; i < count; i++) {
-    parts.push({ startSec: bounds[i].timeSec, endSec: bounds[i + 1].timeSec, approxBytes: bounds[i + 1].byteOffset - bounds[i].byteOffset });
-  }
+  const parts = splitPartsFromCuts(cuts, totalBytes, durationSec);
   return parts.every((p) => p.approxBytes <= limitBytes) ? { ok: true, cuts, parts } : null;
+}
+
+/** Các phần tạo ra từ danh sách điểm cắt (đã sắp tăng dần). */
+export function splitPartsFromCuts(cuts: SplitCandidate[], totalBytes: number, durationSec: number): SplitPart[] {
+  const bounds = [{ timeSec: 0, byteOffset: 0 }, ...cuts, { timeSec: durationSec, byteOffset: totalBytes }];
+  return Array.from({ length: bounds.length - 1 }, (_, i) => ({ startSec: bounds[i].timeSec, endSec: bounds[i + 1].timeSec, approxBytes: bounds[i + 1].byteOffset - bounds[i].byteOffset }));
+}
+
+/** Một phần có vừa trần × margin không (dùng chung dialog editor và kiểm tra sau remux). */
+export function partFits(part: SplitPart, maxUploadBytes: number): boolean {
+  return part.approxBytes <= maxUploadBytes * SPLIT_SAFETY_MARGIN;
+}
+
+/** Số đo thô Rust trả về quanh một ứng viên (`analyze_cut_signals`). */
+export interface SplitSignal {
+  timeSec: number;
+  /** Độ lệch luma 0..1 giữa frame trước và frame tại keyframe; null = không đo được. */
+  sceneDiff: number | null;
+  /** RMS audio quanh keyframe (dBFS); null = không đo được/không có audio. */
+  audioRmsDb: number | null;
+}
+
+/** Độ lệch luma từ mức này trở lên coi là chuyển cảnh "chắc chắn" (sceneScore = 1).
+ * Đo trên fixture: cảnh liền ≈ 0.005–0.01, chuyển cảnh cứng ≈ 0.22. Ngưỡng THAM
+ * KHẢO — chưa hiệu chỉnh trên phim thật. */
+export const SCENE_DIFF_FULL = 0.2;
+
+/** RMS (dBFS) dưới mức này coi là im lặng. Thoại thường nghỉ ở −50…−60 dB, tiếng
+ * nền/nhạc nền thường > −35. THAM KHẢO, chưa hiệu chỉnh. */
+export const SILENCE_RMS_DB = -45;
+
+/** Gắn `sceneScore`/`silent` cho các keyframe có số đo (khớp theo thời điểm). */
+export function applySignals(keyframes: SplitCandidate[], signals: SplitSignal[]): SplitCandidate[] {
+  const byTime = new Map(signals.map((s) => [s.timeSec, s]));
+  return keyframes.map((k) => {
+    const s = byTime.get(k.timeSec);
+    if (!s) {
+      return k;
+    }
+    return {
+      ...k,
+      ...(s.sceneDiff === null ? {} : { sceneScore: Math.max(0, Math.min(1, s.sceneDiff / SCENE_DIFF_FULL)) }),
+      ...(s.audioRmsDb === null ? {} : { silent: s.audioRmsDb < SILENCE_RMS_DB })
+    };
+  });
+}
+
+/**
+ * Thời điểm các keyframe cần ĐO tín hiệu: với mỗi điểm cắt lý tưởng (chia đều tối
+ * thiểu), tối đa `perCut` keyframe gần nhất nằm trong cửa sổ mà bonus tín hiệu có
+ * thể tác động (±2 × `SIGNAL_BONUS_FRACTION` × trần byte) — chỉ phân tích quanh vị
+ * trí cắt, không quét cả phim.
+ */
+export function signalCandidateTimes(input: { keyframes: SplitCandidate[]; totalBytes: number; maxUploadBytes: number; perCut?: number }): number[] {
+  const { keyframes, totalBytes, maxUploadBytes, perCut = 20 } = input;
+  const count = Math.max(2, Math.ceil(totalBytes / (maxUploadBytes * SPLIT_SAFETY_MARGIN)));
+  const window = 2 * SIGNAL_BONUS_FRACTION * maxUploadBytes;
+  const times = new Set<number>();
+  for (let k = 1; k < count; k++) {
+    const ideal = (totalBytes * k) / count;
+    keyframes
+      .filter((c) => Math.abs(c.byteOffset - ideal) <= window)
+      .sort((a, b) => Math.abs(a.byteOffset - ideal) - Math.abs(b.byteOffset - ideal))
+      .slice(0, perCut)
+      .forEach((c) => times.add(c.timeSec));
+  }
+  return [...times].sort((a, b) => a - b);
+}
+
+/**
+ * Các keyframe có thể thay cho điểm cắt `index` mà KHÔNG làm phần nào vượt trần
+ * (hai phần liền kề điểm cắt đó vẫn ≤ trần × margin, giữ nguyên các điểm cắt khác).
+ * Sắp theo thời gian; gồm cả điểm cắt hiện tại nếu hợp lệ.
+ */
+export function alternativeCuts(input: { keyframes: SplitCandidate[]; cuts: SplitCandidate[]; index: number; totalBytes: number; maxUploadBytes: number }): SplitCandidate[] {
+  const { keyframes, cuts, index, totalBytes, maxUploadBytes } = input;
+  const limit = maxUploadBytes * SPLIT_SAFETY_MARGIN;
+  const prev = index > 0 ? cuts[index - 1] : { timeSec: 0, byteOffset: 0 };
+  const next = index < cuts.length - 1 ? cuts[index + 1] : { timeSec: Number.POSITIVE_INFINITY, byteOffset: totalBytes };
+  return keyframes
+    .filter((c) => c.timeSec > prev.timeSec && c.timeSec < next.timeSec && c.byteOffset - prev.byteOffset <= limit && next.byteOffset - c.byteOffset <= limit)
+    .sort((a, b) => a.timeSec - b.timeSec);
+}
+
+/**
+ * Ánh xạ điểm cắt do user chọn (thời điểm, từ lần quét nguồn) sang keyframe của lần
+ * quét SAU remux (cùng thời điểm khi stream-copy; dung sai `toleranceSec`) rồi kiểm
+ * dung lượng thật. Trả `null` nếu có điểm cắt không còn keyframe tương ứng hoặc phần
+ * nào vượt trần — tầng gọi rơi về `planSplit()` tự động.
+ */
+export function planFromCutTimes(input: { keyframes: SplitCandidate[]; cutTimesSec: number[]; totalBytes: number; durationSec: number; maxUploadBytes: number; toleranceSec?: number }): SplitPlan | null {
+  const { keyframes, cutTimesSec, totalBytes, durationSec, maxUploadBytes, toleranceSec = 0.05 } = input;
+  const cuts: SplitCandidate[] = [];
+  for (const t of [...cutTimesSec].sort((a, b) => a - b)) {
+    const nearest = keyframes.reduce<SplitCandidate | null>((best, c) => (best === null || Math.abs(c.timeSec - t) < Math.abs(best.timeSec - t) ? c : best), null);
+    if (!nearest || Math.abs(nearest.timeSec - t) > toleranceSec || (cuts.length > 0 && nearest.timeSec <= cuts[cuts.length - 1].timeSec)) {
+      return null;
+    }
+    cuts.push(nearest);
+  }
+  if (cuts.length === 0) {
+    return null;
+  }
+  const parts = splitPartsFromCuts(cuts, totalBytes, durationSec);
+  return parts.every((p) => partFits(p, maxUploadBytes)) ? { ok: true, cuts, parts } : null;
 }
 
 /**
@@ -133,4 +234,59 @@ export function parsePartFileName(fileName: string): { baseName: string; index: 
 export function composePartCaption(item: CatalogItemV1, index: number, count: number): string {
   const suffix = `Phần ${index}/${count}`;
   return composeCaption({ ...item, title: item.title ? `${item.title} — ${suffix}` : suffix });
+}
+
+/** Keyframe gần `timeSec` nhất (null nếu không có keyframe nào). */
+export function nearestKeyframe(keyframes: SplitCandidate[], timeSec: number): SplitCandidate | null {
+  return keyframes.reduce<SplitCandidate | null>((best, c) => (best === null || Math.abs(c.timeSec - timeSec) < Math.abs(best.timeSec - timeSec) ? c : best), null);
+}
+
+/**
+ * Thêm một điểm cắt tại `candidate` (một keyframe). Từ chối (null) nếu trùng điểm cắt đã có,
+ * ở đúng đầu phim, hoặc sẽ vượt `MAX_SPLIT_PARTS`. Tách một phần thành hai nên luôn làm các
+ * phần nhỏ đi — không bao giờ tạo phần vượt trần.
+ */
+export function addCut(cuts: SplitCandidate[], candidate: SplitCandidate): SplitCandidate[] | null {
+  if (candidate.timeSec <= 0 || candidate.byteOffset <= 0 || cuts.some((c) => c.timeSec === candidate.timeSec) || cuts.length + 2 > MAX_SPLIT_PARTS) {
+    return null;
+  }
+  return [...cuts, candidate].sort((a, b) => a.timeSec - b.timeSec);
+}
+
+/** Bỏ điểm cắt `index` gộp hai phần kề thành một — chỉ được nếu phần gộp vẫn vừa trần × margin và còn ít nhất một điểm cắt. */
+export function canRemoveCut(input: { cuts: SplitCandidate[]; index: number; totalBytes: number; durationSec: number; maxUploadBytes: number }): boolean {
+  const { cuts, index, totalBytes, durationSec, maxUploadBytes } = input;
+  if (cuts.length < 2 || index < 0 || index >= cuts.length) {
+    return false;
+  }
+  const merged = splitPartsFromCuts(
+    cuts.filter((_, i) => i !== index),
+    totalBytes,
+    durationSec
+  );
+  return merged.every((p) => partFits(p, maxUploadBytes));
+}
+
+export function removeCut(cuts: SplitCandidate[], index: number): SplitCandidate[] {
+  return cuts.filter((_, i) => i !== index);
+}
+
+export type CutMoveCheck = { ok: true } | { ok: false; reason: 'same' | 'order' | 'too-big' };
+
+/**
+ * Có dời được điểm cắt `index` sang `candidate` (một keyframe) không: `same` = đã đúng vị trí đó; `order` = sẽ
+ * trùng/vượt qua điểm cắt kế bên (hoặc đầu/cuối phim); `too-big` = có phần vượt trần × margin.
+ */
+export function checkCutMove(input: { cuts: SplitCandidate[]; index: number; candidate: SplitCandidate; totalBytes: number; durationSec: number; maxUploadBytes: number }): CutMoveCheck {
+  const { cuts, index, candidate, totalBytes, durationSec, maxUploadBytes } = input;
+  if (candidate.timeSec === cuts[index]?.timeSec) {
+    return { ok: false, reason: 'same' };
+  }
+  const prev = index > 0 ? cuts[index - 1].timeSec : 0;
+  const next = index < cuts.length - 1 ? cuts[index + 1].timeSec : Number.POSITIVE_INFINITY;
+  if (candidate.timeSec <= prev || candidate.timeSec >= next || candidate.byteOffset <= 0) {
+    return { ok: false, reason: 'order' };
+  }
+  const moved = cuts.map((c, i) => (i === index ? candidate : c));
+  return splitPartsFromCuts(moved, totalBytes, durationSec).every((p) => partFits(p, maxUploadBytes)) ? { ok: true } : { ok: false, reason: 'too-big' };
 }

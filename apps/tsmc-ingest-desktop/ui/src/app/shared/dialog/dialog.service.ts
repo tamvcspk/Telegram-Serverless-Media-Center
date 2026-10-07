@@ -6,9 +6,9 @@ import type { TmdbKind, TmdbSearchResultDto } from '../../core/ingest-rpc.types'
 import { AdvancedMetadataDialog, type AdvancedMetadataDialogData, type AdvancedMetadataResult } from './advanced-metadata-dialog';
 import { AssignSeriesDialog, type AssignSeriesDialogData, type AssignSeriesResult } from './assign-series-dialog';
 import { ConfirmDialog, type ConfirmDialogData } from './confirm-dialog';
-import { GradeDDialog, type GradeDDialogItem } from './grade-d-dialog';
 import { OrphanReviewDialog, type OrphanReviewDialogItem } from './orphan-review-dialog';
-import { PreflightDialog, type PreflightChoice, type PreflightDialogData, type PreflightDialogItem, type PreflightDialogResult } from './preflight-dialog';
+import { PreflightDialog } from './preflight/preflight-dialog';
+import type { PreflightChoice, PreflightDialogData, PreflightDialogItem, PreflightDialogResult } from './preflight/preflight-types';
 import { TmdbKeyDialog, type TmdbKeyDialogData } from './tmdb-key-dialog';
 import { TmdbSearchDialog, type TmdbSearchDialogData } from './tmdb-search-dialog';
 
@@ -53,31 +53,18 @@ export class DialogService {
     return result === true;
   }
 
-  /** Xác nhận re-encode Hạng D cho CẢ BATCH trong một dialog, toggle riêng
-   * từng file (ADR-0018 § "Quyết định kèm theo") — thay hỏi từng file một
-   * dialog riêng. Trả về tập `path` các file VẪN được chọn chạy; đóng dialog
-   * bằng cách khác (Esc/bấm ra ngoài) → tập RỖNG (không file nào chạy, cùng
-   * nguyên tắc "đóng không phải xác nhận = từ chối" của `confirm()`). */
-  async confirmGradeD(items: GradeDDialogItem[]): Promise<ReadonlySet<string>> {
-    const ref = this.dialog.open<GradeDDialog, { items: GradeDDialogItem[] }, string[]>(GradeDDialog, {
-      data: { items },
-      width: '30rem'
-    });
-    const result = await firstValueFrom(ref.afterClosed());
-    return new Set(result ?? []);
-  }
-
-  /** TIỀN KIỂM vượt trần upload cho CẢ BATCH trong một dialog (Giai đoạn 0 →
-   * 2, ADR-0017 § addendum 2026-09-19) — thay dialog cũ hỏi giữa batch. Trả về
-   * các file chọn "Nén lại" kèm tham số nén của từng file (file còn lại bị bỏ
-   * qua, ở lại bảng metadata), hoặc `null` nếu user huỷ cả lượt upload (nút
-   * "Huỷ upload"/Esc/bấm ra ngoài — khác `confirmGradeD()`, xem
-   * `PreflightDialog`). */
+  /** TIỀN KIỂM cho CẢ BATCH trong MỘT dialog duy nhất (thay dialog Hạng D + dialog vượt trần nối
+   * tiếp trước đây): `items` là MỌI file đã chọn upload, mỗi file được chọn phương pháp (Nén lại /
+   * Chia phần / Bỏ qua, hoặc Upload nguyên với file không cần quyết định) và hiệu chỉnh (Tự động /
+   * Thủ công). Trả về quyết định cho từng file KHÔNG bị bỏ qua, hoặc `null` nếu user huỷ cả lượt
+   * upload (nút "Huỷ upload"/Esc/bấm ra ngoài). 90% khung nhìn, kéo giãn được (xem `PreflightDialog`). */
   async confirmPreflight(items: PreflightDialogItem[], maxUploadBytes: number): Promise<PreflightChoice[] | null> {
     const ref = this.dialog.open<PreflightDialog, PreflightDialogData, PreflightDialogResult>(PreflightDialog, {
       data: { items, maxUploadBytes },
-      width: '46rem',
-      maxWidth: '95vw'
+      width: '90vw',
+      height: '90vh',
+      maxWidth: '98vw',
+      maxHeight: '98vh'
     });
     const result = await firstValueFrom(ref.afterClosed());
     return result ? result.choices : null;

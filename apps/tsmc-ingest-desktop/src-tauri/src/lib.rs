@@ -77,6 +77,8 @@ pub fn run() {
             pipeline::cleanup_temp_dir,
             pipeline::estimate_reencode,
             split::scan_split_candidates,
+            split::analyze_cut_signals,
+            split::extract_preview_frame,
             split::split_video,
             split::read_subtitle_text,
             split::write_temp_text_file,

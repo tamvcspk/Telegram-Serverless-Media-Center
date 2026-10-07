@@ -9,7 +9,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { Router } from '@angular/router';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import type { CompatRank, ReencodePlan } from '@tsmc/core-ingest';
+import type { CompatRank, ReencodePlan, SplitPlan } from '@tsmc/core-ingest';
 import {
   assertChannelWritable,
   assignToSeries,
@@ -26,8 +26,8 @@ import {
   parseExistingCatalogItems,
   composePartCaption,
   partFileName,
+  planFromCutTimes,
   planSizeCap,
-  planSplit,
   rebaseSubtitle,
   seasonGroupKey,
   seedMetadataFromFilename,
@@ -36,11 +36,14 @@ import {
 } from '@tsmc/core-ingest';
 import type { CatalogItemV1, CatalogPartV1 } from '@tsmc/shared-models';
 import { DraftStore, type QueueItem } from '../core/draft-store';
+import { formatBytesShort } from '../core/format';
 import { withFloodWaitRetry } from '../core/flood-wait-retry';
+import { describeSplitFailure, scanAndPlan, scanKeyframes } from '../core/split-service';
 import {
   cancelUpload,
   cleanupTempDir,
   clearCurrentTask,
+  deleteMessage,
   describeIngestError,
   describeSizeCapExceeded,
   describeTmdbError,
@@ -56,7 +59,6 @@ import {
   publishCatalog,
   readPinnedCatalog,
   readSubtitleText,
-  scanSplitCandidates,
   splitVideo,
   tmdbDetails,
   tmdbHasKey,
@@ -73,7 +75,7 @@ import type { PreparedUploadDto, RemuxModeDto } from '../core/ingest-rpc.types';
 import { QueueStore, type UploadQueueItem, type UploadStage } from '../core/queue-store';
 import { SelectedChannelStore } from '../core/selected-channel';
 import { DialogService } from '../shared/dialog/dialog.service';
-import type { PreflightDialogItem } from '../shared/dialog/preflight-dialog';
+import { needsDecision, type PreflightDialogItem } from '../shared/dialog/preflight/preflight-types';
 
 type FillDownField = 'title' | 'season' | 'year';
 
@@ -86,6 +88,8 @@ interface UploadPlan {
   reencodePlans: ReadonlyMap<string, ReencodePlan>;
   /** `path` của file được chọn "Chia phần" ở dialog tiền kiểm (ADR-0022). */
   splitPaths: ReadonlySet<string>;
+  /** `path` → điểm cắt (thời điểm keyframe, giây) user đã xem/chỉnh ở editor của dialog tiền kiểm. */
+  splitCuts: ReadonlyMap<string, number[]>;
   maxUploadBytes: number;
 }
 
@@ -97,17 +101,6 @@ function formatEtaShort(sec: number): string {
   const m = Math.floor(total / 60);
   const s = total % 60;
   return m > 0 ? `${m}:${String(s).padStart(2, '0')}` : `${s}s`;
-}
-
-/** `"420 MB"`/`"1.2 GB"` — dùng cho dung lượng dự phóng cuối ở
- * `pipelineProgressDetailText()`. Chỉ hai bậc (MB/GB, decimal 1000-based,
- * khớp `PreflightDialog::gb()` đã dùng `1_000_000_000`) — không cần KB/TB cho
- * kích thước file video thật tế. */
-function formatBytesShort(bytes: number): string {
-  if (bytes >= 1_000_000_000) {
-    return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
-  }
-  return `${Math.round(bytes / 1_000_000)} MB`;
 }
 
 const UPLOAD_STAGE_LABEL: Record<UploadStage, string> = {
@@ -130,18 +123,6 @@ const UPLOAD_STAGE_LABEL: Record<UploadStage, string> = {
  * `apps/tsmc-ingest/src/ffmpeg.ts::IMAGE_SUBTITLE_CODECS` — hai app tách
  * runtime hoàn toàn, không có lib UI dùng chung (ADR-0017). */
 const IMAGE_SUBTITLE_CODECS = new Set(['hdmv_pgs_subtitle', 'pgssub', 'dvd_subtitle', 'dvdsub']);
-
-function describeSplitFailure(reason: 'no-keyframes' | 'too-many-parts' | 'cannot-fit', fileBytes: number, maxBytes: number): string {
-  const size = `${formatBytesShort(fileBytes)} (trần ${formatBytesShort(maxBytes)})`;
-  switch (reason) {
-    case 'no-keyframes':
-      return `Không tìm thấy keyframe nào để cắt file ${size}. Thử "Nén lại" cho file này.`;
-    case 'too-many-parts':
-      return `File ${size} cần quá nhiều phần để chia (tối đa 50). Thử "Nén lại" cho file này.`;
-    case 'cannot-fit':
-      return `Keyframe của file ${size} quá thưa để chia đều dưới trần. Thử "Nén lại" cho file này.`;
-  }
-}
 
 /** Stage chạy CỤC BỘ trong Rust có %/tốc độ/ETA (khác `uploading_video` — byte mạng). */
 function isLocalPipelineStage(stage: UploadStage): boolean {
@@ -448,6 +429,39 @@ export class Workspace implements OnInit {
    * xem `workspace.html`). */
   protected dismissQueueItem(taskId: string): void {
     this.uploadQueue.update((items) => items.filter((item) => item.taskId !== taskId));
+  }
+
+  /** Item chia phần lỗi giữa chừng còn `uploadedMsgIds` (các message ĐÃ lên kênh, chưa vào
+   * catalog): bỏ khỏi hàng đợi kèm xoá luôn chúng khỏi kênh (ADR-0017 addendum 2026-09-19
+   * quyết định #6). Xoá message là hành động mạng không hoàn tác → hỏi xác nhận nêu rõ số
+   * message; user từ chối vẫn bỏ khỏi hàng đợi nhưng message ở lại cho "Tìm file mồ côi". */
+  protected async dismissQueueItemAndCleanup(item: UploadQueueItem): Promise<void> {
+    const ids = item.uploadedMsgIds ?? [];
+    if (ids.length === 0) {
+      this.dismissQueueItem(item.taskId);
+      return;
+    }
+    const confirmed = await this.dialogService.confirm({
+      title: 'Xoá phần đã upload dở?',
+      message: `"${item.name}" lỗi giữa chừng — ${ids.length} message (các phần/phụ đề đã lên kênh, chưa vào catalog) sẽ bị xoá HẲN khỏi kênh Telegram, không hoàn tác được. Chọn "Giữ trên kênh" để xử lý sau bằng "Tìm file mồ côi".`,
+      confirmText: 'Xoá khỏi kênh',
+      cancelText: 'Giữ trên kênh',
+      tone: 'warn'
+    });
+    if (confirmed) {
+      const failed: number[] = [];
+      for (const id of ids) {
+        try {
+          await withFloodWaitRetry(() => undefined, () => deleteMessage(id));
+        } catch {
+          failed.push(id);
+        }
+      }
+      if (failed.length > 0) {
+        this.publishError.set(`Không xoá được ${failed.length}/${ids.length} message đã upload dở (#${failed.join(', #')}) — còn trên kênh, dùng "Tìm file mồ côi" để xử lý.`);
+      }
+    }
+    this.dismissQueueItem(item.taskId);
   }
 
   protected onSearchInput(value: string): void {
@@ -872,7 +886,7 @@ export class Workspace implements OnInit {
     if (!plan || plan.runnable.length === 0) {
       return;
     }
-    const { runnable, reencodePlans, splitPaths, maxUploadBytes } = plan;
+    const { runnable, reencodePlans, splitPaths, splitCuts, maxUploadBytes } = plan;
 
     this.uploading.set(true);
     this.publishError.set(null);
@@ -910,7 +924,7 @@ export class Workspace implements OnInit {
       const taskId = queued.taskId;
       this.currentUploadTaskId.set(taskId);
       try {
-        const finalMetadata = await this.processItem(queued, maxUploadBytes, reencodePlans.get(queued.path), splitPaths.has(queued.path));
+        const finalMetadata = await this.processItem(queued, maxUploadBytes, reencodePlans.get(queued.path), splitPaths.has(queued.path), splitCuts.get(queued.path));
         newItems.push(finalMetadata);
         this.updateQueueItem(taskId, { stage: 'done' });
       } catch (err) {
@@ -966,30 +980,12 @@ export class Workspace implements OnInit {
     const overCap = (c: QueueItem): boolean =>
       planSizeCap({ sourceBytes: c.sourceBytes ?? 0, durationSec: c.durationSec ?? 0, maxUploadBytes }).exceedsCap;
 
-    // Hạng D KHÔNG vượt trần — re-encode video THẬT, đắt hơn hẳn remux. MỘT
-    // dialog tổng hợp cho CẢ BATCH, toggle riêng từng file (mặc định checked)
-    // — thay bản trước hỏi TỪNG FILE một dialog riêng (ADR-0018 § "Quyết định
-    // kèm theo": giữ quyền kiểm soát hạt nhân, không ép all-or-nothing). File
-    // bị bỏ tick vẫn ở lại Draft, không vào hàng đợi, batch vẫn chạy tiếp cho
-    // các file còn lại. Hạng D VƯỢT trần không qua đây: đã nằm trong dialog
-    // tiền kiểm bên dưới (cùng việc hỏi "có nén lại không", kèm tham số nén).
-    const gradeDCandidates = candidates.filter((c) => c.rank === 'D' && !overCap(c));
-    const confirmedGradeD =
-      gradeDCandidates.length > 0
-        ? await this.dialogService.confirmGradeD(
-            gradeDCandidates.map((c) => ({ path: c.path, name: c.name, estimateMin: Math.max(1, Math.ceil((c.durationSec ?? 0) / 60)) }))
-          )
-        : undefined;
-    const afterGradeD = candidates.filter((c) => !gradeDCandidates.includes(c) || confirmedGradeD?.has(c.path));
-
-    // Mọi file vượt trần (Hạng A/B/C lẫn D) → MỘT dialog tiền kiểm (Giai đoạn
-    // 2): thẻ Nén lại/Chia phần/Bỏ qua + panel Nâng cao. Hạng A/B/C vốn chỉ
-    // stream-copy nên nén lại luôn phải hỏi (mockup A.2 mục 1). `path` →
-    // tham số nén cho MỘT lần re-encode duy nhất (trước đây Hạng D chạy mặc
-    // định rồi nén lần hai nếu vượt).
-    const reencodePlans = new Map<string, ReencodePlan>();
-    const splitPaths = new Set<string>();
-    const askPreflight: PreflightDialogItem[] = afterGradeD.filter(overCap).map((c) => ({
+    // MỘT dialog duy nhất cho mọi file đã chọn (thay dialog Hạng D + dialog vượt trần nối tiếp):
+    // mỗi file chọn phương pháp (Nén lại / Chia phần / Bỏ qua; Hạng D chỉ nén lại) và hiệu chỉnh
+    // (Tự động / Thủ công) ngay trong một lượt. Chỉ MỞ dialog khi có file cần quyết định (vượt trần
+    // hoặc Hạng D) — batch toàn file dưới trần chạy thẳng như trước. Hạng D luôn phải xác nhận vì
+    // re-encode video đắt hơn hẳn remux (mockup A.2 mục 1).
+    const dialogItems: PreflightDialogItem[] = candidates.map((c) => ({
       path: c.path,
       name: c.name,
       sourceBytes: c.sourceBytes ?? 0,
@@ -997,27 +993,34 @@ export class Workspace implements OnInit {
       width: c.videoWidth ?? 0,
       height: c.videoHeight ?? 0,
       fps: c.fps ?? 0,
-      mustReencode: c.rank === 'D'
+      rank: c.rank as CompatRank,
+      overCap: overCap(c)
     }));
 
-    let skipped = new Set<string>();
-    if (askPreflight.length > 0) {
-      const chosen = await this.dialogService.confirmPreflight(askPreflight, maxUploadBytes);
-      if (chosen === null) {
-        return null; // huỷ cả lượt — mọi file còn nguyên trong bảng metadata
-      }
-      const chosenPaths = new Set(chosen.map((c) => c.path));
-      skipped = new Set(askPreflight.filter((i) => !chosenPaths.has(i.path)).map((i) => i.path));
-      for (const choice of chosen) {
-        if (choice.strategy === 'split') {
-          splitPaths.add(choice.path);
-        } else {
-          reencodePlans.set(choice.path, choice.plan);
+    const reencodePlans = new Map<string, ReencodePlan>();
+    const splitPaths = new Set<string>();
+    const splitCuts = new Map<string, number[]>();
+    if (!dialogItems.some(needsDecision)) {
+      return { runnable: candidates, reencodePlans, splitPaths, splitCuts, maxUploadBytes };
+    }
+
+    const chosen = await this.dialogService.confirmPreflight(dialogItems, maxUploadBytes);
+    if (chosen === null) {
+      return null; // huỷ cả lượt — mọi file còn nguyên trong bảng metadata
+    }
+    const chosenPaths = new Set(chosen.map((c) => c.path));
+    for (const choice of chosen) {
+      if (choice.strategy === 'split') {
+        splitPaths.add(choice.path);
+        if (choice.cutTimesSec) {
+          splitCuts.set(choice.path, choice.cutTimesSec);
         }
+      } else if (choice.strategy === 'reencode') {
+        reencodePlans.set(choice.path, choice.plan);
       }
     }
 
-    return { runnable: afterGradeD.filter((c) => !skipped.has(c.path)), reencodePlans, splitPaths, maxUploadBytes };
+    return { runnable: candidates.filter((c) => chosenPaths.has(c.path)), reencodePlans, splitPaths, splitCuts, maxUploadBytes };
   }
 
   /** Một item hàng đợi: probe lại lấy danh sách track phụ đề TEXT (lọc bỏ
@@ -1037,7 +1040,7 @@ export class Workspace implements OnInit {
    * `plannedSplit` = user chọn "Chia phần" ở tiền kiểm (ADR-0022): remux như
    * thường (không nén), nếu file sau remux vẫn vượt trần thì cắt tại keyframe và
    * upload N phần (`uploadSplitParts()`); nếu remux đã đủ nhỏ thì upload một file. */
-  private async processItem(item: UploadQueueItem, maxUploadBytes: number, plannedReencode?: ReencodePlan, plannedSplit = false): Promise<CatalogItemV1> {
+  private async processItem(item: UploadQueueItem, maxUploadBytes: number, plannedReencode?: ReencodePlan, plannedSplit = false, plannedCutTimes?: number[]): Promise<CatalogItemV1> {
     const mode: RemuxModeDto = plannedReencode !== undefined || item.rank === 'D' ? 'reencode_all' : item.rank === 'C' ? 'reencode_audio' : 'copy';
 
     const probeDto = await probeMedia(item.path);
@@ -1054,10 +1057,10 @@ export class Workspace implements OnInit {
       // remux/re-encode đã tốn xong thời gian. Ném lỗi bên trong `try` (không
       // trước nó) để `finally` dưới vẫn dọn `temp_dir` như mọi lỗi khác.
       if (prepared.file_size_bytes > maxUploadBytes && plannedSplit) {
-        return await this.uploadSplitParts(item, prepared, maxUploadBytes);
+        return await this.uploadSplitParts(item, prepared, maxUploadBytes, plannedCutTimes);
       }
       if (prepared.file_size_bytes > maxUploadBytes) {
-        if (plannedReencode !== undefined) {
+        if (plannedReencode?.targetVideoBitrateBps !== undefined) {
           // Đã nén theo bitrate mục tiêu MỘT lần mà vẫn vượt — `h264_mf` có mức
           // sàn theo nội dung (không hạ dưới mức đó dù target thấp hơn, xem
           // ADR-0017 § addendum 2026-09-19 Option C). Không encode lặp lại.
@@ -1178,15 +1181,23 @@ export class Workspace implements OnInit {
    * i/N"), phụ đề rebase riêng từng phần. Trả về MỘT item catalog logic với
    * `parts[]`, `msgId` = phần 1. Phần đã lên kênh mà các phần sau lỗi vẫn nằm trên
    * kênh (chưa vào catalog) — "Tìm file mồ côi" gom lại qua quy ước tên `partIofN`. */
-  private async uploadSplitParts(item: UploadQueueItem, prepared: PreparedUploadDto, maxUploadBytes: number): Promise<CatalogItemV1> {
+  private async uploadSplitParts(item: UploadQueueItem, prepared: PreparedUploadDto, maxUploadBytes: number, plannedCutTimes?: number[]): Promise<CatalogItemV1> {
     this.updateQueueItem(item.taskId, { stage: 'splitting', pipelineProgress: undefined });
-    const scan = await scanSplitCandidates(item.taskId, prepared.remuxed_path);
-    const splitPlan = planSplit({
-      keyframes: scan.keyframes.map((k) => ({ timeSec: k.time_sec, byteOffset: k.byte_offset })),
-      totalBytes: scan.total_packet_bytes,
-      durationSec: scan.duration_sec,
-      maxUploadBytes
-    });
+    // Điểm cắt user đã xem/chỉnh ở editor (từ lần quét NGUỒN) được ánh xạ sang keyframe của
+    // bản remux và kiểm lại dung lượng thật; không còn hợp lệ (hoặc user không mở editor) →
+    // tự động: quét bản remux, đo chuyển cảnh/im lặng quanh mốc chia đều, chọn điểm cắt.
+    let splitPlan: SplitPlan | null = null;
+    if (plannedCutTimes && plannedCutTimes.length > 0) {
+      const { scan, keyframes } = await scanKeyframes(item.taskId, prepared.remuxed_path);
+      splitPlan = planFromCutTimes({ keyframes, cutTimesSec: plannedCutTimes, totalBytes: scan.total_packet_bytes, durationSec: scan.duration_sec, maxUploadBytes });
+    }
+    if (!splitPlan) {
+      const analysis = await scanAndPlan(item.taskId, prepared.remuxed_path, maxUploadBytes);
+      if (!analysis.plan.ok) {
+        throw new Error(describeSplitFailure(analysis.plan.reason, prepared.file_size_bytes, maxUploadBytes));
+      }
+      splitPlan = analysis.plan;
+    }
     if (!splitPlan.ok) {
       throw new Error(describeSplitFailure(splitPlan.reason, prepared.file_size_bytes, maxUploadBytes));
     }
@@ -1210,6 +1221,9 @@ export class Workspace implements OnInit {
 
     const subtitleSources = await this.collectSubtitleSources(item, prepared);
     const catalogParts: CatalogPartV1[] = [];
+    const uploadedMsgIds: number[] = [];
+    let poster: CatalogItemV1['poster'];
+    try {
     for (let i = 0; i < count; i++) {
       const part = parts[i];
       this.updateQueueItem(item.taskId, { stage: 'uploading_video', progress: undefined, partProgress: { index: i + 1, count } });
@@ -1228,6 +1242,8 @@ export class Workspace implements OnInit {
           })
       );
 
+      uploadedMsgIds.push(uploaded.msg_id);
+
       this.updateQueueItem(item.taskId, { stage: 'uploading_subtitles' });
       const subs: NonNullable<CatalogPartV1['subs']> = [];
       for (const source of subtitleSources) {
@@ -1242,11 +1258,11 @@ export class Workspace implements OnInit {
           () => uploadSubtitle(tempPath, subFileName)
         );
         subs.push({ lang: source.lang ?? 'und', msgId: subUploaded.msg_id });
+        uploadedMsgIds.push(subUploaded.msg_id);
       }
       catalogParts.push({ msgId: uploaded.msg_id, runtime: Math.max(part.final_probe.duration_sec, 0.001), size: part.file_size_bytes, ...(subs.length > 0 ? { subs } : {}) });
     }
 
-    let poster: CatalogItemV1['poster'];
     if (item.pendingPosterPath) {
       this.updateQueueItem(item.taskId, { stage: 'uploading_poster' });
       const posterUploaded = await withFloodWaitRetry(
@@ -1254,6 +1270,11 @@ export class Workspace implements OnInit {
         () => uploadTmdbPoster(item.pendingPosterPath!, `${stem}.poster.jpg`)
       );
       poster = { msgId: posterUploaded.msg_id };
+    }
+    } catch (err) {
+      // Phần đã lên kênh nhưng chưa vào catalog: ghi nhận để dọn khi user xoá item khỏi hàng đợi.
+      this.updateQueueItem(item.taskId, { uploadedMsgIds });
+      throw err;
     }
 
     // Item-level: msgId/subs của phần 1, runtime/size là TỔNG — client cũ (không biết

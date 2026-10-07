@@ -43,6 +43,10 @@ export interface UploadQueueItem {
   pipelineProgress?: { percent: number; speedXRealtime: number | null; etaSec: number | null; projectedFinalBytes: number | null };
   /** Item chia phần (ADR-0022): đang xử lý/upload phần `index` trên tổng `count` (1-based). */
   partProgress?: { index: number; count: number };
+  /** Item chia phần LỖI giữa chừng: các message (video + phụ đề) ĐÃ lên kênh nhưng chưa
+   * vào catalog. Giữ để user xoá khỏi hàng đợi thì dọn luôn (ADR-0017 addendum 2026-09-19
+   * quyết định #6); tắt app đột ngột thì "Tìm file mồ côi" xử lý. */
+  uploadedMsgIds?: number[];
   error?: string;
   /** Đếm ngược `FLOOD_WAIT` (giây còn lại) — ĐỘC LẬP với `stage` (mockup A.5). */
   floodWaitSeconds?: number;

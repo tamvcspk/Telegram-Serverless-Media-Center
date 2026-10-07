@@ -29,7 +29,7 @@
 //! chối cứng (trả `Err`, không segfault) nếu frame vẫn lệch số kênh với
 //! encoder vì bất kỳ lý do nào khác.
 
-use ffmpeg_next::{self as ffmpeg, channel_layout::ChannelLayout, encoder, frame};
+use ffmpeg_next::{self as ffmpeg, channel_layout::ChannelLayout, codec, encoder, frame};
 
 /// Layout đích của encoder AAC cho một nguồn có `source_channels` kênh, kèm tên
 /// layout (cú pháp của filter `aformat`).
@@ -53,4 +53,19 @@ pub(crate) fn ensure_frame_matches_encoder(filtered: &frame::Audio, encoder_ctx:
         return Err(ffmpeg::Error::InvalidData);
     }
     Ok(())
+}
+
+/// Decoder một số định dạng (WMA/ASF...) khai `channel_layout` RỖNG (bits = 0) dù biết số kênh — graph `abuffer` từ chối
+/// ("Invalid channel layout 0x0", lỗi Caribbean 070307-487.wmv, 2026-10-07). Điền layout mặc định theo số kênh TRƯỚC khi dựng graph.
+pub(crate) fn ensure_decoder_layout(decoder: &mut codec::decoder::Audio) {
+    if decoder.channel_layout().is_empty() {
+        decoder.set_channel_layout(ChannelLayout::default(i32::from(decoder.channels())));
+    }
+}
+
+/// Cùng lý do với `ensure_decoder_layout()`, cho từng frame đã giải mã (layout rỗng làm `resampling::Context::get` lỗi).
+pub(crate) fn ensure_frame_layout(frame: &mut frame::Audio) {
+    if frame.channel_layout().is_empty() {
+        frame.set_channel_layout(ChannelLayout::default(i32::from(frame.channels())));
+    }
 }

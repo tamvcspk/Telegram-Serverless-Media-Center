@@ -59,7 +59,7 @@ use std::time::Instant;
 
 use ffmpeg_next::{self as ffmpeg, channel_layout::ChannelLayout, codec, encoder, filter, format, format::Pixel, frame, media::Type as MediaType, software::{resampling, scaling}, util::dictionary::Owned as Dictionary, Rational};
 
-use crate::audio_layout::{aac_target_layout, aformat_filter_spec, ensure_frame_matches_encoder};
+use crate::audio_layout::{ensure_decoder_layout, ensure_frame_layout, aac_target_layout, aformat_filter_spec, ensure_frame_matches_encoder};
 use crate::ensure_init;
 use crate::progress::{maybe_tick, CancelFlag, PipelineProgressSink};
 use crate::ProcessError;
@@ -69,6 +69,42 @@ use crate::ProcessError;
 /// ngoài khung hình gốc).
 fn round_down_even(value: u32) -> u32 {
     value & !1
+}
+
+/// Frame rate TRUNG BÌNH đo từ tối đa `FRAME_RATE_PROBE_PACKETS` packet video đầu (số packet / khoảng pts) — chỉ dùng khi
+/// container không khai frame rate dùng được. `None` nếu quá ít packet hoặc kết quả ngoài [1, 120] fps (không đáng tin).
+/// Làm tròn về phân số quen thuộc (24000/1001, 30000/1001, 60000/1001...) để encoder nhận số "đẹp".
+fn measure_frame_rate(input_path: &str, video_index: usize) -> Option<Rational> {
+    const FRAME_RATE_PROBE_PACKETS: u32 = 900;
+    let mut ictx = format::input(input_path).ok()?;
+    let tb = f64::from(ictx.stream(video_index)?.time_base());
+    let (mut min_ts, mut max_ts, mut count) = (i64::MAX, i64::MIN, 0u32);
+    for (stream, packet) in ictx.packets() {
+        if stream.index() != video_index {
+            continue;
+        }
+        let Some(ts) = packet.pts().or_else(|| packet.dts()) else { continue };
+        min_ts = min_ts.min(ts);
+        max_ts = max_ts.max(ts);
+        count += 1;
+        if count >= FRAME_RATE_PROBE_PACKETS {
+            break;
+        }
+    }
+    let span = (max_ts - min_ts) as f64 * tb;
+    if count < 10 || span <= 0.0 {
+        return None;
+    }
+    let fps = f64::from(count - 1) / span;
+    if !(1.0..=120.0).contains(&fps) {
+        return None;
+    }
+    for (target, num) in [(23.976, 24000), (29.97, 30000), (59.94, 60000)] {
+        if (fps - target).abs() < 0.03 {
+            return Some(Rational(num, 1001));
+        }
+    }
+    Some(Rational((fps * 1000.0).round() as i32, 1000))
 }
 
 /// `target_video_bitrate_bps`: `None` giữ NGUYÊN hành vi Hạng D thường (mặc
@@ -198,7 +234,12 @@ pub fn reencode_with_options(
     video_enc_ctx.set_aspect_ratio(video_decoder.aspect_ratio());
     video_enc_ctx.set_format(ENC_PIXEL_FORMAT);
     // WMV/VC-1: decoder không báo frame_rate (None) → h264_mf "could not set output type" (lỗi STAR-505/502, 2026-10-05); rơi về avg_frame_rate của stream.
-    let in_frame_rate = video_decoder.frame_rate().or_else(|| Some(ictx.stream(video_in_index).unwrap().avg_frame_rate()).filter(|r| r.numerator() > 0 && r.denominator() > 0));
+    // Container VFR như ASF/WMV có thể khai CẢ hai đều vô dụng (`avg_frame_rate = 0/0`, `r_frame_rate = 1000/1` vì time_base 1/1000 —
+    // lỗi Caribbean 070307-487.wmv, 2026-10-07): lúc đó đo từ chính các packet đầu.
+    let in_frame_rate = video_decoder
+        .frame_rate()
+        .or_else(|| Some(ictx.stream(video_in_index).unwrap().avg_frame_rate()).filter(|r| r.numerator() > 0 && r.denominator() > 0))
+        .or_else(|| measure_frame_rate(input_path, video_in_index));
     video_enc_ctx.set_frame_rate(in_frame_rate);
     video_enc_ctx.set_time_base(video_ist_time_base);
     if global_header {
@@ -221,6 +262,7 @@ pub fn reencode_with_options(
     let audio_ist_params = ictx.stream(audio_in_index).unwrap().parameters();
     let audio_dec_ctx = codec::context::Context::from_parameters(audio_ist_params)?;
     let mut audio_decoder = audio_dec_ctx.decoder().audio()?;
+    ensure_decoder_layout(&mut audio_decoder);
 
     let aac = encoder::find(codec::Id::AAC).ok_or(ffmpeg::Error::EncoderNotFound)?.audio()?;
     let mut aost = octx.add_stream(aac)?;
@@ -444,6 +486,7 @@ fn drain_audio_decoder(
     while decoder.receive_frame(&mut decoded).is_ok() {
         let ts = decoded.timestamp();
         decoded.set_pts(ts);
+        ensure_frame_layout(&mut decoded);
 
         let frame_sig = (decoded.rate() as i32, decoded.format(), decoded.channel_layout());
         if frame_sig != *resampler_src {

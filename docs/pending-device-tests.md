@@ -819,3 +819,22 @@ Liên quan: [ADR-0022 § addendum 2026-10-05](./adr/0022-item-nhieu-phan-trong-c
 - [ ] Lỗi giữa chừng (ngắt mạng khi upload phần 2): item báo lỗi; phần 1 còn trên kênh và hiện ở "Tìm file mồ côi" (chưa có auto-dọn — ghi nhận hành vi thật).
 - [ ] Dung lượng đĩa tạm: theo dõi `%TEMP%\tsmc-ingest-desktop-*` — kỳ vọng ≈ 2× dung lượng file trong lúc xử lý, dọn sạch sau khi xong/lỗi.
 - [ ] Kiểm cả nguồn MKV Hạng C (audio AC3 → AAC rồi cắt) và một nguồn có VFR/HEVC nếu có.
+
+
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — Giai đoạn 4b: điểm cắt thông minh, editor, dọn phần dở (2026-10-07)
+
+Liên quan: [ADR-0022 § addendum 2026-10-07](./adr/0022-item-nhieu-phan-trong-catalog.md#cập-nhật-sau-khi-accepted-2026-10-07-giai-đoạn-4b-chuyển-cảnhim-lặng-editor-điểm-cắt-dọn-phần-upload-dở). Cần tài khoản thật + file vượt trần; **KHÔNG chạy hộ bằng agent/Claude**.
+
+- [ ] Dialog mở khi có file vượt trần hoặc Hạng D; batch toàn file dưới trần KHÔNG mở dialog (chạy thẳng). Dialog đúng ~90% cửa sổ, kéo góc phải-dưới đổi kích thước (đối xứng, tay cầm dính con trỏ) trên WebView2 thật.
+- [ ] Danh sách trái: ✓ / ⚠ (rê chuột thấy lý do) / – (bỏ qua) và nhãn phương pháp đúng; "Áp dụng cho tất cả…" (nén / chia trừ Hạng D / bỏ qua / tự động cho tất cả có hỏi xác nhận nếu đang có chỉnh tay).
+- [ ] Hạng D dưới trần: vào dialog như file "Nén lại" mặc định, hiện cảnh báo số phút; bỏ qua = ở lại bảng metadata; chế độ Tự động hiện "giữ gần bitrate nguồn — N kbps" (KHÔNG để bộ nén tự chọn); nén lại hai file WMV `Caribbean 070307-487.wmv`/`072707-506.wmv` (~830/750 MB) → file ra cỡ ~nguồn (không còn ~165/148 MB) và **hình sắc nét ngang nguồn** (ghi lại nhận xét bằng mắt; chỉnh `D_REENCODE_SOURCE_FRACTION` nếu cần).
+- [ ] Nén lại, chế độ Thủ công: kích thước, bitrate video (kbps), độ phân giải, audio đều đặt được; đổi kích thước hay bitrate cùng chỉnh một giá trị; sau "Ước tính chính xác" bật Thủ công thấy bitrate đã hiệu chỉnh làm giá trị ban đầu; Hạng D có ô "Đặt bitrate mục tiêu".
+- [ ] Chia phần: chọn file → tự quét keyframe (ghi lại số giây thật với file vài GB), chế độ Tự động đo + chọn điểm cắt; MỘT khung hình ở trên, thanh nhiều màu ở dưới; bấm/lướt thanh đổi playhead + khung hình; lướt seeker: khung hình đi theo — **ghi lại có giật không** (độ trễ nạp khung của `extract_preview_frame` với phim 4K/HEVC thật; nếu giật thì làm trích thumbnail hàng loạt). Tay cầm điểm cắt chỉ để chọn, không kéo.
+- [ ] Chia phần, Thủ công: bấm tay cầm chọn điểm cắt (seeker nhảy tới đó), đưa seeker tới vị trí khác rồi "Di chuyển điểm cắt N đến đây" — nút khoá có lý do rõ ràng khi vị trí vượt trần/trùng điểm cắt kế bên, dòng gợi ý nêu đúng khoảng giờ dời được; "＋ Thêm điểm cắt tại đây" (3+ phần, upload ra đúng số phần đã chọn); "－ Bỏ điểm cắt N" chỉ bật khi phần gộp vẫn vừa trần; phím Delete trên tay cầm đang focus.
+- [ ] Quét/đo/ước tính nhiều file liền nhau không làm hỏng nút Dừng (chạy tuần tự); đóng dialog giữa lúc đang quét dừng được tác vụ Rust.
+- [ ] "Bắt đầu upload" khoá khi còn file ⚠ (dưới sàn ABR / vượt trần / đang quét-đo / không chia được), thanh dưới nêu tên file — bấm tên nhảy tới file đó.
+- [ ] Điểm cắt tự chọn có hợp lý không: mở phim thật, xem điểm cắt tự động có rơi vào chỗ chuyển cảnh/im lặng hơn mốc byte thuần không; ghi lại giá trị `scene`/`rms` thực tế nếu thấy ngưỡng 0.2/−45 dB lệch (chưa hiệu chỉnh trên phim thật).
+- [ ] Chỉnh một điểm cắt rồi Tiếp tục: video upload đúng cắt tại giờ đã chọn (xem phần 1 kết thúc/phần 2 bắt đầu tại điểm đó, ±1 keyframe do ánh xạ sang bản remux).
+- [ ] Nguồn Hạng C (AC3 → AAC): dung lượng phần sau remux lệch bao nhiêu so với hiển thị ở editor; khi lệch làm phần vượt trần thì app rơi về tự động chứ không lỗi.
+- [ ] Ngắt mạng giữa lúc upload phần 2 → item báo lỗi; bấm "Bỏ khỏi hàng đợi" hỏi xoá "N message" → chọn "Xoá khỏi kênh" xoá sạch phần 1 (kiểm trên kênh Telegram); thử cả "Giữ trên kênh" (message còn, hiện ở "Tìm file mồ côi" như một mục lẻ).
+- [ ] Mở editor lúc file có audio mono/5.1 và file KHÔNG có audio (đường đo im lặng không crash; file không audio hiện không chia được vì `remux()` đòi audio — ghi nhận hành vi).

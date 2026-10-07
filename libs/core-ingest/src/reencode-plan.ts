@@ -3,7 +3,7 @@
 // thuần — mọi công thức nằm ở đây, Rust (`ingest-ffmpeg::reencode`) chỉ THỰC
 // THI tham số nhận được (điều kiện bắt buộc #4).
 
-import { bitsPerPixel, REENCODE_AUDIO_BITRATE_BPS } from './size-normalize';
+import { bitsPerPixel, computeTargetVideoBitrateBps, MIN_VIDEO_BITRATE_BPS, MUX_OVERHEAD_FRACTION, REENCODE_AUDIO_BITRATE_BPS, SIZE_SAFETY_MARGIN } from './size-normalize';
 
 /** Tham số một lần re-encode do bước tiền kiểm quyết — khớp `ReencodeOptions`
  * (Rust) trừ `window`. Field bỏ trống = giữ mặc định của Hạng D thường. */
@@ -227,4 +227,34 @@ export function estimateFromSamples(samples: readonly EstimateSample[], duration
   const totalBytes = valid.reduce((a, s) => a + s.outBytes, 0);
   const speed = totalMedia / totalWall;
   return { estimatedBytes: (totalBytes / totalMedia) * durationSec, speedXRealtime: speed, etaSec: durationSec / speed };
+}
+
+/** Mức bitrate audio nguồn giả định khi ước bitrate video của nguồn từ dung lượng tổng. */
+const SOURCE_AUDIO_BPS_GUESS = REENCODE_AUDIO_BITRATE_BPS;
+
+/** Không đặt target thì `h264_mf` TỰ CHỌN một bitrate rất thấp: đo thật 2026-10-07 trên Caribbean 070307-487.wmv
+ * (720×540, nguồn 1.98 Mbps) — ~390 kbps (~0.03 bit/pixel), file 830 MB → 165 MB, hình mờ và vỡ nét nặng. Vì vậy Hạng D
+ * KHÔNG BAO GIỜ nén với mặc định của bộ nén. */
+export const D_REENCODE_SOURCE_FRACTION = 1;
+
+/**
+ * Bitrate video mặc định khi nén lại file Hạng D DƯỚI trần (không cần giảm dung lượng, chỉ cần đổi codec cho trình
+ * duyệt phát được): giữ gần bitrate video của chính file nguồn (`D_REENCODE_SOURCE_FRACTION`), không thấp hơn mức sàn
+ * ABR của `h264_mf` ở độ phân giải đầu ra, không cao hơn mức vừa trần. Thiếu số liệu nguồn thì dùng 0.1 bit/pixel.
+ */
+export function defaultReencodeBitrateBps(input: { sourceBytes: number; durationSec: number; width: number; height: number; fps: number; maxUploadBytes: number; maxHeight?: number }): number {
+  const { sourceBytes, durationSec, maxUploadBytes } = input;
+  const floor = minAbrVideoBitrateBps(input);
+  const size = scaledSize(input.width, input.height, input.maxHeight);
+  const pixelsPerSec = size.width * size.height * input.fps;
+  const sourceVideoBps = durationSec > 0 && sourceBytes > 0 ? (sourceBytes * 8) / durationSec - SOURCE_AUDIO_BPS_GUESS : 0;
+  const want = sourceVideoBps > 0 ? sourceVideoBps * D_REENCODE_SOURCE_FRACTION : pixelsPerSec > 0 ? pixelsPerSec * 0.1 : 2_000_000;
+  const cap = computeTargetVideoBitrateBps(maxUploadBytes, durationSec);
+  return Math.max(MIN_VIDEO_BITRATE_BPS, Math.floor(Math.min(Math.max(want, floor), cap)));
+}
+
+/** Dung lượng đầu ra (byte) mà `computeTargetVideoBitrateBps()` quy về đúng `videoBps` — nghịch đảo công thức, để thanh
+ * trượt kích thước hiện đúng giá trị khởi đầu là một BITRATE (Hạng D dưới trần). */
+export function sizeForVideoBitrateBps(videoBps: number, durationSec: number, audioBitrateBps: number = REENCODE_AUDIO_BITRATE_BPS): number {
+  return ((videoBps + audioBitrateBps) / (1 - MUX_OVERHEAD_FRACTION) / SIZE_SAFETY_MARGIN) * (durationSec / 8);
 }

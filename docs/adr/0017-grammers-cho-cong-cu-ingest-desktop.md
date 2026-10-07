@@ -597,3 +597,24 @@ Thực hiện Giai đoạn 2 của [kế hoạch chuẩn hoá dung lượng](#c�
 > quyết định gốc **vẫn đứng vững**.
 
 Thẻ "Chia phần" của dialog tiền kiểm (khoá ở addendum 2026-10-01) đã mở cho Hạng A/B/C; Hạng D vẫn khoá. Không đổi `IngestRpc`/grammers; thêm bốn command Tauri thuần cục bộ (`scan_split_candidates`, `split_video`, `read_subtitle_text`, `write_temp_text_file`) và module `ingest-ffmpeg::split`. Luật nghiệp vụ (chọn điểm cắt, rebase phụ đề, đặt tên/caption phần) nằm ở TypeScript `libs/core-ingest` đúng điều kiện bắt buộc #4. Thiết kế schema ở [ADR-0022](./0022-item-nhieu-phan-trong-catalog.md); phạm vi đã làm/chưa làm/chưa kiểm chứng ở [ADR-0022 § addendum 2026-10-05](./0022-item-nhieu-phan-trong-catalog.md#cập-nhật-sau-khi-accepted-2026-10-05-giai-đoạn-4-ingest-chia-file). **Còn mở:** chấm điểm chuyển cảnh/im lặng và editor timeline chưa làm; chưa chạy bằng tài khoản thật.
+
+
+## Cập nhật sau khi Accepted (2026-10-07, dialog tiền kiểm gộp một, bỏ dialog Hạng D)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết
+> định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó —
+> quyết định gốc **vẫn đứng vững**.
+
+Dialog Hạng D (`GradeDDialog`, ADR-0018 § "Quyết định kèm theo") và dialog tiền kiểm vượt trần nối tiếp được gộp thành MỘT dialog chủ–chi tiết ([ADR-0022 § addendum 2026-10-07](./0022-item-nhieu-phan-trong-catalog.md#cập-nhật-sau-khi-accepted-2026-10-07-giai-đoạn-4b-chuyển-cảnhim-lặng-editor-điểm-cắt-dọn-phần-upload-dở)). Không đổi `IngestRpc`, command nén/chia hay hợp đồng IPC. Hành vi cần biết: (1) Hạng D dưới trần giờ nằm trong dialog như một file "Nén lại" mặc định, bỏ chọn = "Bỏ qua" (tương đương toggle cũ); nén Hạng D dưới trần dùng bitrate gần nguồn (xem addendum ngay dưới, thay cho "không ép bitrate" ban đầu), người dùng chỉnh được bitrate/độ phân giải/audio ở chế độ Thủ công; (2) quy ước của ADR-0017 addendum 2026-10-01 "ba thẻ Nén lại/Chia phần/Bỏ qua + panel Nâng cao ẩn/hiện" được thay bằng công tắc Tự động/Thủ công — cờ `preflight_advanced_open` ở app-data không còn dùng (cơ chế prefs để lại cho việc khác).
+
+## Cập nhật sau khi Accepted (2026-10-07, Hạng D nén với bitrate gần nguồn thay vì mặc định của h264_mf)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết
+> định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó —
+> quyết định gốc **vẫn đứng vững**.
+
+**Nguồn:** user nén + upload thật hai file WMV Hạng D (`Caribbean 070307-487.wmv` 830 MB — wmv2 720×540, nguồn ~1.98 Mbps — và `Caribbean 072707-506.wmv` 750 MB, file này chưa probe riêng): ra 164.9 MB và 148.2 MB, hình "siêu tệ — mờ và vỡ nét cực kỳ nhiều", trong khi chia phần giữ nguyên chất lượng. Nguyên nhân: Hạng D dưới trần chạy với `target_video_bitrate = None`, và `h264_mf` tự chọn bitrate rất thấp (đo thật trên bản trích 240 s: ~390 kbps ≈ 0.03 bit/pixel, bằng ~20% bitrate nguồn). Đây là hành vi có sẵn từ trước (ADR-0017 addendum 2026-10-04 đã ghi mức tự chọn ~840 kbps cho nguồn 1504 kbps và nói "chưa đo"); dialog gộp một làm nó lộ rõ vì Hạng D dưới trần không còn qua bước đặt target nào.
+
+**Quyết định bổ sung:** Hạng D KHÔNG BAO GIỜ nén với mặc định của bộ nén. `defaultReencodeBitrateBps()` (`libs/core-ingest/src/reencode-plan.ts`): bitrate video mặc định = bitrate video ước của nguồn (`sourceBytes × 8 / duration − 160 kbps audio`, hệ số `D_REENCODE_SOURCE_FRACTION = 1`), kẹp dưới bởi mức sàn ABR của `h264_mf` ở độ phân giải đầu ra và trên bởi mức vừa trần; thiếu số liệu nguồn thì 0.1 bit/pixel. Dialog dùng nó làm giá trị Tự động cho Hạng D dưới trần (thanh kích thước khởi đầu ở dung lượng ứng với bitrate đó — `sizeForVideoBitrateBps()`); bỏ ô "Đặt bitrate mục tiêu" (không còn đường nào để bộ nén tự chọn); cảnh báo "nén vô nghĩa" không áp dụng cho Hạng D (phải đổi codec để trình duyệt phát được dù bitrate không giảm). Kế hoạch nén của Hạng D giờ luôn có target, nên nếu file ra vẫn vượt trần thì báo lỗi như mọi file đã nén theo mục tiêu thay vì hỏi lại.
+
+**Kiểm chứng (2026-10-07, bản trích 120 s của file WMV đầu, PSNR luma so với nguồn, ghép khung theo thứ tự — số tương đối, không phải VMAF):** mặc định bộ nén: 5.96 MB, **Y 27.4 dB** (min 23.2) — khớp "mờ vỡ"; target 1.86 Mbps (bitrate nguồn): 30.6 MB (≈ 2.04 Mbps tổng, ~850 MB cho cả file 3346 s so với nguồn 830 MB), **Y 45.3 dB**. **Chưa kiểm:** chưa nén trọn hai file bằng bản sửa và nhìn bằng mắt; hệ số 1.0 so với nguồn là điểm bắt đầu — h264_mf kém hiệu quả hơn x264 (ADR-0017 addendum 2026-10-04 ghi cần ~1/0.6 bitrate) nhưng WMV2 cũng kém hiệu quả hơn H.264 nên chọn giữ nguyên bitrate; cần mắt người đánh giá trước khi hạ/nâng hệ số.

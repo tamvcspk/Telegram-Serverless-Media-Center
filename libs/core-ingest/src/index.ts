@@ -48,12 +48,15 @@ export {
   resolveAbrFloor,
   minAbrVideoBitrateBps,
   chooseAutoResolution,
+  D_REENCODE_SOURCE_FRACTION,
+  defaultReencodeBitrateBps,
   estimateFromSamples,
   estimateReencodeRangeBytes,
   qualityLevel,
   reencodeQuality,
   resolutionChoices,
   scaledSize,
+  sizeForVideoBitrateBps,
   type EstimateSample,
   type QualityLevel,
   type ReencodeEstimate,
@@ -64,4 +67,29 @@ export { assignToSeries, findRepresentativeEpisode, listSeriesNames, suggestNext
 
 export { rebaseSubtitle, parseSubtitleCues } from './subtitle-split';
 
-export { composePartCaption, MAX_SPLIT_PARTS, parsePartFileName, partFileName, planSplit, SPLIT_SAFETY_MARGIN, type SplitCandidate, type SplitPart, type SplitPlan } from './split-plan';
+export {
+  addCut,
+  alternativeCuts,
+  applySignals,
+  composePartCaption,
+  canRemoveCut,
+  checkCutMove,
+  MAX_SPLIT_PARTS,
+  nearestKeyframe,
+  parsePartFileName,
+  partFileName,
+  partFits,
+  planFromCutTimes,
+  planSplit,
+  removeCut,
+  SCENE_DIFF_FULL,
+  signalCandidateTimes,
+  SILENCE_RMS_DB,
+  SPLIT_SAFETY_MARGIN,
+  splitPartsFromCuts,
+  type CutMoveCheck,
+  type SplitCandidate,
+  type SplitPart,
+  type SplitPlan,
+  type SplitSignal
+} from './split-plan';

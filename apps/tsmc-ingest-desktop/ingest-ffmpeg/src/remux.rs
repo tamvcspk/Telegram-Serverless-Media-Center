@@ -14,7 +14,7 @@ use std::time::Instant;
 
 use ffmpeg_next::{self as ffmpeg, channel_layout::ChannelLayout, codec, encoder, filter, format, frame, media::Type as MediaType, software::resampling, util::dictionary::Owned as Dictionary, Rational};
 
-use crate::audio_layout::{aac_target_layout, aformat_filter_spec, ensure_frame_matches_encoder};
+use crate::audio_layout::{aac_target_layout, aformat_filter_spec, ensure_decoder_layout, ensure_frame_layout, ensure_frame_matches_encoder};
 use crate::ensure_init;
 use crate::progress::{maybe_tick, CancelFlag, PipelineProgressSink};
 use crate::ProcessError;
@@ -110,7 +110,8 @@ pub fn remux(
         ist_time_bases[audio_in_index] = ist.time_base();
 
         let ctx = codec::context::Context::from_parameters(ist.parameters())?;
-        let dec = ctx.decoder().audio()?;
+        let mut dec = ctx.decoder().audio()?;
+        ensure_decoder_layout(&mut dec);
 
         // `let codec = ...` che biến giá trị "codec" nhưng KHÔNG che module
         // `codec` (namespace giá trị/kiểu tách biệt trong Rust) — mọi
@@ -296,6 +297,7 @@ fn drain_audio_transcode(
     while decoder.receive_frame(&mut decoded).is_ok() {
         let ts = decoded.timestamp();
         decoded.set_pts(ts);
+        ensure_frame_layout(&mut decoded);
 
         let frame_sig = (decoded.rate() as i32, decoded.format(), decoded.channel_layout());
         if frame_sig != *resampler_src {
