@@ -22,3 +22,7 @@ async-trait = { workspace = true }
 futures-util = "0.3"
 rand = "0.8"
 log = "0.4"
+
+# Chi cho examples/upload_bench.rs (Ctrl+C an toan khi do).
+[dev-dependencies]
+tokio = { workspace = true, features = ["signal"] }

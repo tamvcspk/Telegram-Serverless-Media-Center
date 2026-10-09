@@ -530,7 +530,11 @@ impl GrammersIngestRpc {
     /// thái khó hiểu.
     async fn multi_connection_upload(&self, path: &Path, total: u64, file_name: &str, progress: ProgressSink<'_>, cancel: &CancelFlag) -> Result<tl::enums::InputFile, IngestRpcError> {
         const PART_SIZE: u64 = 512 * 1024;
-        const N_CONNS: usize = 3;
+        // 8 kết nối × 1 request, part chia bằng iterator dùng chung: đo thật ở
+        // `examples/upload_bench.rs` (2026-10-10, 1000 MB/ô) cho ~24–25 MB/s ổn
+        // định, so với ~2–4 MB/s của 3 kết nối chia tĩnh. Vượt 8 từng vỡ ở
+        // nguồn (docs/upload-mtproto.md §3.3) — đừng tăng nếu chưa đo lại.
+        const N_CONNS: usize = 8;
         const PART_MAX_RETRIES: u32 = 5;
 
         let total_parts = i32::try_from(total.div_ceil(PART_SIZE)).map_err(|_| IngestRpcError::Other("file quá lớn cho i32 file_total_parts".into()))?;
@@ -572,14 +576,21 @@ impl GrammersIngestRpc {
 
         let bytes_done = std::sync::atomic::AtomicU64::new(0);
         let file_id: i64 = rand::random();
+        // Iterator dùng chung: worker rảnh lấy part kế, nên một kết nối chậm
+        // chỉ làm ít part hơn chứ không kéo cả file (khác chia tĩnh `part += n`).
+        let next_part = std::sync::atomic::AtomicI32::new(0);
 
-        let uploads = senders.iter_mut().enumerate().map(|(worker_idx, sender)| {
+        let uploads = senders.iter_mut().map(|sender| {
             let bytes_done = &bytes_done;
+            let next_part = &next_part;
             async move {
                 use tokio::io::{AsyncReadExt, AsyncSeekExt};
                 let mut file = tokio::fs::File::open(path).await.map_err(|e| IngestRpcError::Other(e.to_string()))?;
-                let mut part = worker_idx as i32;
-                while part < total_parts {
+                loop {
+                    let part = next_part.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    if part >= total_parts {
+                        break;
+                    }
                     if cancel.is_cancelled() {
                         return Err(IngestRpcError::Cancelled);
                     }
@@ -616,7 +627,6 @@ impl GrammersIngestRpc {
 
                     let done = bytes_done.fetch_add(this_len as u64, std::sync::atomic::Ordering::SeqCst) + this_len as u64;
                     progress(UploadProgress { bytes_sent: done.min(total), total_bytes: total });
-                    part += n_workers as i32;
                 }
                 Ok::<(), IngestRpcError>(())
             }

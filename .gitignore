@@ -28,3 +28,8 @@ tools/*/.session.local
 # Core Worker bundle (GramJS) — dựng lại bằng "npm run build:worker",
 # không commit. Đặt trong public/ để ng serve/ng build đều phục vụ được.
 apps/web/public/core-worker.js
+
+# Script do upload (apps/tsmc-ingest-desktop/ingest-grammers/examples/upload_bench.rs):
+# session rieng (toan quyen tai khoan) + ket qua cuc bo.
+*.session.local
+*.local.json

@@ -157,9 +157,31 @@ Dùng exported sender (xuất auth sang DC kia). Nghi (chưa chắc) mở nhiề
 - `upload.getFile(location, offset, limit)` với `limit = 1 MiB`, offset bội của 1 MiB. `upload.FileCdnRedirect` → pool không xử lý được, lùi về đường thường.
 - Kiểm độ dài part trả về = `min(1 MiB, size − offset)`; sai thì coi là pushback.
 - Ghi từng part đúng vị trí vào file `.part`, **nhớ tập part đã xong** để nhặt tiếp sau flood/mất kết nối; xong thì đổi tên atomic.
-- **Upload của nguồn chưa nhớ part đã xong** — mỗi lần thử lại đẩy lại từ đầu. Đây là chỗ TSMC có thể làm tốt hơn, nhưng chưa biết `file_id` đã đẩy sống bao lâu trước khi Telegram bỏ (đo ở §7).
+- **Upload của nguồn chưa nhớ part đã xong** — mỗi lần thử lại đẩy lại từ đầu. Đây là chỗ TSMC có thể làm tốt hơn, nhưng chưa biết `file_id` đã đẩy sống bao lâu trước khi Telegram bỏ (đo ở [§7b](#7b-điều-chưa-biết--đừng-tin-như-chân-lý)).
 
-## 7. Điều CHƯA biết — đừng tin như chân lý
+## 7. Số đo của TSMC (nguồn: TSMC, `upload_bench.rs`)
+
+Đo 2026-10-09 → 10-10 bằng `apps/tsmc-ingest-desktop/ingest-grammers/examples/upload_bench.rs` (grammers 0.10.0, `saveBigFilePart` thẳng rồi bỏ — không đăng gì), một tài khoản, máy Windows, file thật 1–9 GB đọc từ ổ D:. Mỗi ô đẩy N MB đầu của một file. Đây là số **của TSMC**, tách khỏi bảng §3 (nguồn tgmirror).
+
+| Cấu hình | MB (mỗi ô) | MB/s (vòng 1 / vòng 2) | Ghi chú |
+|---|---|---|---|
+| static:3 (code cũ) | 512 | 3.7 / 2.0 | tụt còn ~1.5–2.5 MB/s sau ~20 s |
+| shared:3 | 512 | 6.7 / 3.4 | iterator chung ≈ 1.8× static cùng số kết nối |
+| shared:4 | 512 | 7.9 / 10.2 | tụt sau ~20 s |
+| shared:6 | 512 | 23.0 / 21.8 | |
+| shared:8 | 512 | 29.7 / 27.2 | |
+| shared:6 | 1500 | 4.9 | **lần chạy chậm bất thường** (xem dưới) |
+| shared:8 | 1500 | 6.4 | cùng lần chạy chậm |
+| **shared:8** | **1000** | **25.5 / 23.9** | cửa sổ 10 s đều 20–27 MB/s, không tụt |
+| shared:8@128 (xoay kết nối) | 1000 | 19.0 / 18.2 | mất 19 s mở lại kết nối, không có giai đoạn nhanh mới |
+| shared:8@256 | 1000 | 22.0 / 21.4 | mất ~10 s mở lại kết nối |
+
+- **8 kết nối × 1 request + iterator chung giữ ~24–25 MB/s ổn định** (≈ Telegram Desktop ~31 MB/s), nhanh ~8× cấu hình cũ (3 kết nối chia tĩnh). Không gặp 429/`FLOOD_WAIT` ở ô nào. Đã áp vào `multi_connection_upload` (`N_CONNS = 8`, iterator chung).
+- **Xoay kết nối không giúp** — thêm chi phí mở lại, không thấy kết nối mới nhanh hơn. Bỏ hướng này.
+- **Lần chạy 1500 MB chậm (4.9 / 6.4 MB/s) chưa rõ nguyên nhân**: tài khoản đã đẩy ~8 GB trong ngày, hoặc mạng/đường truyền lúc đó. Lần đo 1000 MB sau đó ở cùng cấu hình lại 24–25 MB/s. Nghĩa là tốc độ có thể tụt mạnh theo điều kiện ngoài tầm kiểm soát — vì vậy cần log tốc độ thật khi upload và AIMD (§4.1) hơn là tin một con số.
+- **Chưa đo:** file ≥ 2 GB liên tục với 8 kết nối (thời gian đo mới ~40 s); ô 6 kết nối với 1000 MB; ảnh hưởng của dung lượng đã đẩy trong ngày.
+
+## 7b. Điều CHƯA biết — đừng tin như chân lý
 
 - File ≥ vài GB với 8 kết nối: có tụt tiếp không (spike nguồn chỉ 1500 MB).
 - `InputFileBig` đã đẩy có hết hạn khi chờ pace/FloodWait dài không, sau bao lâu. (Quyết định có làm "resume upload" hay không phụ thuộc cái này.)
@@ -174,10 +196,10 @@ Dùng exported sender (xuất auth sang DC kia). Nghi (chưa chắc) mở nhiề
 
 | Hạng mục | Hiện tại | Kiến thức trên gợi ý |
 |---|---|---|
-| Số kết nối | `N_CONNS = 3`, mở mới mỗi file, đóng sau file | 8, mở một lần, giữ cho file kế |
+| Số kết nối | `N_CONNS = 8` (đổi 2026-10-10 theo §7), mở mới mỗi file, đóng sau file | 8, mở một lần, giữ cho file kế |
 | Request bay/kết nối | 1 (đúng) | 1 (đúng) |
-| Chia part | tĩnh, round-robin `part += n_workers` — kết nối chậm kéo cả file | iterator dùng chung, worker rảnh lấy part kế |
-| Lỗi 1 part | hủy cả file, không retry | backoff mũ + jitter, tối đa 5 lần cho lỗi mềm |
+| Chia part | iterator dùng chung `AtomicI32` (đổi 2026-10-10) — worker rảnh lấy part kế | cùng |
+| Lỗi 1 part | retry 5xx có backoff mũ + jitter, tối đa 5 lần; lỗi khác hủy cả file | thêm phân loại 429 transport / timeout 30 s |
 | 429 transport | không phân biệt, lỗi chung `Other` | map riêng, kết thúc lần truyền, chờ ~60 s, lặp |
 | `FLOOD_WAIT` | `to_rpc_error` → tầng Angular `withFloodWaitRetry()` đếm ngược | giữ; thêm giảm ngân sách |
 | Ngân sách AIMD | không có | có, log khi giảm |
