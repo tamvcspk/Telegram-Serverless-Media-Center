@@ -119,6 +119,13 @@ function percentile(sorted, p) {
   return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
 }
 
+/** `[rộng, cao]` của video đầu tiên, hoặc `null` nếu không đọc được. */
+function videoSize(path) {
+  const r = run(FFPROBE, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', path]);
+  const [w, h] = r.stdout.trim().split(',').map(Number);
+  return Number.isFinite(w) && Number.isFinite(h) ? [w, h] : null;
+}
+
 function refDurationSec(ref) {
   const r = run(FFPROBE, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', ref]);
   return Number(r.stdout.trim());
@@ -130,6 +137,7 @@ function cmdRun() {
   const only = opt('only')?.split(',');
   const matrix = loadMatrix();
   const duration = refDurationSec(ref);
+  const refSize = videoSize(ref);
   mkdirSync(outDir, { recursive: true });
   const results = [];
 
@@ -158,7 +166,11 @@ function cmdRun() {
 
     // `setpts=N/FRAME_RATE/TB` ép khớp khung theo CHỈ SỐ (cùng cách ADR-0017) — encoder đổi pts không làm lệch cặp.
     // Ghi log bằng đường dẫn tương đối (cwd = outDir) để khỏi escape `C:` của filter graph trên Windows.
-    const lavfi = `[0:v]setpts=N/FRAME_RATE/TB[d];[1:v]setpts=N/FRAME_RATE/TB[r];[d][r]libvmaf=n_threads=${opt('threads', '16')}:log_fmt=json:log_path=${logName}`;
+    // Bản ra khác kích thước tham chiếu (cấu hình hạ độ phân giải) → phóng về kích thước tham chiếu bằng bicubic
+    // trước khi đo, đúng cách người xem thấy (player phóng to). `libvmaf` đòi hai nhánh cùng kích thước.
+    const outSize = videoSize(out);
+    const upscale = refSize && outSize && (refSize[0] !== outSize[0] || refSize[1] !== outSize[1]) ? `scale=${refSize[0]}:${refSize[1]}:flags=bicubic,` : '';
+    const lavfi = `[0:v]${upscale}setpts=N/FRAME_RATE/TB[d];[1:v]setpts=N/FRAME_RATE/TB[r];[d][r]libvmaf=n_threads=${opt('threads', '16')}:log_fmt=json:log_path=${logName}`;
     const v = run(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-i', out, '-i', ref, '-lavfi', lavfi, '-f', 'null', '-'], outDir);
     if (v.status !== 0) {
       results.push({ name, error: `VMAF: ${v.stderr.trim().split('\n').pop()}` });
@@ -169,6 +181,7 @@ function cmdRun() {
     const bytes = statSync(out).size;
     results.push({
       name,
+      size: outSize ? `${outSize[0]}x${outSize[1]}` : '?',
       kbps: Math.round((bytes * 8) / duration / 1000),
       vmaf: round1(log.pooled_metrics.vmaf.mean),
       hmean: round1(log.pooled_metrics.vmaf.harmonic_mean),

@@ -219,3 +219,23 @@ Mỗi bậc RF nhân dung lượng video với ≈ e^(−0.0929) ≈ 0.911 — g
 **Quan sát đáng ghi:** nguồn này (WMV 1080p, bitrate gốc ~5.7 Mbps) ở RF 22 không trần ra **~7.2 Mbps — lớn hơn nguồn**; ngay mức RF 28 vẫn 4 Mbps. Đây đúng là ca "Nguồn bitrate thấp" của mục *Việc để ngỏ*: RF cố định không bảo đảm file nhỏ hơn nguồn khi nguồn là VC-1 đã nén chặt, trần VBV/2-pass mới là thứ kéo dung lượng về trần. Chưa có cảnh báo riêng cho ca này.
 
 **Chưa làm:** chưa nhìn dialog chạy thật (chỉ `ng build` + lint + test hàm thuần) — checklist ở [pending-device-tests](../pending-device-tests.md); "Dung lượng mục tiêu" ở Nâng cao vẫn là hai điều khiển cũ (thanh kích thước + ô kbps) chứ chưa thu về một; độ lệch dự đoán CRF và ngưỡng hạ độ phân giải tự động (4c.4).
+
+## Cập nhật sau khi Accepted (2026-10-10, code slice 4c.4 — dọn dẹp và hiệu chỉnh phần làm được trên một nguồn)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận điều phát sinh khi làm 4c.4 — quyết định gốc **vẫn đứng vững**.
+
+**Đã gỡ (chỉ còn nghĩa với `h264_mf`):** `ABR_FLOOR_BITS_PER_PIXEL`, `minAbrVideoBitrateBps`, `isBelowAbrFloor`, `resolveAbrFloor`, `calibrateTargetBps`, `rescaleEstimateBytes`, `CALIBRATED_SAFETY_MARGIN`, `defaultReencodeBitrateBps`, `D_REENCODE_SOURCE_FRACTION`, `sizeForVideoBitrateBps`, `estimateReencodeRangeBytes` + `ESTIMATE_RANGE_*`, cùng test của chúng (`core-ingest` còn 411 test). Hiển thị dung lượng khi không có trần VBV và không biết thời lượng giờ ghi "chưa biết — bấm Ước tính chính xác" thay vì khoảng 0.5×–1.5× tự bịa. Giữ: `isReencodeFutile` (còn nghĩa cho Hạng A/B/C), `AUTO_MIN_BITS_PER_PIXEL`, `qualityLevel`/`reencodeQuality`.
+
+**Ngưỡng hạ độ phân giải tự động (`AUTO_MIN_BITS_PER_PIXEL` = 0.06) — GIỮ NGUYÊN, đã đo.** `tools/encode-bench` (nay tự phóng bản ra về kích thước tham chiếu bằng bicubic trước khi đo VMAF) trên clip tham chiếu 3 × 20 s từ WMV VC-1 1080p, x264 `fast` 2-pass, `maxrate` 2× / `bufsize` 4×:
+
+| Bitrate (bit/pixel ở 1080p) | 1080p | 720p | 576p | 480p |
+|---|---|---|---|---|
+| 1450 kbps (0.023) | 74.2 (p1 61.4) | 80.8 (69.9) | **81.2** (72.4) | 80.2 (73.4) |
+| 2500 kbps (0.040) | 84.0 (74.8) | **86.8** (79.1) | 86.2 (79.9) | 84.7 (79.3) |
+| 4000 kbps (0.064) | 90.2 (84.1) | 90.4 (84.6) | — | — |
+
+Điểm giao 1080p/720p nằm đúng quanh 0.06 bit/pixel; thấp hơn đó hạ xuống 720p/576p thắng rõ (+2.8…+6.6 VMAF, p1 cũng cao hơn), xuống 480p thì không thêm mà trung bình còn kém ở bitrate cao. Quy tắc "độ phân giải cao nhất còn ≥ 0.06 bit/pixel" chọn 576p ở 1450k (81.2, ngang 720p 80.8) và 720p ở 2500k (86.8, tốt nhất) — khớp số đo. **Giới hạn:** MỘT nguồn (VC-1, nhiễu/chi tiết kiểu phim 2007), VMAF với bản phóng bicubic không phải mắt người; đo lại với nguồn H.264/hoạt hình trước khi coi là phổ quát.
+
+**Độ lệch dự đoán dung lượng CRF từ mẫu (một điểm):** cùng nguồn, RF 22 không trần, mẫu 3 × 8 s ở 20/50/80% ngoại suy ra **3.80 GB**; nén trọn file ra **3.10 GB** (6379 kbps tổng, 3.56× thời gian thực; mẫu cho tốc độ 2.69× — chậm hơn thật ~25%). Tức mẫu **đoán cao 23%** (thực/dự đoán = 0.81), cùng chiều với "an toàn" của `chooseRateMode` (đoán cao thì nghiêng về 2-pass, không bao giờ vượt trần). `CRF_PREDICTION_DEVIATION` = 1.3 giữ nguyên — một điểm không đủ để hạ, và hệ số này che chiều NGƯỢC (thực > dự đoán) mà chưa gặp. Hệ quả thực tế: nguồn này là 2.92 GB (~6.0 Mbps), RF 22 ra 3.10 GB — **lớn hơn nguồn ~6%** dù đã là bản nén lại: ca "nguồn bitrate thấp" của *Việc để ngỏ* là có thật (RF cố định không bảo đảm nhỏ hơn nguồn); chưa có cảnh báo riêng.
+
+**Chưa làm của 4c.4:** `aq-mode=3` trên nội dung tối/nhiều nhiễu (cần thêm nguồn), đo tốc độ trên máy 4 nhân (cần máy khác), đo lại độ lệch dự đoán CRF trên ≥ 3 nguồn khác loại, cảnh báo "file ra có thể lớn hơn nguồn".

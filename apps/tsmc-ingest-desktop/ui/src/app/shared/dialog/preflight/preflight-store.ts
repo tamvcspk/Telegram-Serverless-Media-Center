@@ -21,7 +21,6 @@ import {
   computeTargetVideoBitrateBps,
   crfCeilingBytes,
   estimateFromSamples,
-  estimateReencodeRangeBytes,
   extrapolateCrfBytes,
   isReencodeFutile,
   nearestKeyframe,
@@ -561,9 +560,8 @@ export class PreflightStore {
     if (ceiling !== null) {
       return `tối đa ~${this.gb(ceiling)} GB (trần theo dung lượng cho phép — bấm "Ước tính chính xác" để biết số thật)`;
     }
-    const plan = this.plan(item);
-    const range = estimateReencodeRangeBytes({ targetVideoBitrateBps: plan.targetVideoBitrateBps ?? 0, audioBitrateBps: plan.audioBitrateBps, durationSec: item.durationSec });
-    return `~${this.gb(range.minBytes)}–${this.gb(range.maxBytes)} GB`;
+    // Đến đây = chế độ CRF mà không biết thời lượng (không có trần VBV để tính cận trên) — chỉ đo mẫu mới biết.
+    return 'chưa biết — bấm "Ước tính chính xác"';
   }
 
   timeText(item: PreflightDialogItem): string {

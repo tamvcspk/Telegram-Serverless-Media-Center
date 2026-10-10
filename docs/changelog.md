@@ -4,6 +4,10 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-10-10 — Ingest desktop: Giai đoạn 4c.4 (phần làm được) — gỡ hằng số/hàm của `h264_mf`, đo ngưỡng hạ độ phân giải
+
+Theo [ADR-0023 § addendum 4c.4](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md#cập-nhật-sau-khi-accepted-2026-10-10-code-slice-4c4--dọn-dẹp-và-hiệu-chỉnh-phần-làm-được-trên-một-nguồn). Gỡ 11 hằng số/hàm chỉ còn nghĩa với `h264_mf` (sàn ABR, hiệu chỉnh target theo mẫu, bitrate theo nguồn…) cùng test. **Đo:** điểm giao 1080p/720p ở ~0.06 bit/pixel (x264 2-pass, VMAF, 1 nguồn VC-1) → `AUTO_MIN_BITS_PER_PIXEL` giữ nguyên 0.06; mẫu CRF 3×8 s đoán cao 23% so với nén trọn (3.80 vs 3.10 GB) nên `CRF_PREDICTION_DEVIATION` giữ 1.3. `encode-bench` tự phóng bản ra về kích thước tham chiếu khi đo VMAF. **Chưa:** `aq-mode=3`, máy 4 nhân, đo thêm nguồn khác loại.
+
 ## 2026-10-10 — Ingest desktop: Giai đoạn 4c.3 — dialog tiền kiểm kiểu HandBrake (thanh chất lượng RF, panel Nâng cao) (chưa nhìn chạy thật)
 
 Theo [ADR-0023 § addendum 4c.3](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md#cập-nhật-sau-khi-accepted-2026-10-10-code-slice-4c3--dialog-kiểu-handbrake). Thủ công: MỘT thanh chất lượng RF 18–28 ("Nhỏ hơn" ↔ "Đẹp hơn"), dung lượng/ETA ngoại suy theo RF từ lần đo gần nhất (nhãn "dự kiến"), báo vượt ngân sách kèm nút sang nén 2 lượt; "Nâng cao" thu gọn (nhớ đóng/mở ở app-data) gồm kiểu đặt chất lượng, độ phân giải, tốc độ nén (veryfast/fast/medium), audio, bit/pixel. **Số đo mới:** dung lượng x264 giảm ≈ 9.3%/bậc RF (gấp đôi sau ~7.5 bậc), tốc độ gần như không đổi theo RF; nguồn WMV 1080p thử ra 7.2 Mbps ở RF 22 — lớn hơn nguồn (ca "nguồn bitrate thấp"). **Chưa:** nhìn dialog chạy thật.

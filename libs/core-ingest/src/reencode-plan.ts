@@ -3,7 +3,7 @@
 // thuần — mọi công thức nằm ở đây, Rust (`ingest-ffmpeg::reencode`) chỉ THỰC
 // THI tham số nhận được (điều kiện bắt buộc #4).
 
-import { bitsPerPixel, computeTargetVideoBitrateBps, MIN_VIDEO_BITRATE_BPS, MUX_OVERHEAD_FRACTION, REENCODE_AUDIO_BITRATE_BPS, SIZE_SAFETY_MARGIN } from './size-normalize';
+import { bitsPerPixel, computeTargetVideoBitrateBps, REENCODE_AUDIO_BITRATE_BPS, SIZE_SAFETY_MARGIN } from './size-normalize';
 
 /** Chất lượng không đổi (CRF) kèm trần VBV — khớp `CrfRate` (Rust). ADR-0023
  * quyết định 4: VBV giới hạn bitrate trung bình trên mọi cửa sổ dài bằng
@@ -131,8 +131,10 @@ export const AUDIO_BITRATE_CHOICES_BPS: readonly number[] = [96_000, 128_000, 16
 /** Thang chiều cao ứng viên cho chế độ Tự động/panel Nâng cao, cao → thấp. */
 const HEIGHT_LADDER: readonly number[] = [2160, 1440, 1080, 720, 576, 480, 360];
 
-/** Ngưỡng bits/pixel tối thiểu để chế độ Tự động còn giữ độ phân giải. THAM
- * KHẢO, chưa hiệu chỉnh trên `h264_mf` — điều chỉnh sau khi có dữ liệu thật. */
+/** Ngưỡng bits/pixel tối thiểu để chế độ Tự động còn giữ độ phân giải. Đo 2026-10-10 với x264 `fast` 2-pass
+ * trên WMV VC-1 1080p (VMAF, bản ra phóng lại 1080p bằng bicubic): ở 0.023 bit/pixel 720p hơn 1080p +6.6
+ * (80.8 vs 74.2), ở 0.040 +2.8, ở 0.064 hoà (90.4 vs 90.2) — điểm giao đúng quanh 0.06. Xuống thấp hơn
+ * 720p không thêm mấy (576p ≈ 720p ±0.5; 480p kém hơn ở bitrate cao). MỘT nguồn; ADR-0023 addendum 4c.4. */
 export const AUTO_MIN_BITS_PER_PIXEL = 0.06;
 
 /** Nhãn đọc được cho chỉ báo bits/pixel — chỉ để hiển thị, không chặn. */
@@ -192,64 +194,13 @@ export function chooseAutoResolution(input: { width: number; height: number; fps
   return choices.find((h) => meets(h)) ?? choices[choices.length - 1];
 }
 
-/** Khoảng ước tính TỨC THÌ của dung lượng khi nén theo bitrate mục tiêu.
- * SPIKE-11 đo actual/target dao động 0.3x-3x tuỳ nội dung; khoảng ở đây hẹp
- * hơn có chủ đích (điểm bắt đầu, chưa có dữ liệu thật) — chính vì thế có nút
- * "ước tính chính xác" (encode thử, `estimateFromSamples()`). */
-export const ESTIMATE_RANGE_LOW = 0.5;
-export const ESTIMATE_RANGE_HIGH = 1.5;
-
 /** Overhead container — cùng giá trị `MUX_OVERHEAD_FRACTION` ở size-normalize.ts. */
 const ESTIMATE_OVERHEAD = 1.02;
 
-export function estimateReencodeRangeBytes(input: { targetVideoBitrateBps: number; audioBitrateBps?: number; durationSec: number }): { minBytes: number; maxBytes: number } {
-  const duration = Math.max(input.durationSec, 0);
-  const videoBytes = (input.targetVideoBitrateBps * duration) / 8;
-  const audioBytes = ((input.audioBitrateBps ?? REENCODE_AUDIO_BITRATE_BPS) * duration) / 8;
-  return {
-    minBytes: (videoBytes * ESTIMATE_RANGE_LOW + audioBytes) * ESTIMATE_OVERHEAD,
-    maxBytes: (videoBytes * ESTIMATE_RANGE_HIGH + audioBytes) * ESTIMATE_OVERHEAD
-  };
-}
-
-/** Dưới ngưỡng bits/pixel này `h264_mf` ABR có MỨC SÀN: file ra TO HƠN target
- * mà VMAF sụp (ADR-0017 § addendum 2026-10-04: phim 1080p đặt 600 kbps ra thực
- * 1291 kbps, VMAF 23.7). Số đo đầu tiên, chưa phải hiệu chỉnh bằng mắt người. */
-export const ABR_FLOOR_BITS_PER_PIXEL = 0.045;
-
-/** Bitrate video tối thiểu mà ABR còn bám target ở độ phân giải đầu ra này. 0 nếu thiếu số liệu. */
-export function minAbrVideoBitrateBps(input: { width: number; height: number; fps: number; maxHeight?: number }): number {
-  const size = scaledSize(input.width, input.height, input.maxHeight);
-  const pixelsPerSec = size.width * size.height * input.fps;
-  return pixelsPerSec > 0 ? Math.ceil(pixelsPerSec * ABR_FLOOR_BITS_PER_PIXEL) : 0;
-}
-
-/** `true` nếu target thấp hơn mức sàn ABR ở độ phân giải đầu ra — nén sẽ ra file lớn hơn dự kiến, hình tệ. */
-export function isBelowAbrFloor(input: { width: number; height: number; fps: number; videoBitrateBps: number; maxHeight?: number }): boolean {
-  const floor = minAbrVideoBitrateBps(input);
-  return floor > 0 && input.videoBitrateBps < floor;
-}
-
-/** Chặn CỨNG: dưới mức sàn ABR thì không cho nén lại ở độ phân giải này. Trả độ
- * phân giải CAO NHẤT trong thang mà target còn ≥ sàn (`maxHeight` giữ nguyên nếu
- * đã đạt), hoặc `null` nếu không mức nào đạt — lúc đó chỉ còn chia phần/bỏ qua.
- * `undefined` trong `resolution` = giữ độ phân giải gốc. */
-export function resolveAbrFloor(input: { width: number; height: number; fps: number; videoBitrateBps: number; maxHeight?: number }): { resolution: number | undefined } | null {
-  const { width, height, fps, videoBitrateBps } = input;
-  const ok = (h: number | undefined): boolean => !isBelowAbrFloor({ width, height, fps, videoBitrateBps, maxHeight: h });
-  if (ok(input.maxHeight)) {
-    return { resolution: input.maxHeight };
-  }
-  const lower = resolutionChoices(input.maxHeight ?? height).find((h) => ok(h));
-  return lower === undefined ? null : { resolution: lower };
-}
-
 /** Nén lại KHÔNG giảm gì khi target không thấp hơn bitrate video của chính file
  * nguồn (xấp xỉ: bitrate tổng trừ audio nguồn ~ `REENCODE_AUDIO_BITRATE_BPS`).
- * Chỉ so với NGUỒN — mức `h264_mf` tự chọn khi không đặt target chưa đo được
- * (ADR-0017 § addendum 2026-10-04: ~840 kbps với nguồn 1504 kbps), cần mẫu
- * không-target mới so chính xác hơn. Đã hạ độ phân giải thì nén lại vẫn có tác
- * dụng nên không cảnh báo. */
+ * Chỉ so với NGUỒN. Đã hạ độ phân giải thì nén lại vẫn có tác dụng nên không
+ * cảnh báo. */
 export function isReencodeFutile(input: { targetVideoBitrateBps: number; sourceBytes: number; durationSec: number; maxHeight?: number; sourceHeight: number }): boolean {
   if (!(input.durationSec > 0) || !(input.sourceBytes > 0)) {
     return false;
@@ -259,51 +210,6 @@ export function isReencodeFutile(input: { targetVideoBitrateBps: number; sourceB
   }
   const sourceVideoBps = (input.sourceBytes * 8) / input.durationSec - REENCODE_AUDIO_BITRATE_BPS;
   return sourceVideoBps > 0 && input.targetVideoBitrateBps >= sourceVideoBps * 0.9;
-}
-
-/** Hệ số r kẹp trong khoảng này — ngoài khoảng là mẫu hỏng, không tin để hiệu chỉnh. */
-const CALIBRATION_R_MIN = 0.5;
-const CALIBRATION_R_MAX = 2;
-
-/**
- * Hiệu chỉnh target ABR theo mẫu thử: `r` = dung lượng VIDEO đo được / dự kiến
- * theo target, trả `target / r` (ADR-0017 § addendum 2026-10-04 §3.1). Chỉ đúng
- * với ABR (sai số ngoại suy ≲3%); `rate_control=quality` lệch −10…−30% nên KHÔNG
- * dùng hàm này. `null` nếu không có mẫu hợp lệ. Dung lượng mẫu gồm audio +
- * overhead container nên trừ đi trước khi so với phần video.
- */
-export function calibrateTargetBps(input: { targetVideoBitrateBps: number; audioBitrateBps?: number; samples: readonly EstimateSample[]; desiredVideoBitrateBps?: number }): number | null {
-  const valid = input.samples.filter((s) => s.mediaSec > 0 && s.outBytes >= 0);
-  if (valid.length === 0 || !(input.targetVideoBitrateBps > 0)) {
-    return null;
-  }
-  const totalMedia = valid.reduce((a, s) => a + s.mediaSec, 0);
-  const totalBytes = valid.reduce((a, s) => a + s.outBytes, 0);
-  const audioBps = input.audioBitrateBps ?? REENCODE_AUDIO_BITRATE_BPS;
-  const videoBps = ((totalBytes / totalMedia) * 8) / ESTIMATE_OVERHEAD - audioBps;
-  if (!(videoBps > 0)) {
-    return null;
-  }
-  // `desired` = mức video bps MUỐN đạt; mặc định = target (đúng khi plan CHƯA hiệu
-  // chỉnh). Plan đã hiệu chỉnh PHẢI truyền `desired` riêng: so với chính target
-  // hiện tại sẽ chia cho cùng một r thêm lần nữa mỗi lần đo lại → target trôi
-  // lên/xuống vô hạn (lỗi thật 2026-10-05: 3.8→4.07→4.38→4.74 GB).
-  const desired = input.desiredVideoBitrateBps ?? input.targetVideoBitrateBps;
-  const r = Math.min(CALIBRATION_R_MAX, Math.max(CALIBRATION_R_MIN, videoBps / desired));
-  return Math.floor(input.targetVideoBitrateBps / r);
-}
-
-/** Dung lượng dự kiến SAU khi đổi target `from` → `to` theo ABR tuyến tính (phần
- * video tỉ lệ target, audio + overhead giữ nguyên). Chỉ là ngoại suy từ số đã
- * đo, không phải đo mới — UI phải gắn nhãn "dự kiến" tới khi user đo lại. */
-export function rescaleEstimateBytes(input: { estimatedBytes: number; durationSec: number; fromVideoBps: number; toVideoBps: number; audioBitrateBps?: number }): number {
-  const { estimatedBytes, durationSec, fromVideoBps, toVideoBps } = input;
-  if (!(durationSec > 0) || !(fromVideoBps > 0)) {
-    return estimatedBytes;
-  }
-  const audioBytes = ((input.audioBitrateBps ?? REENCODE_AUDIO_BITRATE_BPS) * durationSec) / 8;
-  const videoBytes = Math.max(estimatedBytes / ESTIMATE_OVERHEAD - audioBytes, 0);
-  return (videoBytes * (toVideoBps / fromVideoBps) + audioBytes) * ESTIMATE_OVERHEAD;
 }
 
 /** Một đoạn encode thử (khớp `EstimateSampleDto`, Rust). */
@@ -338,34 +244,4 @@ export function estimateFromSamples(samples: readonly EstimateSample[], duration
   const totalBytes = valid.reduce((a, s) => a + s.outBytes, 0);
   const speed = totalMedia / totalWall;
   return { estimatedBytes: (totalBytes / totalMedia) * durationSec, speedXRealtime: speed, etaSec: durationSec / speed };
-}
-
-/** Mức bitrate audio nguồn giả định khi ước bitrate video của nguồn từ dung lượng tổng. */
-const SOURCE_AUDIO_BPS_GUESS = REENCODE_AUDIO_BITRATE_BPS;
-
-/** Không đặt target thì `h264_mf` TỰ CHỌN một bitrate rất thấp: đo thật 2026-10-07 trên Caribbean 070307-487.wmv
- * (720×540, nguồn 1.98 Mbps) — ~390 kbps (~0.03 bit/pixel), file 830 MB → 165 MB, hình mờ và vỡ nét nặng. Vì vậy Hạng D
- * KHÔNG BAO GIỜ nén với mặc định của bộ nén. */
-export const D_REENCODE_SOURCE_FRACTION = 1;
-
-/**
- * Bitrate video mặc định khi nén lại file Hạng D DƯỚI trần (không cần giảm dung lượng, chỉ cần đổi codec cho trình
- * duyệt phát được): giữ gần bitrate video của chính file nguồn (`D_REENCODE_SOURCE_FRACTION`), không thấp hơn mức sàn
- * ABR của `h264_mf` ở độ phân giải đầu ra, không cao hơn mức vừa trần. Thiếu số liệu nguồn thì dùng 0.1 bit/pixel.
- */
-export function defaultReencodeBitrateBps(input: { sourceBytes: number; durationSec: number; width: number; height: number; fps: number; maxUploadBytes: number; maxHeight?: number }): number {
-  const { sourceBytes, durationSec, maxUploadBytes } = input;
-  const floor = minAbrVideoBitrateBps(input);
-  const size = scaledSize(input.width, input.height, input.maxHeight);
-  const pixelsPerSec = size.width * size.height * input.fps;
-  const sourceVideoBps = durationSec > 0 && sourceBytes > 0 ? (sourceBytes * 8) / durationSec - SOURCE_AUDIO_BPS_GUESS : 0;
-  const want = sourceVideoBps > 0 ? sourceVideoBps * D_REENCODE_SOURCE_FRACTION : pixelsPerSec > 0 ? pixelsPerSec * 0.1 : 2_000_000;
-  const cap = computeTargetVideoBitrateBps(maxUploadBytes, durationSec);
-  return Math.max(MIN_VIDEO_BITRATE_BPS, Math.floor(Math.min(Math.max(want, floor), cap)));
-}
-
-/** Dung lượng đầu ra (byte) mà `computeTargetVideoBitrateBps()` quy về đúng `videoBps` — nghịch đảo công thức, để thanh
- * trượt kích thước hiện đúng giá trị khởi đầu là một BITRATE (Hạng D dưới trần). */
-export function sizeForVideoBitrateBps(videoBps: number, durationSec: number, audioBitrateBps: number = REENCODE_AUDIO_BITRATE_BPS): number {
-  return ((videoBps + audioBitrateBps) / (1 - MUX_OVERHEAD_FRACTION) / SIZE_SAFETY_MARGIN) * (durationSec / 8);
 }

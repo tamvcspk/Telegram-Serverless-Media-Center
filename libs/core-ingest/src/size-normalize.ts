@@ -17,12 +17,6 @@ export const MUX_OVERHEAD_FRACTION = 0.02;
  * `h264_mf` có thể overshoot target ở nội dung phức tạp. */
 export const SIZE_SAFETY_MARGIN = 0.92;
 
-/** Margin SAU khi target đã hiệu chỉnh theo mẫu thử (`calibrateTargetBps`): ABR
- * bám target ±3% sau hiệu chỉnh (ADR-0017 § addendum 2026-10-04) nên 0.955 ×
- * 1.03 ≈ 0.984 vẫn dưới trần. Chỉ dùng cho target đã hiệu chỉnh — chưa hiệu
- * chỉnh thì overshoot tới +10% (0.92 × 1.099 ≈ 1.011) nên PHẢI giữ 0.92. */
-export const CALIBRATED_SAFETY_MARGIN = 0.955;
-
 /** Margin cho nén 2 lượt (ADR-0023 § 4c.2): x264 2-pass bám target ±2% (đo 2026-10-10 trên WMV
  * 1080p: 1452 kbps video cho target 1450, lệch +0.1%; 1-pass ABR lệch −3.9%), nên 0.97 × 1.02 ≈
  * 0.99 vẫn dưới trần. Chỉ dùng cho kế hoạch `twoPass` — 1-pass ABR chưa hiệu chỉnh vẫn cần 0.92. */
