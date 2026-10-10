@@ -890,3 +890,23 @@ Liên quan: [ADR-0023 § addendum 4c.2](./adr/0023-libx264-cho-re-encode-hang-d-
 - File ra vượt trần dù 2-pass → xem `TWO_PASS_SAFETY_MARGIN` (0.97): nội dung quá phức tạp làm 2-pass lệch > +3%; lưới an toàn giữa batch sẽ hỏi nén lại. Ghi dung lượng thật/đích để chỉnh margin.
 - Thanh tiến trình nhảy ở chỗ chuyển lượt → `FIRST_PASS_PROGRESS_SHARE` (0.45) lệch với nguồn này; chỉ là hiển thị.
 - Thấy file `*.x264stats*` còn sót trong thư mục tạm → huỷ/lỗi giữa chừng không qua nhánh dọn của `reencode_with_options`; báo lại kèm cách tái hiện.
+
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — dialog tiền kiểm kiểu HandBrake: thanh RF + Nâng cao (Giai đoạn 4c.3, 2026-10-10)
+
+Liên quan: [ADR-0023 § addendum 4c.3](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md#cập-nhật-sau-khi-accepted-2026-10-10-code-slice-4c3--dialog-kiểu-handbrake). Mới verify bằng `ng build` + lint + test hàm thuần; **chưa ai nhìn dialog chạy thật.**
+
+### Các bước
+
+- [ ] Hạng D dưới trần → Thủ công: hiện thanh "Chất lượng" với nhãn "Nhỏ hơn" bên trái, "Đẹp hơn" bên phải, thanh đứng ở mức mặc định (RF 22 cho 1080p; kéo qua phải RF giảm, qua trái RF tăng); dòng "Mặc định RF N" đúng theo độ phân giải đầu ra.
+- [ ] Trước "Ước tính chính xác": kéo thanh chỉ đổi RF/nhãn; dung lượng vẫn là "tối đa ~X GB (trần…)". Sau khi đo: dung lượng và thời gian đổi theo thanh, ghi "dự kiến theo RF từ lần đo"; kéo qua phải (đẹp hơn) dung lượng tăng, qua trái giảm; không hiện dòng "Kết quả cũ không còn khớp".
+- [ ] Đo lại ở RF khác → số dự kiến quanh RF mới khớp số đo (ghi độ lệch giữa số dự kiến trước khi đo lại và số đo thật — để chỉnh `CRF_SIZE_DECAY_PER_RF`).
+- [ ] Kéo thanh tới mức dự kiến vượt ngân sách: hiện cảnh báo + nút "Nén 2 lượt theo dung lượng"; bấm → chuyển sang kích thước mục tiêu/kbps (2 lượt), "Về chất lượng không đổi (RF)" quay lại.
+- [ ] "Nâng cao" bấm mở/đóng; đóng app mở lại, trạng thái đóng/mở được nhớ (và KHÔNG phụ thuộc `cargo tauri dev`/bản release).
+- [ ] Nâng cao: đổi độ phân giải → dung lượng dự kiến biến mất/chờ đo lại (mốc đo bị bỏ); đổi tốc độ nén sang Nhanh → ETA dự kiến ngắn hơn, sang Chậm dài hơn; chạy thật một file ở "Chậm" và "Nhanh" so dung lượng (ADR bảng: chênh ~1–2 VMAF).
+- [ ] "Tự động cho tất cả" trả RF/preset/độ phân giải về mặc định.
+- [ ] Dialog vẫn dùng được ở cửa sổ thu nhỏ (kéo giãn nhỏ nhất): thanh chất lượng và nhãn không tràn.
+
+### Nếu có gì vỡ
+
+- Thanh chạy ngược (kéo phải mà RF tăng) → `qualitySlider()`/`setQualitySlider()` ở `PreflightStore`: vị trí = `RF_MIN + RF_MAX − RF`.
+- Số dự kiến lệch xa số đo thật (> 15%) → `CRF_SIZE_DECAY_PER_RF` (chỉ đo trên MỘT nguồn WMV); ghi nguồn + RF + số đo để đo thêm ở 4c.4.

@@ -80,3 +80,23 @@
   font: inherit;
   font-variant-numeric: tabular-nums;
 }
+
+.slider-end {
+  font-size: 0.8em;
+  opacity: 0.75;
+}
+
+.quality-slider {
+  flex: 1 1 10rem;
+  min-width: 8rem;
+}
+
+.advanced-toggle {
+  margin-top: 0.25rem;
+}
+
+.advanced {
+  margin-top: 0.35rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--mat-sys-outline-variant, rgba(128, 128, 128, 0.3));
+}

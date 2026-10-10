@@ -1,13 +1,13 @@
 // Panel "Nén lại" của dialog tiền kiểm (ADR-0017 § addendum 2026-09-19, Giai đoạn 2).
-// Tự động = Option D (thuật toán chọn, chỉ xem); Thủ công = MỌI tham số `ReencodeOptions` đều
-// chỉnh được (bitrate video — trực tiếp hoặc qua kích thước đầu ra —, độ phân giải, bitrate audio),
-// khởi đầu từ giá trị hiện tại của chế độ Tự động (kể cả target đã hiệu chỉnh sau "Ước tính chính xác").
+// Tự động = thuật toán chọn, chỉ xem; Thủ công kiểu HandBrake (ADR-0023 § 4c.3): MỘT thanh chất lượng (RF)
+// cho người dùng thường, còn kiểu rate control / độ phân giải / preset / audio nằm trong "Nâng cao"
+// (đóng/mở nhớ ở app-data). Khởi đầu từ giá trị hiện tại của chế độ Tự động.
 import { ChangeDetectionStrategy, Component, inject, input } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSliderModule } from '@angular/material/slider';
-import { AUDIO_BITRATE_CHOICES_BPS } from '@tsmc/core-ingest';
+import { AUDIO_BITRATE_CHOICES_BPS, RF_MAX, RF_MIN, X264_PRESET_CHOICES } from '@tsmc/core-ingest';
 import { PreflightStore } from './preflight-store';
 import { mustReencode, type PreflightDialogItem } from './preflight-types';
 
@@ -22,6 +22,9 @@ export class PreflightEncodePanel {
   protected readonly store = inject(PreflightStore);
   readonly item = input.required<PreflightDialogItem>();
   protected readonly audioChoices = AUDIO_BITRATE_CHOICES_BPS;
+  protected readonly presetChoices = X264_PRESET_CHOICES;
+  protected readonly rfMin = RF_MIN;
+  protected readonly rfMax = RF_MAX;
   protected readonly mustReencode = mustReencode;
 
   protected onKbps(path: string, event: Event): void {

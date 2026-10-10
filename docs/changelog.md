@@ -4,6 +4,10 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-10-10 — Ingest desktop: Giai đoạn 4c.3 — dialog tiền kiểm kiểu HandBrake (thanh chất lượng RF, panel Nâng cao) (chưa nhìn chạy thật)
+
+Theo [ADR-0023 § addendum 4c.3](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md#cập-nhật-sau-khi-accepted-2026-10-10-code-slice-4c3--dialog-kiểu-handbrake). Thủ công: MỘT thanh chất lượng RF 18–28 ("Nhỏ hơn" ↔ "Đẹp hơn"), dung lượng/ETA ngoại suy theo RF từ lần đo gần nhất (nhãn "dự kiến"), báo vượt ngân sách kèm nút sang nén 2 lượt; "Nâng cao" thu gọn (nhớ đóng/mở ở app-data) gồm kiểu đặt chất lượng, độ phân giải, tốc độ nén (veryfast/fast/medium), audio, bit/pixel. **Số đo mới:** dung lượng x264 giảm ≈ 9.3%/bậc RF (gấp đôi sau ~7.5 bậc), tốc độ gần như không đổi theo RF; nguồn WMV 1080p thử ra 7.2 Mbps ở RF 22 — lớn hơn nguồn (ca "nguồn bitrate thấp"). **Chưa:** nhìn dialog chạy thật.
+
 ## 2026-10-10 — Ingest desktop: Giai đoạn 4c.2 — nén 2 lượt (x264 2-pass) cho file vượt trần, tự chọn CRF/2-pass (chưa chạy qua UI)
 
 Theo [ADR-0023 § addendum 4c.2](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md#cập-nhật-sau-khi-accepted-2026-10-10-code-slice-4c2--2-pass-cho-vượt-trần-chọn-chế-độ). Rust: `two_pass` (pass 1 không mux/không audio qua `PASS1` + `stats`, pass 2 `PASS2`), tiến trình gộp hai pass, huỷ giữa chừng dọn file thống kê. TS: `chooseRateMode()`, `TWO_PASS_SAFETY_MARGIN` 0.97; mọi kế hoạch ABR là 2-pass; chế độ Tự động đo mẫu CRF không trần rồi tự chuyển 2-pass khi dự đoán × 1.3 vượt ngân sách. **Gỡ chặn cứng "dưới sàn ABR"** (sàn là của `h264_mf`; x264 ở 0.023 bit/pixel vẫn tốt). **Số đo:** nén trọn WMV 1080p 3882 s ra 788 MB = 1624 kbps tổng cho đích 1610 (**+0.9%**), 2.25× thời gian thực (pass 1 ≈ 43%); 1-pass ABR cùng nguồn lệch −3.5%. **Chưa:** VMAF bản ra trong app, nén file 3 giờ thật, chạy qua UI.

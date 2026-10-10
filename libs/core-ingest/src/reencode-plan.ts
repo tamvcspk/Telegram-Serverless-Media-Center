@@ -34,6 +34,39 @@ export interface ReencodePlan {
 /** Khớp `X264_PRESETS` ở `reencode.rs` — Rust từ chối tên lạ. */
 export type X264Preset = 'ultrafast' | 'superfast' | 'veryfast' | 'faster' | 'fast' | 'medium' | 'slow' | 'slower' | 'veryslow';
 
+/** Khoảng RF của thanh chất lượng (HandBrake: 18–28 là vùng dùng được; thấp hơn đẹp hơn, file to hơn). */
+export const RF_MIN = 18;
+export const RF_MAX = 28;
+
+/** Độ dốc dung lượng theo RF của x264 `fast`, không VBV, đo 2026-10-10 trên WMV VC-1 1080p (90 s):
+ * RF 18→28 giảm 115.1→45.5 MB, tức e^(−0.0929) ≈ 0.911 mỗi bậc (gấp đôi sau ~7.5 bậc — không phải "6"
+ * của quy tắc thường nhắc). MỘT nguồn, chỉ để ngoại suy hiển thị; luôn gắn nhãn "dự kiến". */
+export const CRF_SIZE_DECAY_PER_RF = 0.0929;
+
+/**
+ * Ngoại suy dung lượng ở RF mới từ MỘT lần đo ở `basisRf` (cùng độ phân giải, không trần VBV). Chỉ phần
+ * VIDEO co giãn theo RF; audio + overhead container giữ nguyên. Kết quả KHÔNG vượt cận trên của VBV nếu
+ * có `ceilingBytes` (trần luôn giữ).
+ */
+export function extrapolateCrfBytes(input: { basisBytes: number; basisRf: number; rf: number; durationSec: number; audioBitrateBps?: number; ceilingBytes?: number }): number {
+  const audioBytes = ((input.audioBitrateBps ?? REENCODE_AUDIO_BITRATE_BPS) * Math.max(input.durationSec, 0)) / 8;
+  const videoBytes = Math.max(input.basisBytes / ESTIMATE_OVERHEAD - audioBytes, 0);
+  const scaled = (videoBytes * Math.exp(CRF_SIZE_DECAY_PER_RF * (input.basisRf - input.rf)) + audioBytes) * ESTIMATE_OVERHEAD;
+  return input.ceilingBytes !== undefined && input.ceilingBytes > 0 ? Math.min(scaled, input.ceilingBytes) : scaled;
+}
+
+/** Preset cho panel Nâng cao (ADR-0023 § 4c.3): Nhanh = `veryfast`, Chuẩn = `fast` (mặc định, = HandBrake
+ * "Fast"), Chậm = `medium`. `speedVsFast` = tốc độ so với `fast`, từ bảng ADR (1-pass: 7.0× / 4.0× / 3.4×). */
+export const X264_PRESET_CHOICES: readonly { value: X264Preset; label: string; speedVsFast: number }[] = [
+  { value: 'veryfast', label: 'Nhanh', speedVsFast: 7.0 / 4.0 },
+  { value: 'fast', label: 'Chuẩn', speedVsFast: 1 },
+  { value: 'medium', label: 'Chậm', speedVsFast: 3.4 / 4.0 }
+];
+
+export function presetSpeedVsFast(preset: X264Preset | undefined): number {
+  return X264_PRESET_CHOICES.find((p) => p.value === (preset ?? 'fast'))?.speedVsFast ?? 1;
+}
+
 /** RF mặc định theo CHIỀU CAO ĐẦU RA — đúng bảng preset "Fast" của HandBrake
  * (`preset_builtin.json`: 1080p30 → 22, 720p30 → 21, 576p25/480p30 → 20). ADR-0023
  * quyết định 3. Trên 1080p tạm dùng 22 (bảng HandBrake dừng ở 1080p). */

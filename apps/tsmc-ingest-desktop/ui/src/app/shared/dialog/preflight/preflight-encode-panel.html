@@ -1,24 +1,20 @@
 @let it = item();
 @let s = store.state(it.path);
+@let crf = store.crfInfo(it);
 
 <div class="summary">
   @if (mustReencode(it)) {
     <span class="line warn">Hạng D: video phải mã hoá lại — chậm, {{ store.timeText(it) }}. Bộ nén chạy tới khi xong (huỷ được).</span>
   }
   <span class="line">{{ store.sizeText(it) }} · {{ store.timeText(it) }}</span>
-  @let crf = store.crfInfo(it);
   @if (crf) {
-    <span class="line quality quality-good">Chất lượng: không đổi (RF {{ crf.rf }}, kiểu preset "Fast" của HandBrake) — trần bitrate {{ crf.maxrateKbps }} kbps để file luôn vừa trần upload.</span>
+    <span class="line quality quality-good">Chất lượng: {{ store.rfLabel(crf.rf) }} (RF {{ crf.rf }}) — trần bitrate {{ crf.maxrateKbps }} kbps để file luôn vừa trần upload.</span>
   }
   @if (s.rateNote) {
     <span class="line quality quality-ok">{{ s.rateNote }}</span>
   }
   @if (s.rateMode === 'abr') {
     <span class="line">Nén 2 lượt theo dung lượng đích (lâu gấp ~2 lần một lượt, bám đích ~2%).</span>
-  }
-  @let q = store.qualityOf(it);
-  @if (q) {
-    <span class="line quality" [class]="'quality-' + q.level">Chất lượng: {{ q.label }} ({{ q.bpp.toFixed(3) }} bit/pixel)</span>
   }
   @if (store.overCap(it)) {
     <span class="line quality quality-low">Dung lượng dự kiến vượt trần — hạ kích thước/bitrate/độ phân giải rồi đo lại, hoặc đổi cách xử lý.</span>
@@ -42,7 +38,7 @@
     <button mat-button type="button" (click)="store.stopEstimate(it.path)">Dừng</button>
   } @else {
     <button mat-stroked-button type="button" [disabled]="it.durationSec <= 0" (click)="store.runEstimate(it)">
-      {{ store.validEstimate(it) ? 'Đo lại' : 'Ước tính chính xác' }}
+      {{ store.validEstimate(it) || s.crfBasis ? 'Đo lại' : 'Ước tính chính xác' }}
     </button>
     @if (store.estimateStale(it)) {
       <span class="hint">Kết quả cũ không còn khớp tuỳ chọn hiện tại — đo lại để cập nhật.</span>
@@ -55,34 +51,88 @@
 
 @if (s.mode === 'manual') {
   <div class="params">
-    <div class="param-row">
-      <span class="param-label">Kích thước mục tiêu</span>
-      <mat-slider [min]="store.sliderMinBytes" [max]="store.data.maxUploadBytes" [step]="store.sliderStepBytes" class="param-slider">
-        <input matSliderThumb [value]="store.effectiveSizeBytes(it)" (valueChange)="store.setSize(it.path, $event)" [attr.aria-label]="'Kích thước mục tiêu của ' + it.name" />
-      </mat-slider>
-      <span class="param-value">{{ store.gb(store.effectiveSizeBytes(it)) }} GB</span>
-    </div>
-    <div class="param-row">
-      <span class="param-label">Bitrate video (kbps)</span>
-      <input class="num-input" type="number" min="100" step="50" [value]="store.videoKbps(it)" (change)="onKbps(it.path, $event)" [attr.aria-label]="'Bitrate video của ' + it.name" />
-      <span class="hint">Đổi kích thước hoặc bitrate đều chỉnh cùng một giá trị.</span>
-    </div>
-    <div class="param-row">
-      <span class="param-label">Độ phân giải</span>
-      <mat-button-toggle-group [value]="s.maxHeight ?? 'source'" (change)="store.setResolution(it.path, $event.value)" hideSingleSelectionIndicator [attr.aria-label]="'Độ phân giải của ' + it.name">
-        <mat-button-toggle value="source">Gốc{{ it.height > 0 ? ' (' + it.height + 'p)' : '' }}</mat-button-toggle>
-        @for (h of store.resolutionOptions(it); track h) {
-          <mat-button-toggle [value]="h">{{ h }}p</mat-button-toggle>
+    @if (s.rateMode === 'crf' && crf) {
+      <div class="param-row">
+        <span class="param-label">Chất lượng</span>
+        <span class="slider-end">Nhỏ hơn</span>
+        <mat-slider [min]="rfMin" [max]="rfMax" [step]="1" class="param-slider quality-slider">
+          <input matSliderThumb [value]="store.qualitySlider(it)" (valueChange)="store.setQualitySlider(it.path, $event)" [attr.aria-label]="'Chất lượng (RF) của ' + it.name" />
+        </mat-slider>
+        <span class="slider-end">Đẹp hơn</span>
+        <span class="param-value">RF {{ crf.rf }} · {{ store.rfLabel(crf.rf) }}</span>
+      </div>
+      <div class="param-row">
+        <span class="hint">Mặc định RF {{ store.defaultRfFor(it) }} (preset "Fast" của HandBrake). Dung lượng và thời gian ở trên cập nhật theo thanh sau lần "Ước tính chính xác" đầu tiên.</span>
+      </div>
+      @if (store.crfExceedsBudget(it)) {
+        <div class="param-row">
+          <span class="hint error">Ở RF này dự kiến vượt trần — trần bitrate sẽ ép hình. Tăng RF, hạ độ phân giải (Nâng cao), chia phần, hoặc nén 2 lượt theo dung lượng.</span>
+          <button mat-stroked-button type="button" (click)="store.setRateMode(it.path, 'abr')">Nén 2 lượt theo dung lượng</button>
+        </div>
+      }
+    } @else {
+      <div class="param-row">
+        <span class="param-label">Kích thước mục tiêu</span>
+        <mat-slider [min]="store.sliderMinBytes" [max]="store.data.maxUploadBytes" [step]="store.sliderStepBytes" class="param-slider">
+          <input matSliderThumb [value]="store.effectiveSizeBytes(it)" (valueChange)="store.setSize(it.path, $event)" [attr.aria-label]="'Kích thước mục tiêu của ' + it.name" />
+        </mat-slider>
+        <span class="param-value">{{ store.gb(store.effectiveSizeBytes(it)) }} GB</span>
+      </div>
+      <div class="param-row">
+        <span class="param-label">Bitrate video (kbps)</span>
+        <input class="num-input" type="number" min="100" step="50" [value]="store.videoKbps(it)" (change)="onKbps(it.path, $event)" [attr.aria-label]="'Bitrate video của ' + it.name" />
+        <span class="hint">Đổi kích thước hoặc bitrate đều chỉnh cùng một giá trị.</span>
+      </div>
+      <div class="param-row">
+        <button mat-stroked-button type="button" (click)="store.setRateMode(it.path, 'crf')">Về chất lượng không đổi (RF)</button>
+      </div>
+    }
+
+    <button mat-button type="button" class="advanced-toggle" [attr.aria-expanded]="store.advancedOpen()" (click)="store.toggleAdvanced()">
+      Nâng cao {{ store.advancedOpen() ? '▴' : '▾' }}
+    </button>
+    @if (store.advancedOpen()) {
+      <div class="advanced">
+        <div class="param-row">
+          <span class="param-label">Kiểu đặt chất lượng</span>
+          <mat-button-toggle-group [value]="s.rateMode" (change)="store.setRateMode(it.path, $event.value)" hideSingleSelectionIndicator [attr.aria-label]="'Kiểu đặt chất lượng của ' + it.name">
+            <mat-button-toggle value="crf">Chất lượng không đổi (RF)</mat-button-toggle>
+            <mat-button-toggle value="abr">Dung lượng đích (2 lượt)</mat-button-toggle>
+          </mat-button-toggle-group>
+        </div>
+        <div class="param-row">
+          <span class="param-label">Độ phân giải</span>
+          <mat-button-toggle-group [value]="s.maxHeight ?? 'source'" (change)="store.setResolution(it.path, $event.value)" hideSingleSelectionIndicator [attr.aria-label]="'Độ phân giải của ' + it.name">
+            <mat-button-toggle value="source">Gốc{{ it.height > 0 ? ' (' + it.height + 'p)' : '' }}</mat-button-toggle>
+            @for (h of store.resolutionOptions(it); track h) {
+              <mat-button-toggle [value]="h">{{ h }}p</mat-button-toggle>
+            }
+          </mat-button-toggle-group>
+        </div>
+        <div class="param-row">
+          <span class="param-label">Tốc độ nén</span>
+          <mat-button-toggle-group [value]="s.preset ?? 'fast'" (change)="store.setPreset(it.path, $event.value)" hideSingleSelectionIndicator [attr.aria-label]="'Tốc độ nén của ' + it.name">
+            @for (p of presetChoices; track p.value) {
+              <mat-button-toggle [value]="p.value">{{ p.label }}</mat-button-toggle>
+            }
+          </mat-button-toggle-group>
+          <span class="hint">Nhanh = veryfast, Chuẩn = fast, Chậm = medium: chậm hơn cho file nhỏ hơn một chút ở cùng chất lượng.</span>
+        </div>
+        <div class="param-row">
+          <span class="param-label">Bitrate audio</span>
+          <mat-button-toggle-group [value]="s.audioBps" (change)="store.setAudio(it.path, $event.value)" hideSingleSelectionIndicator [attr.aria-label]="'Bitrate audio của ' + it.name">
+            @for (a of audioChoices; track a) {
+              <mat-button-toggle [value]="a">{{ store.kbps(a) }}</mat-button-toggle>
+            }
+          </mat-button-toggle-group>
+        </div>
+        @let q = store.qualityOf(it);
+        @if (q) {
+          <div class="param-row">
+            <span class="line quality" [class]="'quality-' + q.level">Bit/pixel ở bitrate đích: {{ q.bpp.toFixed(3) }} — {{ q.label }}</span>
+          </div>
         }
-      </mat-button-toggle-group>
-    </div>
-    <div class="param-row">
-      <span class="param-label">Bitrate audio</span>
-      <mat-button-toggle-group [value]="s.audioBps" (change)="store.setAudio(it.path, $event.value)" hideSingleSelectionIndicator [attr.aria-label]="'Bitrate audio của ' + it.name">
-        @for (a of audioChoices; track a) {
-          <mat-button-toggle [value]="a">{{ store.kbps(a) }}</mat-button-toggle>
-        }
-      </mat-button-toggle-group>
-    </div>
+      </div>
+    }
   </div>
 }

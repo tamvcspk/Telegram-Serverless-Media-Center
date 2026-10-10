@@ -195,3 +195,27 @@ User đã nén lại và upload lại file thật qua app rồi so bằng mắt 
 Hệ quả cho ước tính: với kế hoạch 2-pass, dung lượng hiển thị là **đích danh nghĩa** (không lấy từ mẫu — mẫu 8 s không đại diện), "Ước tính chính xác" chỉ còn để đo tốc độ/ETA.
 
 **Chưa làm của tiêu chí nghiệm thu 4c.2:** VMAF của bản ra trong app (đo thử đối chiếu bản ra với nguồn bằng `-ss` + `libvmaf` bị lệch khung — min 0 — nên bỏ, không ghi số; cần dựng clip tham chiếu FFV1 như `tools/encode-bench` và encode **từ clip đó**); chưa nén file 3 giờ thật; chưa chạy qua UI (chọn Tự động → xem tự chuyển 2-pass; huỷ giữa hai pass) — checklist ở [pending-device-tests](../pending-device-tests.md).
+
+## Cập nhật sau khi Accepted (2026-10-10, code slice 4c.3 — dialog kiểu HandBrake)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận điều phát sinh khi code 4c.3 — quyết định gốc **vẫn đứng vững**.
+
+**Đã code (panel "Nén lại" của dialog tiền kiểm, `preflight-encode-panel` + `PreflightStore`):**
+- **Thủ công = một thanh chất lượng RF** 18–28, nhãn hai đầu "Nhỏ hơn" ↔ "Đẹp hơn" (vị trí trái = RF cao), nhãn chữ (rất cao / cao / chuẩn / gọn / nhỏ) và dòng "Mặc định RF N" theo bảng HandBrake. Kéo thanh chuyển file sang chế độ CRF. Dung lượng và ETA cập nhật theo thanh sau lần "Ước tính chính xác" đầu tiên, ngoại suy từ mốc đo (`crfBasis`) và gắn nhãn "dự kiến"; kéo tới mức dự kiến vượt ngân sách thì báo ngay kèm nút "Nén 2 lượt theo dung lượng" (đồng thời gợi ý tăng RF / hạ độ phân giải / chia phần).
+- **"Nâng cao" thu gọn:** kiểu đặt chất lượng (RF | dung lượng đích 2 lượt), độ phân giải, tốc độ nén (Nhanh = `veryfast`, Chuẩn = `fast`, Chậm = `medium`), bitrate audio, và chỉ báo bit/pixel (chỉ còn ở đây, không ở phần tóm tắt). Trạng thái đóng/mở lưu ở app-data (`ui_prefs.json`, trường `preflight_advanced_open` đã có sẵn nhưng chưa dùng), không `localStorage`.
+- Chế độ Tự động giữ nguyên (RF theo độ phân giải, tự chuyển 2-pass sau "Ước tính chính xác" như 4c.2).
+- `core-ingest`: `RF_MIN/RF_MAX`, `extrapolateCrfBytes()`, `X264_PRESET_CHOICES`, `presetSpeedVsFast()`.
+
+**Số đo (độ dốc dung lượng theo RF, x264 `fast`, không VBV, WMV VC-1 1080p, 90 s từ giây 1800):**
+
+| RF | 18 | 20 | 22 | 24 | 26 | 28 |
+|---|---|---|---|---|---|---|
+| Dung lượng (MB) | 115.1 | 96.6 | 81.5 | 68.2 | 56.2 | 45.5 |
+| kbps tổng | 10228 | 8591 | 7246 | 6066 | 4997 | 4042 |
+| Tốc độ (× thời gian thực) | 3.1 | 3.2 | 3.4 | 3.5 | 3.7 | 3.7 |
+
+Mỗi bậc RF nhân dung lượng video với ≈ e^(−0.0929) ≈ 0.911 — gấp đôi sau ~7.5 bậc, **không phải "6"** của quy tắc thường nhắc; độ dốc hơi tăng dần (0.091 → 0.095 mỗi bậc từ RF 18 tới 28). Chỉ MỘT nguồn nên hằng `CRF_SIZE_DECAY_PER_RF` chỉ dùng để ngoại suy hiển thị (4c.4 đo thêm nguồn). Tốc độ gần như không đổi theo RF.
+
+**Quan sát đáng ghi:** nguồn này (WMV 1080p, bitrate gốc ~5.7 Mbps) ở RF 22 không trần ra **~7.2 Mbps — lớn hơn nguồn**; ngay mức RF 28 vẫn 4 Mbps. Đây đúng là ca "Nguồn bitrate thấp" của mục *Việc để ngỏ*: RF cố định không bảo đảm file nhỏ hơn nguồn khi nguồn là VC-1 đã nén chặt, trần VBV/2-pass mới là thứ kéo dung lượng về trần. Chưa có cảnh báo riêng cho ca này.
+
+**Chưa làm:** chưa nhìn dialog chạy thật (chỉ `ng build` + lint + test hàm thuần) — checklist ở [pending-device-tests](../pending-device-tests.md); "Dung lượng mục tiêu" ở Nâng cao vẫn là hai điều khiển cũ (thanh kích thước + ô kbps) chứ chưa thu về một; độ lệch dự đoán CRF và ngưỡng hạ độ phân giải tự động (4c.4).

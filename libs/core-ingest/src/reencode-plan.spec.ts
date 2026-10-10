@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calibrateTargetBps, chooseAutoResolution, chooseRateMode, CRF_PREDICTION_DEVIATION, crfCeilingBytes, defaultReencodeBitrateBps, defaultRf, planCrf, estimateFromSamples, estimateReencodeRangeBytes, isBelowAbrFloor, isReencodeFutile, minAbrVideoBitrateBps, rescaleEstimateBytes, resolutionChoices, resolveAbrFloor, scaledSize, sizeForVideoBitrateBps } from './reencode-plan';
+import { calibrateTargetBps, chooseAutoResolution, chooseRateMode, extrapolateCrfBytes, presetSpeedVsFast, CRF_PREDICTION_DEVIATION, crfCeilingBytes, defaultReencodeBitrateBps, defaultRf, planCrf, estimateFromSamples, estimateReencodeRangeBytes, isBelowAbrFloor, isReencodeFutile, minAbrVideoBitrateBps, rescaleEstimateBytes, resolutionChoices, resolveAbrFloor, scaledSize, sizeForVideoBitrateBps } from './reencode-plan';
 import { computeTargetVideoBitrateBps, REENCODE_AUDIO_BITRATE_BPS } from './size-normalize';
 
 describe('scaledSize / resolutionChoices', () => {
@@ -267,5 +267,44 @@ describe('chooseRateMode', () => {
   it('đúng ngưỡng → CRF', () => {
     const predicted = (max * 0.92) / CRF_PREDICTION_DEVIATION;
     expect(chooseRateMode({ predictedBytes: predicted, maxUploadBytes: max })).toBe('crf');
+  });
+});
+
+describe('extrapolateCrfBytes', () => {
+  const base = { basisBytes: 100_000_000, basisRf: 22, durationSec: 600 };
+
+  it('cùng RF → giữ nguyên', () => {
+    expect(extrapolateCrfBytes({ ...base, rf: 22 })).toBeCloseTo(base.basisBytes, 0);
+  });
+
+  it('RF cao hơn → nhỏ hơn, RF thấp hơn → lớn hơn, đơn điệu', () => {
+    const a = extrapolateCrfBytes({ ...base, rf: 20 });
+    const b = extrapolateCrfBytes({ ...base, rf: 24 });
+    expect(a).toBeGreaterThan(base.basisBytes);
+    expect(b).toBeLessThan(base.basisBytes);
+  });
+
+  it('khớp số đo thật: RF 18→28 trên mẫu đo giảm ~2.5 lần', () => {
+    const at28 = extrapolateCrfBytes({ basisBytes: 115_063_644, basisRf: 18, rf: 28, durationSec: 90 });
+    expect(at28 / 115_063_644).toBeGreaterThan(0.38);
+    expect(at28 / 115_063_644).toBeLessThan(0.42);
+  });
+
+  it('audio giữ nguyên: dù RF thay đổi, không xuống dưới phần audio + overhead', () => {
+    const tiny = extrapolateCrfBytes({ ...base, rf: 28, basisRf: 18, basisBytes: 1_000_000 });
+    expect(tiny).toBeGreaterThan(((160_000 * 600) / 8) * 1.02 - 1);
+  });
+
+  it('không vượt cận trên VBV', () => {
+    expect(extrapolateCrfBytes({ ...base, rf: 18, ceilingBytes: 90_000_000 })).toBe(90_000_000);
+  });
+});
+
+describe('presetSpeedVsFast', () => {
+  it('fast là mốc 1; veryfast nhanh hơn, medium chậm hơn; bỏ trống = fast', () => {
+    expect(presetSpeedVsFast('fast')).toBe(1);
+    expect(presetSpeedVsFast(undefined)).toBe(1);
+    expect(presetSpeedVsFast('veryfast')).toBeGreaterThan(1);
+    expect(presetSpeedVsFast('medium')).toBeLessThan(1);
   });
 });

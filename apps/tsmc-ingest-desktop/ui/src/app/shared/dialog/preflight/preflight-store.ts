@@ -12,6 +12,7 @@ import {
   addCut,
   alternativeCuts,
   chooseRateMode,
+  defaultRf,
   CRF_PREDICTION_DEVIATION,
   canRemoveCut,
   checkCutMove,
@@ -21,9 +22,11 @@ import {
   crfCeilingBytes,
   estimateFromSamples,
   estimateReencodeRangeBytes,
+  extrapolateCrfBytes,
   isReencodeFutile,
   nearestKeyframe,
   partFits,
+  presetSpeedVsFast,
   planCrf,
   planSplit,
   qualityLevel,
@@ -31,6 +34,9 @@ import {
   reencodeQuality,
   removeCut,
   resolutionChoices,
+  scaledSize,
+  RF_MAX,
+  RF_MIN,
   SIZE_SAFETY_MARGIN,
   SPLIT_SAFETY_MARGIN,
   TWO_PASS_SAFETY_MARGIN,
@@ -44,9 +50,10 @@ import {
   type ReencodePlan,
   type SizeCapStrategy,
   type SplitCandidate,
-  type SplitPart
+  type SplitPart,
+  type X264Preset
 } from '@tsmc/core-ingest';
-import { cancelUpload, describeIngestError, estimateReencode, extractPreviewFrame, toIngestRpcError, toPosterDataUri } from '../../../core/ingest-rpc';
+import { cancelUpload, describeIngestError, estimateReencode, extractPreviewFrame, loadUiPrefs, saveUiPrefs, toIngestRpcError, toPosterDataUri } from '../../../core/ingest-rpc';
 import type { IngestRpcErrorDto } from '../../../core/ingest-rpc.types';
 import { analyzeAndPlan, describeSplitFailure, scanKeyframes } from '../../../core/split-service';
 import { mustReencode, needsDecision, type PreflightChoice, type PreflightDialogData, type PreflightDialogItem } from './preflight-types';
@@ -104,6 +111,12 @@ export interface ItemState {
   rateMode: RateMode;
   /** Lý do app tự chuyển sang 2-pass sau "Ước tính chính xác" (chế độ Tự động); xoá khi user đổi tham số. */
   rateNote: string | null;
+  /** RF user đặt (chế độ CRF); `null` = mặc định theo chiều cao đầu ra (`defaultRf`). */
+  rf: number | null;
+  /** Preset x264; `undefined` = mặc định `fast`. */
+  preset: X264Preset | undefined;
+  /** Lần đo CRF KHÔNG trần gần nhất — gốc để ngoại suy dung lượng/ETA khi kéo thanh RF, đổi preset (nhãn "dự kiến"). */
+  crfBasis: { rf: number; bytes: number; speedX: number; preset: X264Preset | undefined } | null;
   /** Kích thước đầu ra mục tiêu (trần cho bitrate). */
   sizeBytes: number;
   /** `undefined` = giữ độ phân giải gốc. */
@@ -185,7 +198,19 @@ export class PreflightStore {
   private readonly previewBusy = new Set<string>();
   private readonly previewWanted = new Map<string, number>();
 
+  /** Panel "Nâng cao" của chế độ Thủ công mở hay đóng — nhớ ở app-data (`ui_prefs.json`), KHÔNG `localStorage`. */
+  readonly advancedOpen = signal(false);
+
+  toggleAdvanced(): void {
+    const next = !this.advancedOpen();
+    this.advancedOpen.set(next);
+    void saveUiPrefs({ preflight_advanced_open: next }).catch(() => undefined);
+  }
+
   constructor() {
+    void loadUiPrefs()
+      .then((prefs) => this.advancedOpen.set(prefs.preflight_advanced_open))
+      .catch(() => undefined);
     inject(DestroyRef).onDestroy(() => {
       // Đóng dialog giữa lúc đang quét/đo/ước tính → dừng ngay, không để Rust chạy tiếp ngầm.
       for (const s of this.states().values()) {
@@ -250,6 +275,9 @@ export class PreflightStore {
       mode: 'auto',
       rateMode: sourceLike ? 'crf' : 'abr',
       rateNote: null,
+      rf: null,
+      preset: undefined,
+      crfBasis: null,
       sizeBytes: this.data.maxUploadBytes,
       maxHeight: sourceLike ? undefined : chooseAutoResolution({ width: item.width, height: item.height, fps: item.fps, videoBitrateBps: capVideoBps }),
       audioBps,
@@ -372,16 +400,17 @@ export class PreflightStore {
   plan(item: PreflightDialogItem): ReencodePlan {
     const s = this.state(item.path);
     const audioBitrateBps = s.audioBps === REENCODE_AUDIO_BITRATE_BPS ? undefined : s.audioBps;
+    const preset = s.preset;
     if (s.rateMode === 'crf') {
-      return { crf: this.crfPlan(item), maxHeight: s.maxHeight, audioBitrateBps };
+      return { crf: this.crfPlan(item), preset, maxHeight: s.maxHeight, audioBitrateBps };
     }
-    return { targetVideoBitrateBps: this.videoBps(item), twoPass: true, maxHeight: s.maxHeight, audioBitrateBps };
+    return { targetVideoBitrateBps: this.videoBps(item), twoPass: true, preset, maxHeight: s.maxHeight, audioBitrateBps };
   }
 
   /** CRF + trần VBV của file này ở độ phân giải/audio hiện chọn (chỉ có nghĩa khi `rateMode === 'crf'`). */
   crfPlan(item: PreflightDialogItem): CrfPlan {
     const s = this.state(item.path);
-    return planCrf({ width: item.width, height: item.height, maxHeight: s.maxHeight, maxUploadBytes: this.data.maxUploadBytes, durationSec: item.durationSec, audioBitrateBps: s.audioBps });
+    return planCrf({ width: item.width, height: item.height, maxHeight: s.maxHeight, maxUploadBytes: this.data.maxUploadBytes, durationSec: item.durationSec, audioBitrateBps: s.audioBps, rf: s.rf ?? undefined });
   }
 
   /** Cận trên chắc chắn của dung lượng ở chế độ CRF (= trần VBV). `null` khi không ở chế độ CRF hoặc không biết thời lượng. */
@@ -425,7 +454,28 @@ export class PreflightStore {
   }
 
   setResolution(path: string, value: number | 'source'): void {
-    this.patch(path, { maxHeight: value === 'source' ? undefined : value, targetOverrideBps: null });
+    // Đổi độ phân giải làm mốc đo CRF không còn đại diện → bỏ, chờ đo lại.
+    this.patch(path, { maxHeight: value === 'source' ? undefined : value, targetOverrideBps: null, crfBasis: null });
+  }
+
+  /** Thanh chất lượng: vị trí trái = nhỏ hơn (RF cao), phải = đẹp hơn (RF thấp). */
+  qualitySlider(item: PreflightDialogItem): number {
+    return RF_MIN + RF_MAX - this.crfPlan(item).rf;
+  }
+
+  /** Kéo thanh chất lượng → chế độ CRF với RF tương ứng (HandBrake "Constant Quality"). */
+  setQualitySlider(path: string, position: number): void {
+    const rf = Math.min(RF_MAX, Math.max(RF_MIN, Math.round(RF_MIN + RF_MAX - position)));
+    this.patch(path, { rf, rateMode: 'crf', rateNote: null, targetOverrideBps: null });
+  }
+
+  setPreset(path: string, preset: X264Preset): void {
+    this.patch(path, { preset: preset === 'fast' ? undefined : preset });
+  }
+
+  /** Chuyển kiểu rate control: `crf` = chất lượng không đổi (thanh RF), `abr` = dung lượng đích (2 lượt). */
+  setRateMode(path: string, mode: RateMode): void {
+    this.patch(path, { rateMode: mode, rateNote: null, targetOverrideBps: null });
   }
 
   setAudio(path: string, bps: number): void {
@@ -434,7 +484,7 @@ export class PreflightStore {
 
   resetEncodeAuto(path: string): void {
     const auto = this.autoState(this.itemOf(path));
-    this.patch(path, { sizeBytes: auto.sizeBytes, maxHeight: auto.maxHeight, audioBps: auto.audioBps, targetOverrideBps: null, rateMode: auto.rateMode, rateNote: null });
+    this.patch(path, { sizeBytes: auto.sizeBytes, maxHeight: auto.maxHeight, audioBps: auto.audioBps, targetOverrideBps: null, rateMode: auto.rateMode, rateNote: null, rf: null, preset: undefined, crfBasis: null });
   }
 
   /** Dung lượng đã đo/dự kiến (sau "Ước tính chính xác") vượt trần upload. Chưa đo thì không biết → `false`. */
@@ -451,6 +501,25 @@ export class PreflightStore {
 
   resolutionOptions(item: PreflightDialogItem): number[] {
     return resolutionChoices(item.height);
+  }
+
+  /** RF mặc định của file này ở độ phân giải đầu ra hiện chọn (bảng "Fast" của HandBrake). */
+  defaultRfFor(item: PreflightDialogItem): number {
+    return defaultRf(scaledSize(item.width, item.height, this.state(item.path).maxHeight).height);
+  }
+
+  /** Nhãn chữ cho RF — chỉ để đọc nhanh, ranh giới theo bảng RF của HandBrake (20–22 là vùng "Fast" chuẩn). */
+  rfLabel(rf: number): string {
+    if (rf <= 19) {
+      return 'rất cao';
+    }
+    if (rf <= 21) {
+      return 'cao';
+    }
+    if (rf <= 23) {
+      return 'chuẩn';
+    }
+    return rf <= 26 ? 'gọn' : 'nhỏ';
   }
 
   /** Mô tả chế độ CRF cho panel: RF đang dùng và trần bitrate VBV (kbps). `null` ngoài chế độ CRF. */
@@ -484,6 +553,10 @@ export class PreflightStore {
       const bytes = crfCeilingBytes({ maxrateBps: plan0.targetVideoBitrateBps, audioBitrateBps: plan0.audioBitrateBps, durationSec: item.durationSec });
       return `~${this.gb(bytes)} GB (nén 2 lượt theo dung lượng đích, sai số ~2%)`;
     }
+    const predicted = this.crfPredictedBytes(item);
+    if (predicted !== null) {
+      return `~${this.gb(predicted)} GB (dự kiến theo RF từ lần đo — "Đo lại" để xác nhận)`;
+    }
     const ceiling = this.crfCeiling(item);
     if (ceiling !== null) {
       return `tối đa ~${this.gb(ceiling)} GB (trần theo dung lượng cho phép — bấm "Ước tính chính xác" để biết số thật)`;
@@ -498,7 +571,38 @@ export class PreflightStore {
     if (exact) {
       return `~${Math.max(1, Math.ceil(exact.etaSec / 60))} phút (đã đo, ${exact.speedXRealtime.toFixed(1)}x)`;
     }
+    const basis = this.state(item.path).crfBasis;
+    if (basis && this.state(item.path).rateMode === 'crf' && basis.speedX > 0) {
+      const speed = basis.speedX * (presetSpeedVsFast(this.state(item.path).preset) / presetSpeedVsFast(basis.preset));
+      return `~${Math.max(1, Math.ceil(item.durationSec / speed / 60))} phút (dự kiến theo tốc độ đo, ${speed.toFixed(1)}x)`;
+    }
     return `~${Math.max(1, Math.ceil(item.durationSec / 60))} phút (ước lượng thô)`;
+  }
+
+  /** Dung lượng CRF KHÔNG trần dự kiến ở RF hiện tại, ngoại suy từ lần đo gần nhất. `null` nếu chưa đo/không ở CRF. */
+  crfPredictedBytes(item: PreflightDialogItem): number | null {
+    const s = this.state(item.path);
+    if (s.rateMode !== 'crf' || !s.crfBasis) {
+      return null;
+    }
+    return extrapolateCrfBytes({
+      basisBytes: s.crfBasis.bytes,
+      basisRf: s.crfBasis.rf,
+      rf: this.crfPlan(item).rf,
+      durationSec: item.durationSec,
+      audioBitrateBps: s.audioBps,
+      ceilingBytes: this.crfCeiling(item) ?? undefined
+    });
+  }
+
+  /** RF hiện tại dự kiến ra lớn hơn ngân sách (sau độ lệch dự đoán) — trần VBV sẽ ép hình; gợi ý đổi cách. */
+  crfExceedsBudget(item: PreflightDialogItem): boolean {
+    const s = this.state(item.path);
+    if (s.rateMode !== 'crf' || !s.crfBasis) {
+      return false;
+    }
+    const uncapped = extrapolateCrfBytes({ basisBytes: s.crfBasis.bytes, basisRf: s.crfBasis.rf, rf: this.crfPlan(item).rf, durationSec: item.durationSec, audioBitrateBps: s.audioBps });
+    return chooseRateMode({ predictedBytes: uncapped, maxUploadBytes: this.data.maxUploadBytes }) === 'abr';
   }
 
   validEstimate(item: PreflightDialogItem): ReencodeEstimate | null {
@@ -507,7 +611,12 @@ export class PreflightStore {
   }
 
   estimateStale(item: PreflightDialogItem): boolean {
-    return this.state(item.path).estimate !== null && this.validEstimate(item) === null;
+    const s = this.state(item.path);
+    // Chế độ CRF có mốc đo: kéo RF/đổi preset cho ra số "dự kiến" ở sizeText/timeText, không cần nhắc "kết quả cũ".
+    if (s.rateMode === 'crf' && s.crfBasis !== null) {
+      return false;
+    }
+    return s.estimate !== null && this.validEstimate(item) === null;
   }
 
   isSuggested(item: PreflightDialogItem, strategy: SizeCapStrategy): boolean {
@@ -551,13 +660,15 @@ export class PreflightStore {
   private applyCrfEstimate(item: PreflightDialogItem, plan: ReencodePlan, measured: ReencodeEstimate): void {
     const s = this.state(item.path);
     const decision = chooseRateMode({ predictedBytes: measured.estimatedBytes, maxUploadBytes: this.data.maxUploadBytes });
+    const crfBasis = { rf: plan.crf?.rf ?? 0, bytes: measured.estimatedBytes, speedX: measured.speedXRealtime, preset: plan.preset };
     if (decision === 'crf' || s.mode !== 'auto') {
-      this.patch(item.path, { estimate: { planKey: JSON.stringify(plan), value: measured, extrapolated: false }, rateNote: null, estimateError: null });
+      this.patch(item.path, { estimate: { planKey: JSON.stringify(plan), value: measured, extrapolated: false }, crfBasis, rateNote: null, estimateError: null });
       return;
     }
     const rf = plan.crf?.rf ?? 0;
     this.patch(item.path, {
       rateMode: 'abr',
+      crfBasis,
       targetOverrideBps: null,
       rateNote: `Ở RF ${rf} dự đoán ~${this.gb(measured.estimatedBytes)} GB (có thể lệch tới ${Math.round((CRF_PREDICTION_DEVIATION - 1) * 100)}%) — gần/vượt ngân sách ${this.gb(this.data.maxUploadBytes * SIZE_SAFETY_MARGIN)} GB nên nén 2 lượt theo dung lượng đích để không bị trần ép hình.`,
       estimateError: null
