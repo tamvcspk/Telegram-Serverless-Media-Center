@@ -56,6 +56,7 @@ export {
   qualityLevel,
   reencodeQuality,
   resolutionChoices,
+  rfForBytes,
   RF_MAX,
   RF_MIN,
   scaledSize,

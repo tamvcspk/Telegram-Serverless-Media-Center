@@ -5,6 +5,7 @@
 import { ChangeDetectionStrategy, Component, inject, input } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSliderModule } from '@angular/material/slider';
 import { AUDIO_BITRATE_CHOICES_BPS, RF_MAX, RF_MIN, X264_PRESET_CHOICES } from '@tsmc/core-ingest';
@@ -13,7 +14,7 @@ import { mustReencode, type PreflightDialogItem } from './preflight-types';
 
 @Component({
   selector: 'app-preflight-encode-panel',
-  imports: [MatButtonModule, MatButtonToggleModule, MatProgressSpinnerModule, MatSliderModule],
+  imports: [MatButtonModule, MatButtonToggleModule, MatProgressBarModule, MatProgressSpinnerModule, MatSliderModule],
   templateUrl: './preflight-encode-panel.html',
   styleUrl: './preflight-encode-panel.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -25,6 +26,15 @@ export class PreflightEncodePanel {
   protected readonly presetChoices = X264_PRESET_CHOICES;
   protected readonly rfMin = RF_MIN;
   protected readonly rfMax = RF_MAX;
+
+  /** Nhãn nổi trên núm thanh chất lượng khi kéo/rê chuột: vị trí → "RF 20 · cao". Vị trí trái = RF cao. */
+  protected readonly sliderLabel = (position: number): string => {
+    const rf = RF_MIN + RF_MAX - position;
+    return `RF ${rf} · ${this.store.rfLabel(rf)}`;
+  };
+
+  /** Nhãn nổi của thanh dung lượng đích (byte → "1.85 GB"). */
+  protected readonly gbLabel = (bytes: number): string => `${this.store.gb(bytes)} GB`;
   protected readonly mustReencode = mustReencode;
 
   protected onKbps(path: string, event: Event): void {

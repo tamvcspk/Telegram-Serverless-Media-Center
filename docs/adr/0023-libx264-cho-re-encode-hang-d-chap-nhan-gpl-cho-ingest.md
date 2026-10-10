@@ -239,3 +239,14 @@ Mỗi bậc RF nhân dung lượng video với ≈ e^(−0.0929) ≈ 0.911 — g
 **Độ lệch dự đoán dung lượng CRF từ mẫu (một điểm):** cùng nguồn, RF 22 không trần, mẫu 3 × 8 s ở 20/50/80% ngoại suy ra **3.80 GB**; nén trọn file ra **3.10 GB** (6379 kbps tổng, 3.56× thời gian thực; mẫu cho tốc độ 2.69× — chậm hơn thật ~25%). Tức mẫu **đoán cao 23%** (thực/dự đoán = 0.81), cùng chiều với "an toàn" của `chooseRateMode` (đoán cao thì nghiêng về 2-pass, không bao giờ vượt trần). `CRF_PREDICTION_DEVIATION` = 1.3 giữ nguyên — một điểm không đủ để hạ, và hệ số này che chiều NGƯỢC (thực > dự đoán) mà chưa gặp. Hệ quả thực tế: nguồn này là 2.92 GB (~6.0 Mbps), RF 22 ra 3.10 GB — **lớn hơn nguồn ~6%** dù đã là bản nén lại: ca "nguồn bitrate thấp" của *Việc để ngỏ* là có thật (RF cố định không bảo đảm nhỏ hơn nguồn); chưa có cảnh báo riêng.
 
 **Chưa làm của 4c.4:** `aq-mode=3` trên nội dung tối/nhiều nhiễu (cần thêm nguồn), đo tốc độ trên máy 4 nhân (cần máy khác), đo lại độ lệch dự đoán CRF trên ≥ 3 nguồn khác loại, cảnh báo "file ra có thể lớn hơn nguồn".
+
+### Sửa theo phản hồi dùng thử (2026-10-11): luồng cơ bản → nâng cao và số liệu dễ hiểu
+
+User dùng thử dialog 4c.3 và phản hồi: vào Thủ công **không thấy thanh RF mà thấy "kích thước + bitrate"**, "không hiểu gì về con số đó"; muốn luồng từ cơ bản tới nâng cao, tương tác, nhãn nổi theo thanh khi kéo, các số bên dưới đổi theo. Nguyên nhân: file vượt trần khởi đầu ở `rateMode = 'abr'` nên panel rẽ vào nhánh kích thước/kbps; kbps cũng nằm ngay trong phần tóm tắt ("trần bitrate N kbps"). Đã sửa:
+
+- **Thanh chất lượng luôn là điều khiển đầu tiên** của Thủ công, kể cả file vượt trần. Chế độ "dung lượng đích (2 lượt)", thanh GB và ô kbps chuyển hẳn vào "Nâng cao" (kèm lời giải thích kbps là gì).
+- **Nhãn nổi** trên núm thanh khi kéo/rê (`discrete` + `displayWith`): "RF 20 · cao"; hai đầu vẫn "Nhỏ hơn" ↔ "Đẹp hơn".
+- **Số sống:** phần tóm tắt là bốn ô đọc được — Dung lượng sau khi nén (kèm thanh tiến độ so với giới hạn, đỏ khi vượt), Thời gian nén, Chất lượng bằng lời, Độ phân giải — đổi ngay khi kéo. Không còn "kbps" ở phần cơ bản.
+- **Vào Thủ công tự đo mẫu CRF không trần** một lần (và đo lại khi đổi độ phân giải) để các số có thật ngay, thay vì bắt người dùng bấm "Ước tính chính xác" trước. File vượt trần: thanh khởi đầu ở **mức đẹp nhất còn vừa giới hạn dung lượng** (nghịch đảo của hàm ngoại suy, `rfForBytes`), tức đúng kết quả của Tự động. Kéo sang phải quá mức đó → báo đỏ + nút "Về mức đẹp nhất còn vừa"; ngay RF 28 vẫn không vừa → chỉ dẫn hạ độ phân giải/chia phần.
+
+**Chưa làm:** nhìn dialog chạy thật sau sửa này; chưa xử lý nhiều file cùng vào Thủ công (mỗi file đo mẫu tuần tự, "Bắt đầu upload" chờ đo xong).

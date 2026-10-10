@@ -100,3 +100,62 @@
   padding-top: 0.5rem;
   border-top: 1px solid var(--mat-sys-outline-variant, rgba(128, 128, 128, 0.3));
 }
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.6rem 1rem;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.metric-size {
+  grid-column: 1 / -1;
+}
+
+.metric-label {
+  font-size: 0.8em;
+  opacity: 0.7;
+}
+
+.metric-value {
+  font-size: 1.05em;
+  font-weight: 500;
+
+  &.over {
+    color: var(--mat-sys-error, #b3261e);
+  }
+}
+
+.metric-note {
+  font-size: 0.85em;
+  opacity: 0.75;
+
+  &.over {
+    color: var(--mat-sys-error, #b3261e);
+    opacity: 1;
+  }
+}
+
+mat-progress-bar.over {
+  --mat-progress-bar-active-indicator-color: var(--mat-sys-error, #b3261e);
+}
+
+.quality-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.quality-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}

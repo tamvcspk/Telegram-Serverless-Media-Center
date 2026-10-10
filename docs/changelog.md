@@ -4,6 +4,10 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-10-11 — Ingest desktop: sửa dialog tiền kiểm theo phản hồi dùng thử — thanh chất lượng luôn đầu tiên, số liệu dễ hiểu, nhãn nổi
+
+User: vào Thủ công không thấy thanh RF (file vượt trần rẽ vào nhánh kích thước/kbps), không hiểu số kbps; muốn cơ bản → nâng cao, tương tác. Sửa theo [ADR-0023 § sửa theo phản hồi](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md#sửa-theo-phản-hồi-dùng-thử-2026-10-11-luồng-cơ-bản--nâng-cao-và-số-liệu-dễ-hiểu): thanh chất lượng luôn là điều khiển đầu tiên (kể cả file vượt trần — khởi đầu ở mức đẹp nhất còn vừa giới hạn), nhãn nổi theo núm khi kéo, bốn ô số sống (dung lượng + thanh tiến độ so với giới hạn, thời gian, chất lượng bằng lời, độ phân giải), vào Thủ công tự đo mẫu để có số ngay, kbps/dung lượng đích chuyển vào "Nâng cao" kèm giải thích. Thêm `rfForBytes()` (nghịch đảo ngoại suy theo RF). **Chưa:** nhìn chạy thật.
+
 ## 2026-10-10 — Ingest desktop: Giai đoạn 4c.4 (phần làm được) — gỡ hằng số/hàm của `h264_mf`, đo ngưỡng hạ độ phân giải
 
 Theo [ADR-0023 § addendum 4c.4](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md#cập-nhật-sau-khi-accepted-2026-10-10-code-slice-4c4--dọn-dẹp-và-hiệu-chỉnh-phần-làm-được-trên-một-nguồn). Gỡ 11 hằng số/hàm chỉ còn nghĩa với `h264_mf` (sàn ABR, hiệu chỉnh target theo mẫu, bitrate theo nguồn…) cùng test. **Đo:** điểm giao 1080p/720p ở ~0.06 bit/pixel (x264 2-pass, VMAF, 1 nguồn VC-1) → `AUTO_MIN_BITS_PER_PIXEL` giữ nguyên 0.06; mẫu CRF 3×8 s đoán cao 23% so với nén trọn (3.80 vs 3.10 GB) nên `CRF_PREDICTION_DEVIATION` giữ 1.3. `encode-bench` tự phóng bản ra về kích thước tham chiếu khi đo VMAF. **Chưa:** `aq-mode=3`, máy 4 nhân, đo thêm nguồn khác loại.

@@ -1,47 +1,61 @@
 @let it = item();
 @let s = store.state(it.path);
-@let crf = store.crfInfo(it);
+@let size = store.sizeInfo(it);
+@let measuring = s.estimatingTaskId !== null;
 
 <div class="summary">
   @if (mustReencode(it)) {
-    <span class="line warn">Hạng D: video phải mã hoá lại — chậm, {{ store.timeText(it) }}. Bộ nén chạy tới khi xong (huỷ được).</span>
+    <span class="line warn">Hạng D: video phải mã hoá lại để trình duyệt phát được — bước này chậm, nhưng huỷ được bất cứ lúc nào.</span>
   }
-  <span class="line">{{ store.sizeText(it) }} · {{ store.timeText(it) }}</span>
-  @if (crf) {
-    <span class="line quality quality-good">Chất lượng: {{ store.rfLabel(crf.rf) }} (RF {{ crf.rf }}) — trần bitrate {{ crf.maxrateKbps }} kbps để file luôn vừa trần upload.</span>
-  }
+
+  <div class="metrics">
+    <div class="metric metric-size">
+      <span class="metric-label">Dung lượng sau khi nén</span>
+      <span class="metric-value" [class.over]="size.over">{{ size.text }}</span>
+      @if (size.percentOfCap !== null) {
+        <mat-progress-bar mode="determinate" [value]="size.percentOfCap" [class.over]="size.over" [attr.aria-label]="'Dung lượng so với giới hạn ' + store.maxGb + ' GB'" />
+      }
+      <span class="metric-note" [class.over]="size.over">{{ size.note }} · giới hạn {{ store.maxGb }} GB</span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Thời gian nén</span>
+      <span class="metric-value">{{ store.timeText(it) }}</span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Chất lượng</span>
+      <span class="metric-value">{{ store.qualityText(it) }}</span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Độ phân giải</span>
+      <span class="metric-value">{{ s.maxHeight ? s.maxHeight + 'p' : it.height > 0 ? 'gốc (' + it.height + 'p)' : 'gốc' }}</span>
+    </div>
+  </div>
+
   @if (s.rateNote) {
     <span class="line quality quality-ok">{{ s.rateNote }}</span>
   }
-  @if (s.rateMode === 'abr') {
-    <span class="line">Nén 2 lượt theo dung lượng đích (lâu gấp ~2 lần một lượt, bám đích ~2%).</span>
-  }
   @if (store.overCap(it)) {
-    <span class="line quality quality-low">Dung lượng dự kiến vượt trần — hạ kích thước/bitrate/độ phân giải rồi đo lại, hoặc đổi cách xử lý.</span>
+    <span class="line quality quality-low">Dung lượng dự kiến vượt giới hạn — hạ chất lượng/độ phân giải rồi đo lại, hoặc đổi cách xử lý.</span>
   }
   @if (store.futile(it)) {
-    <span class="line quality quality-ok">Bitrate mục tiêu gần bằng bitrate nguồn — nén lại gần như không giảm được dung lượng.</span>
+    <span class="line quality quality-ok">Gần như không giảm được dung lượng so với file gốc.</span>
   }
   @if (s.mode === 'auto') {
-    <span class="line">
-      Thuật toán chọn:
-      @if (crf) { chất lượng không đổi RF {{ crf.rf }}, để x264 chia bit theo độ khó từng cảnh } @else { mục tiêu ≤ {{ store.gb(s.sizeBytes) }} GB ({{ store.videoKbps(it) }} kbps video) }
-      · độ phân giải {{ s.maxHeight ? s.maxHeight + 'p' : 'gốc' }} · audio {{ store.kbps(s.audioBps) }}.
-    </span>
+    <span class="line hint">Tự động chọn mức chất lượng cao nhất còn vừa giới hạn dung lượng. Chuyển sang "Thủ công" để tự kéo.</span>
   }
 </div>
 
 <div class="estimate-row">
-  @if (s.estimatingTaskId !== null) {
+  @if (measuring) {
     <mat-spinner diameter="18" />
-    <span>Đang encode thử 3 đoạn ngắn…</span>
+    <span>Đang encode thử vài đoạn ngắn để tính số dự kiến…</span>
     <button mat-button type="button" (click)="store.stopEstimate(it.path)">Dừng</button>
   } @else {
     <button mat-stroked-button type="button" [disabled]="it.durationSec <= 0" (click)="store.runEstimate(it)">
-      {{ store.validEstimate(it) || s.crfBasis ? 'Đo lại' : 'Ước tính chính xác' }}
+      {{ store.validEstimate(it) ? 'Đo lại' : 'Ước tính chính xác' }}
     </button>
     @if (store.estimateStale(it)) {
-      <span class="hint">Kết quả cũ không còn khớp tuỳ chọn hiện tại — đo lại để cập nhật.</span>
+      <span class="hint">Kết quả đo cũ không còn khớp tuỳ chọn hiện tại — đo lại để cập nhật.</span>
     }
     @if (s.estimateError) {
       <span class="hint error">{{ s.estimateError }}</span>
@@ -51,40 +65,32 @@
 
 @if (s.mode === 'manual') {
   <div class="params">
-    @if (s.rateMode === 'crf' && crf) {
-      <div class="param-row">
-        <span class="param-label">Chất lượng</span>
+    <div class="quality-block">
+      <span class="param-label">Chất lượng</span>
+      <div class="quality-slider-row">
         <span class="slider-end">Nhỏ hơn</span>
-        <mat-slider [min]="rfMin" [max]="rfMax" [step]="1" class="param-slider quality-slider">
-          <input matSliderThumb [value]="store.qualitySlider(it)" (valueChange)="store.setQualitySlider(it.path, $event)" [attr.aria-label]="'Chất lượng (RF) của ' + it.name" />
+        <mat-slider [min]="rfMin" [max]="rfMax" [step]="1" [discrete]="true" [showTickMarks]="true" [displayWith]="sliderLabel" class="param-slider quality-slider">
+          <input matSliderThumb [value]="store.qualitySlider(it)" (valueChange)="store.setQualitySlider(it.path, $event)" [attr.aria-label]="'Chất lượng của ' + it.name" />
         </mat-slider>
         <span class="slider-end">Đẹp hơn</span>
-        <span class="param-value">RF {{ crf.rf }} · {{ store.rfLabel(crf.rf) }}</span>
       </div>
+      <span class="hint">
+        Kéo thanh để đổi: bên phải đẹp hơn nhưng file to hơn, bên trái nhỏ gọn hơn. Mặc định "chuẩn" (RF {{ store.defaultRfFor(it) }}).
+        Các số ở trên đổi theo ngay khi bạn kéo.
+      </span>
+    </div>
+
+    @if (store.noRfFits(it)) {
       <div class="param-row">
-        <span class="hint">Mặc định RF {{ store.defaultRfFor(it) }} (preset "Fast" của HandBrake). Dung lượng và thời gian ở trên cập nhật theo thanh sau lần "Ước tính chính xác" đầu tiên.</span>
+        <span class="hint error">Ngay cả mức nhỏ nhất vẫn vượt giới hạn dung lượng ở độ phân giải này. Mở "Nâng cao" để hạ độ phân giải, hoặc chọn "Chia phần".</span>
       </div>
-      @if (store.crfExceedsBudget(it)) {
-        <div class="param-row">
-          <span class="hint error">Ở RF này dự kiến vượt trần — trần bitrate sẽ ép hình. Tăng RF, hạ độ phân giải (Nâng cao), chia phần, hoặc nén 2 lượt theo dung lượng.</span>
-          <button mat-stroked-button type="button" (click)="store.setRateMode(it.path, 'abr')">Nén 2 lượt theo dung lượng</button>
-        </div>
-      }
-    } @else {
+    } @else if (store.crfExceedsBudget(it)) {
+      @let fit = store.bestFitRf(it);
       <div class="param-row">
-        <span class="param-label">Kích thước mục tiêu</span>
-        <mat-slider [min]="store.sliderMinBytes" [max]="store.data.maxUploadBytes" [step]="store.sliderStepBytes" class="param-slider">
-          <input matSliderThumb [value]="store.effectiveSizeBytes(it)" (valueChange)="store.setSize(it.path, $event)" [attr.aria-label]="'Kích thước mục tiêu của ' + it.name" />
-        </mat-slider>
-        <span class="param-value">{{ store.gb(store.effectiveSizeBytes(it)) }} GB</span>
-      </div>
-      <div class="param-row">
-        <span class="param-label">Bitrate video (kbps)</span>
-        <input class="num-input" type="number" min="100" step="50" [value]="store.videoKbps(it)" (change)="onKbps(it.path, $event)" [attr.aria-label]="'Bitrate video của ' + it.name" />
-        <span class="hint">Đổi kích thước hoặc bitrate đều chỉnh cùng một giá trị.</span>
-      </div>
-      <div class="param-row">
-        <button mat-stroked-button type="button" (click)="store.setRateMode(it.path, 'crf')">Về chất lượng không đổi (RF)</button>
+        <span class="hint error">Mức này vượt giới hạn dung lượng nên hình sẽ bị ép xuống. Kéo sang trái{{ fit ? ' (tối đa đẹp còn vừa là RF ' + fit + ')' : '' }}.</span>
+        @if (fit) {
+          <button mat-stroked-button type="button" (click)="store.setQualitySlider(it.path, rfMin + rfMax - fit)">Về mức đẹp nhất còn vừa</button>
+        }
       </div>
     }
 
@@ -93,13 +99,6 @@
     </button>
     @if (store.advancedOpen()) {
       <div class="advanced">
-        <div class="param-row">
-          <span class="param-label">Kiểu đặt chất lượng</span>
-          <mat-button-toggle-group [value]="s.rateMode" (change)="store.setRateMode(it.path, $event.value)" hideSingleSelectionIndicator [attr.aria-label]="'Kiểu đặt chất lượng của ' + it.name">
-            <mat-button-toggle value="crf">Chất lượng không đổi (RF)</mat-button-toggle>
-            <mat-button-toggle value="abr">Dung lượng đích (2 lượt)</mat-button-toggle>
-          </mat-button-toggle-group>
-        </div>
         <div class="param-row">
           <span class="param-label">Độ phân giải</span>
           <mat-button-toggle-group [value]="s.maxHeight ?? 'source'" (change)="store.setResolution(it.path, $event.value)" hideSingleSelectionIndicator [attr.aria-label]="'Độ phân giải của ' + it.name">
@@ -116,20 +115,41 @@
               <mat-button-toggle [value]="p.value">{{ p.label }}</mat-button-toggle>
             }
           </mat-button-toggle-group>
-          <span class="hint">Nhanh = veryfast, Chuẩn = fast, Chậm = medium: chậm hơn cho file nhỏ hơn một chút ở cùng chất lượng.</span>
+          <span class="hint">Chậm hơn → file nhỏ hơn một chút ở cùng chất lượng.</span>
         </div>
         <div class="param-row">
-          <span class="param-label">Bitrate audio</span>
+          <span class="param-label">Âm thanh</span>
           <mat-button-toggle-group [value]="s.audioBps" (change)="store.setAudio(it.path, $event.value)" hideSingleSelectionIndicator [attr.aria-label]="'Bitrate audio của ' + it.name">
             @for (a of audioChoices; track a) {
               <mat-button-toggle [value]="a">{{ store.kbps(a) }}</mat-button-toggle>
             }
           </mat-button-toggle-group>
         </div>
+        <div class="param-row">
+          <span class="param-label">Cách điều khiển</span>
+          <mat-button-toggle-group [value]="s.rateMode" (change)="store.setRateMode(it.path, $event.value)" hideSingleSelectionIndicator [attr.aria-label]="'Cách điều khiển chất lượng của ' + it.name">
+            <mat-button-toggle value="crf">Theo chất lượng (thanh ở trên)</mat-button-toggle>
+            <mat-button-toggle value="abr">Theo dung lượng đích (nén 2 lượt)</mat-button-toggle>
+          </mat-button-toggle-group>
+        </div>
+        @if (s.rateMode === 'abr') {
+          <div class="param-row">
+            <span class="param-label">Dung lượng đích</span>
+            <mat-slider [min]="store.sliderMinBytes" [max]="store.data.maxUploadBytes" [step]="store.sliderStepBytes" [discrete]="true" [displayWith]="gbLabel" class="param-slider">
+              <input matSliderThumb [value]="store.effectiveSizeBytes(it)" (valueChange)="store.setSize(it.path, $event)" [attr.aria-label]="'Dung lượng đích của ' + it.name" />
+            </mat-slider>
+            <span class="param-value">{{ store.gb(store.effectiveSizeBytes(it)) }} GB</span>
+          </div>
+          <div class="param-row">
+            <span class="param-label">Tốc độ bit video</span>
+            <input class="num-input" type="number" min="100" step="50" [value]="store.videoKbps(it)" (change)="onKbps(it.path, $event)" [attr.aria-label]="'Bitrate video của ' + it.name" />
+            <span class="hint">kbps — số bit mỗi giây của hình; đổi dung lượng đích hoặc ô này đều chỉnh cùng một giá trị.</span>
+          </div>
+        }
         @let q = store.qualityOf(it);
         @if (q) {
           <div class="param-row">
-            <span class="line quality" [class]="'quality-' + q.level">Bit/pixel ở bitrate đích: {{ q.bpp.toFixed(3) }} — {{ q.label }}</span>
+            <span class="line quality" [class]="'quality-' + q.level">Mật độ bit trên mỗi điểm ảnh: {{ q.bpp.toFixed(3) }} — {{ q.label }}</span>
           </div>
         }
       </div>

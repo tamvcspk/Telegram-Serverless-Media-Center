@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chooseAutoResolution, chooseRateMode, CRF_PREDICTION_DEVIATION, crfCeilingBytes, defaultRf, estimateFromSamples, extrapolateCrfBytes, isReencodeFutile, planCrf, presetSpeedVsFast, resolutionChoices, scaledSize } from './reencode-plan';
+import { chooseAutoResolution, chooseRateMode, rfForBytes, CRF_PREDICTION_DEVIATION, crfCeilingBytes, defaultRf, estimateFromSamples, extrapolateCrfBytes, isReencodeFutile, planCrf, presetSpeedVsFast, resolutionChoices, scaledSize } from './reencode-plan';
 import { computeTargetVideoBitrateBps } from './size-normalize';
 
 describe('scaledSize / resolutionChoices', () => {
@@ -175,5 +175,25 @@ describe('presetSpeedVsFast', () => {
     expect(presetSpeedVsFast(undefined)).toBe(1);
     expect(presetSpeedVsFast('veryfast')).toBeGreaterThan(1);
     expect(presetSpeedVsFast('medium')).toBeLessThan(1);
+  });
+});
+
+describe('rfForBytes', () => {
+  const base = { basisBytes: 100_000_000, basisRf: 22, durationSec: 600 };
+
+  it('là nghịch đảo của extrapolateCrfBytes', () => {
+    for (const rf of [18, 20, 24, 28]) {
+      const bytes = extrapolateCrfBytes({ ...base, rf });
+      expect(rfForBytes({ ...base, targetBytes: bytes })).toBeCloseTo(rf, 6);
+    }
+  });
+
+  it('mục tiêu nhỏ hơn mốc đo → RF cao hơn; lớn hơn → RF thấp hơn', () => {
+    expect(rfForBytes({ ...base, targetBytes: 50_000_000 })).toBeGreaterThan(22);
+    expect(rfForBytes({ ...base, targetBytes: 200_000_000 })).toBeLessThan(22);
+  });
+
+  it('mục tiêu không đủ chỗ cho audio → null', () => {
+    expect(rfForBytes({ ...base, targetBytes: 1_000 })).toBeNull();
   });
 });

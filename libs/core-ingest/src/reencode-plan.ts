@@ -55,6 +55,21 @@ export function extrapolateCrfBytes(input: { basisBytes: number; basisRf: number
   return input.ceilingBytes !== undefined && input.ceilingBytes > 0 ? Math.min(scaled, input.ceilingBytes) : scaled;
 }
 
+/**
+ * Nghịch đảo của `extrapolateCrfBytes`: RF (số thực) mà dung lượng dự kiến đúng bằng `targetBytes`, từ
+ * một lần đo ở `basisRf`. Dùng để tìm mức đẹp nhất còn vừa giới hạn dung lượng: làm tròn LÊN (RF cao
+ * hơn = nhỏ hơn) mới chắc vừa. `null` nếu phần video của `targetBytes` hoặc của mốc đo ≤ 0 (không tính được).
+ */
+export function rfForBytes(input: { basisBytes: number; basisRf: number; targetBytes: number; durationSec: number; audioBitrateBps?: number }): number | null {
+  const audioBytes = ((input.audioBitrateBps ?? REENCODE_AUDIO_BITRATE_BPS) * Math.max(input.durationSec, 0)) / 8;
+  const basisVideo = input.basisBytes / ESTIMATE_OVERHEAD - audioBytes;
+  const targetVideo = input.targetBytes / ESTIMATE_OVERHEAD - audioBytes;
+  if (!(basisVideo > 0) || !(targetVideo > 0)) {
+    return null;
+  }
+  return input.basisRf + Math.log(basisVideo / targetVideo) / CRF_SIZE_DECAY_PER_RF;
+}
+
 /** Preset cho panel Nâng cao (ADR-0023 § 4c.3): Nhanh = `veryfast`, Chuẩn = `fast` (mặc định, = HandBrake
  * "Fast"), Chậm = `medium`. `speedVsFast` = tốc độ so với `fast`, từ bảng ADR (1-pass: 7.0× / 4.0× / 3.4×). */
 export const X264_PRESET_CHOICES: readonly { value: X264Preset; label: string; speedVsFast: number }[] = [
