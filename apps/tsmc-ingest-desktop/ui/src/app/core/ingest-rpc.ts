@@ -200,6 +200,18 @@ export function toProbeResult(dto: ProbeResultDto): ProbeResult {
   };
 }
 
+/** Tham số re-encode của `prepare_upload`/`estimate_reencode` — một chỗ duy nhất để ước tính
+ * chạy ĐÚNG tham số sẽ dùng thật. `crf` đi nguyên khối (struct `CrfRateDto` phía Rust, snake_case). */
+function reencodeArgs(plan: ReencodePlan | undefined): Record<string, unknown> {
+  return {
+    targetVideoBitrate: plan?.targetVideoBitrateBps ?? null,
+    crf: plan?.crf ? { rf: plan.crf.rf, maxrate_bps: plan.crf.maxrateBps, bufsize_bits: plan.crf.bufsizeBits } : null,
+    preset: plan?.preset ?? null,
+    maxHeight: plan?.maxHeight ?? null,
+    audioBitrate: plan?.audioBitrateBps ?? null
+  };
+}
+
 /** "Chuẩn bị upload" — remux/re-encode + thumbnail + rút phụ đề CỤC BỘ
  * (không đụng MTProto), gộp thành MỘT lệnh phía Rust
  * (`pipeline.rs::prepare_upload()`) để không phải tự quản thư mục tạm ở tầng
@@ -208,11 +220,11 @@ export function toProbeResult(dto: ProbeResultDto): ProbeResult {
  * thi, không tự quyết (ADR-0017 điều kiện bắt buộc #4). `mode:
  * 'reencode_all'` (Hạng D) PHẢI đã hỏi xác nhận xong TRƯỚC khi gọi hàm này
  * (mockup A.2 mục 1 — "re-encode video luôn phải hỏi", `startUpload()` ở
- * `workspace.ts` lo việc này). `targetVideoBitrateBps` (Option C, ADR-0017 §
- * addendum 2026-09-19) chỉ có nghĩa với `mode: 'reencode_all'` — bỏ trống =
- * hành vi Hạng D thường; có giá trị = ép `h264_mf` nhắm bitrate đó để file ra
- * nằm dưới trần upload (`computeTargetVideoBitrateBps()` của
- * `@tsmc/core-ingest` tính số này). */
+ * `workspace.ts` lo việc này). `reencode.crf` (ADR-0023) = chế độ chất lượng
+ * không đổi + trần VBV của `libx264`; `reencode.targetVideoBitrateBps` (Option
+ * C, ADR-0017 § addendum 2026-09-19) = nhắm bitrate đó để file ra nằm dưới trần
+ * upload (`computeTargetVideoBitrateBps()` của `@tsmc/core-ingest` tính số
+ * này). `crf` ưu tiên hơn bitrate; không có cả hai = mặc định của x264. */
 export function prepareUpload(
   taskId: string,
   inputPath: string,
@@ -225,9 +237,7 @@ export function prepareUpload(
     inputPath,
     mode,
     subtitleTracks,
-    targetVideoBitrate: reencode?.targetVideoBitrateBps ?? null,
-    maxHeight: reencode?.maxHeight ?? null,
-    audioBitrate: reencode?.audioBitrateBps ?? null
+    ...reencodeArgs(reencode)
   });
 }
 
@@ -240,9 +250,7 @@ export async function estimateReencode(taskId: string, inputPath: string, reenco
   const samples = await invoke<EstimateSampleDto[]>('estimate_reencode', {
     taskId,
     inputPath,
-    targetVideoBitrate: reencode.targetVideoBitrateBps ?? null,
-    maxHeight: reencode.maxHeight ?? null,
-    audioBitrate: reencode.audioBitrateBps ?? null
+    ...reencodeArgs(reencode)
   });
   return samples.map((s) => ({ outBytes: s.out_bytes, mediaSec: s.media_sec, wallSec: s.wall_sec }));
 }

@@ -2,7 +2,7 @@
 
 - **Trạng thái:** Accepted
 - **Ngày:** 2026-09-07
-- **Liên quan:** [ADR-0003](./0003-chon-thu-vien-mtproto-gramjs.md), [ADR-0012](./0012-trien-khai-static-pwa-va-cau-truc-workspace.md), [ADR-0013](./0013-bot-dong-hanh-va-pipeline-ingest.md), [ADR-0014](./0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md) (addendum 2026-09-17 — ingest-desktop là nơi duy nhất cho biên tập catalog nâng cao, Ingest Editor web app đóng băng ở field đơn giản), [ADR-0018](./0018-task-id-lam-khoa-tuong-quan-ipc-ingest-desktop.md), [ADR-0019](./0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md) (chốt hướng tra cứu TMDB, gỡ "để ngỏ"), [ADR-0020](./0020-ma-hoa-bi-mat-app-data-qua-os-keyring.md) (mã hoá `credentials.json` qua OS keyring), [ADR-0021](./0021-ma-hoa-session-sqlite-qua-session-tu-implement.md) (mã hoá `session.sqlite3` — điều kiện bắt buộc #1 "ghim cứng `grammers-*`" mở rộng sang `libsql`)
+- **Liên quan:** [ADR-0003](./0003-chon-thu-vien-mtproto-gramjs.md), [ADR-0012](./0012-trien-khai-static-pwa-va-cau-truc-workspace.md), [ADR-0013](./0013-bot-dong-hanh-va-pipeline-ingest.md), [ADR-0014](./0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md) (addendum 2026-09-17 — ingest-desktop là nơi duy nhất cho biên tập catalog nâng cao, Ingest Editor web app đóng băng ở field đơn giản), [ADR-0018](./0018-task-id-lam-khoa-tuong-quan-ipc-ingest-desktop.md), [ADR-0019](./0019-tich-hop-tra-cuu-tmdb-o-buoc-draft.md) (chốt hướng tra cứu TMDB, gỡ "để ngỏ"), [ADR-0020](./0020-ma-hoa-bi-mat-app-data-qua-os-keyring.md) (mã hoá `credentials.json` qua OS keyring), [ADR-0021](./0021-ma-hoa-session-sqlite-qua-session-tu-implement.md) (mã hoá `session.sqlite3` — điều kiện bắt buộc #1 "ghim cứng `grammers-*`" mở rộng sang `libsql`), [ADR-0023](./0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md) (`libx264` thay `h264_mf` cho re-encode, chế độ CRF/2-pass thay ABR hiệu chỉnh mẫu)
 
 ## Bối cảnh
 
@@ -618,3 +618,104 @@ Dialog Hạng D (`GradeDDialog`, ADR-0018 § "Quyết định kèm theo") và di
 **Quyết định bổ sung:** Hạng D KHÔNG BAO GIỜ nén với mặc định của bộ nén. `defaultReencodeBitrateBps()` (`libs/core-ingest/src/reencode-plan.ts`): bitrate video mặc định = bitrate video ước của nguồn (`sourceBytes × 8 / duration − 160 kbps audio`, hệ số `D_REENCODE_SOURCE_FRACTION = 1`), kẹp dưới bởi mức sàn ABR của `h264_mf` ở độ phân giải đầu ra và trên bởi mức vừa trần; thiếu số liệu nguồn thì 0.1 bit/pixel. Dialog dùng nó làm giá trị Tự động cho Hạng D dưới trần (thanh kích thước khởi đầu ở dung lượng ứng với bitrate đó — `sizeForVideoBitrateBps()`); bỏ ô "Đặt bitrate mục tiêu" (không còn đường nào để bộ nén tự chọn); cảnh báo "nén vô nghĩa" không áp dụng cho Hạng D (phải đổi codec để trình duyệt phát được dù bitrate không giảm). Kế hoạch nén của Hạng D giờ luôn có target, nên nếu file ra vẫn vượt trần thì báo lỗi như mọi file đã nén theo mục tiêu thay vì hỏi lại.
 
 **Kiểm chứng (2026-10-07, bản trích 120 s của file WMV đầu, PSNR luma so với nguồn, ghép khung theo thứ tự — số tương đối, không phải VMAF):** mặc định bộ nén: 5.96 MB, **Y 27.4 dB** (min 23.2) — khớp "mờ vỡ"; target 1.86 Mbps (bitrate nguồn): 30.6 MB (≈ 2.04 Mbps tổng, ~850 MB cho cả file 3346 s so với nguồn 830 MB), **Y 45.3 dB**. **Chưa kiểm:** chưa nén trọn hai file bằng bản sửa và nhìn bằng mắt; hệ số 1.0 so với nguồn là điểm bắt đầu — h264_mf kém hiệu quả hơn x264 (ADR-0017 addendum 2026-10-04 ghi cần ~1/0.6 bitrate) nhưng WMV2 cũng kém hiệu quả hơn H.264 nên chọn giữ nguyên bitrate; cần mắt người đánh giá trước khi hạ/nâng hệ số.
+
+## Cập nhật sau khi Accepted (2026-10-10, kế hoạch: hold khi vẫn vượt trần + hàng đợi không khoá)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết
+> định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó —
+> quyết định gốc **vẫn đứng vững**. Đây là KẾ HOẠCH, chưa code — slice 4d.1 và 4d.2 của Giai đoạn 4d, đi kèm Giai đoạn 4c của [ADR-0023](./0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md#kế-hoạch-triển-khai--giai-đoạn-4c).
+
+**Hiện trạng (đọc code 2026-10-10):**
+- File đã nén mà vẫn vượt trần thì `processItem()` (`workspace.ts`) **ném lỗi**, và `finally` xoá luôn file vừa nén. Nén một phim 3 giờ mất cả tiếng rồi vứt kết quả; user phải kéo file vào lại, điền lại metadata và chạy lại từ đầu.
+- File A/B/C chưa được lên kế hoạch nén mà vượt trần sau remux thì bật dialog `confirm` **giữa batch**. Cả hàng đợi đứng chờ user — trái với chính lý do tồn tại của bước tiền kiểm (addendum 2026-09-19: "batch chạy lúc user vắng mặt sẽ đứng chờ").
+- Nút Upload bị khoá suốt batch (`[disabled]="uploading() || …"`). Vòng lặp batch là một closure trong `startUpload()` chạy trên danh sách cố định, nên file thêm vào giữa chừng không có đường vào. Kéo thả và probe file mới thì **không** bị khoá — chỉ có bước đẩy vào hàng đợi.
+
+**Quyết định:**
+
+1. **Hold thay vì lỗi (4d.2).** Mọi trường hợp "đã chuẩn bị xong mà vẫn vượt trần" — sau khi nén, sau khi remux, hoặc một phần sau khi chia vẫn vượt — chuyển item sang stage mới **`held`** ("Chờ bạn quyết"):
+   - **Giữ lại file đã chuẩn bị** (`temp_dir` của `prepareUpload`), không dọn trong `finally`. File này còn dùng được: chia phần nó là stream-copy, không phải nén lại.
+   - **Worker chạy tiếp item kế**, không chờ ai. Bỏ hẳn dialog `confirm` giữa batch.
+   - Item `held` có nút **"Xử lý"**, mở lại đúng dialog tiền kiểm (Tự động/Thủ công, thanh chất lượng của 4c.3) cho riêng file đó. Dialog điền sẵn số đo thật và gợi ý (mục 2). User chỉnh rồi xác nhận thì item quay lại hàng đợi ở vị trí **kế tiếp sau file đang chạy** (user đang chờ nó), không phải cuối hàng.
+   - Metadata, poster TMDB, phụ đề ngoài giữ nguyên trên item — không phải nhập lại gì.
+   - Nút "Bỏ qua": dọn `temp_dir`, đưa file về bảng metadata (giữ metadata đã điền) thay vì về trạng thái lỗi.
+   - Footer báo "N file chờ quyết định"; badge màu cảnh báo trên dòng hàng đợi. Không thêm plugin thông báo hệ điều hành ở bước này.
+
+2. **Gợi ý nên đặt bao nhiêu — hàm thuần `suggestAfterOvershoot()` ở `libs/core-ingest`** (điều kiện bắt buộc #4). Đầu vào là số đo **cả file** vừa chạy, không phải mẫu: dung lượng thật, thời lượng, chế độ đã dùng (RF / target 2-pass / remux), bitrate audio, độ phân giải, tốc độ x-realtime đo được ở lần chạy đó. Ba phương án, kèm thời gian và hệ quả chất lượng:
+   - **(a) Nén lại 2-pass theo dung lượng.**
+     - Target mới = target cũ × (ngân sách video ÷ bitrate video thật đo được). Đây là `calibrateTargetBps()` với "mẫu" là chính cả file — sai số gần như bằng sai số của 2-pass, không còn sai số ngoại suy.
+     - Mỗi lần thử lại, margin hạ thêm 0.02 (0.97 → 0.95 → 0.93) để chắc chắn hội tụ.
+     - Lần trước là CRF (vượt trần chỉ có thể do overhead/audio, vì đã có trần VBV) thì chuyển hẳn sang 2-pass ở ngân sách.
+     - Bits/pixel mới dưới ngưỡng hạ độ phân giải thì kèm luôn độ phân giải đề xuất (`chooseAutoResolution()`).
+     - ETA lấy từ tốc độ **thật** của lần vừa chạy, không ước lại.
+   - **(b) Chia phần bản đã có.**
+     - Số phần = ⌈dung lượng ÷ (trần × 0.97)⌉, chạy `uploadSplitParts()` trên đúng `remuxed_path` đang giữ.
+     - Mất vài phút, không mất chất lượng, không nén lại.
+   - **(c) Bỏ qua.**
+   - **Mặc định được chọn:**
+     - Chọn (a) khi mức giảm cần thiết ≤ `REENCODE_DEFAULT_MAX_REDUCTION` (15%) và bits/pixel sau giảm vẫn đạt ngưỡng — cùng tinh thần với `chooseDefaultStrategy()`.
+     - Ngược lại chọn (b).
+     - Từ lần vượt thứ hai trở đi, luôn mặc định (b).
+   - Dialog hiện: "Lần trước: RF 22 → 2.08 GB, vượt trần 4%". Đề xuất: "Nén lại 2-pass ở 1.32 Mbps (giảm 6%), ~1 giờ 10 phút, chất lượng Khá" so với "Chia 2 phần bản đã nén, ~1 phút, giữ nguyên chất lượng".
+
+3. **Hàng đợi không khoá (4d.1 — độc lập với x264, làm được trước 4c.1).**
+   - **Chuyển vòng lặp xử lý từ `startUpload()` sang một service gốc `QueueRunner`** (`providedIn: 'root'`, cùng lý do ADR-0018 mục 6 đặt `QueueStore` ở root).
+     - Worker chạy từng item một, lấy item `queued` kế tiếp tới khi hết. Item `held` không chặn worker.
+     - Component chỉ còn **đẩy vào** hàng đợi.
+   - **Kế hoạch của từng file nằm trên chính `UploadQueueItem`:** plan nén, chia phần, điểm cắt, trần đọc lúc tiền kiểm, và **kênh đích**. Thay cho các `Map` trong closure của batch.
+   - **Nút Upload chỉ khoá khi dialog tiền kiểm đang mở.** Trong lúc worker chạy, nút đổi nhãn thành "Thêm vào hàng đợi (n)": tiền kiểm các file mới, rồi nối vào cuối hàng.
+   - **Publish catalog** khi worker rảnh (không còn item `queued`/đang chạy; item `held` không tính), gom theo kênh đích của từng item. Không còn "publish một lần cuối batch".
+   - **Item đã vào hàng mà chưa bắt đầu** thì bỏ ra được (về lại bảng metadata). Hủy item đang chạy giữ nguyên như hiện có.
+   - **Footer** đổi từ "Đã tải x/y" của một batch sang số đếm suy ra từ hàng đợi: đang chạy / chờ / chờ quyết định / xong.
+
+**Hệ quả / phải chấp nhận:**
+- **Ổ đĩa:** item `held` giữ một file tạm cỡ trần (2–4 GB) tới khi user xử lý. Dialog "Xử lý" và footer phải hiện dung lượng đang giữ. "Bỏ qua" và gỡ item phải dọn.
+- **Chưa bền qua lần mở app:** trạng thái `held` chỉ nằm trong bộ nhớ. Tắt app thì mất hold (metadata cũng mất như hiện nay). Cần kiểm có dọn `temp_dir` mồ côi lúc khởi động chưa; nếu chưa thì thêm cùng slice.
+- **Tranh CPU:** "Ước tính chính xác" (encode mẫu) của file mới chạy song song với encode đang chạy, làm cả hai chậm và ETA của mẫu thấp hơn thực tế. Chấp nhận; dialog ghi chú "đang nén file khác, ước tính tốc độ có thể thấp".
+- **Không song song hoá encode với upload** (nén file N+1 trong lúc upload file N) — để ngỏ, chỉ đáng làm khi đã đo thời gian upload so với thời gian nén.
+
+## Cập nhật sau khi Accepted (2026-10-10, kế hoạch: quản lý tài nguyên CPU khi re-encode — Giai đoạn 4d.3)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết
+> định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó —
+> quyết định gốc **vẫn đứng vững**. Đây là KẾ HOẠCH, chưa code — slice 4d.3, cần 4c.1 ([ADR-0023](./0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md#kế-hoạch-triển-khai--giai-đoạn-4c)) xong trước. Gộp luôn phần "spike đo phân bổ CPU / hạ ưu tiên luồng" còn treo của Giai đoạn 1 (addendum 2026-09-29).
+
+**Yêu cầu của user (2026-10-10):** re-encode hiện chỉ dùng vài chục phần trăm CPU — thế là ổn khi đang làm việc khác, nhưng khi cần tốc độ và ít file thì phải đẩy được lên 100%. Quan trọng nhất: **tận dụng lúc máy rảnh, không tranh với ứng dụng khác làm máy lag.**
+
+**Vì sao chỉ vài chục %:** cả `ingest-ffmpeg` không đặt số luồng ở đâu. Gọi FFmpeg qua API thì decoder/scaler mặc định 1 luồng, và decode → scale → encode chạy tuần tự trên một vòng lặp. Không phải app đang chủ động nhường máy.
+
+**HandBrake làm gì** (đọc mã nguồn bản Windows, `UserSettingService.cs` / `RemoteBase.cs`): encode chạy ở tiến trình worker riêng (process isolation); mức ưu tiên của worker chọn được High / AboveNormal / Normal / BelowNormal / Low (= `Idle`), **mặc định Normal**; 1 job tại một thời điểm; x264 tự chọn số luồng (1.5 × số luồng logic), không giới hạn; mặc định bật chặn máy ngủ, tạm dừng khi pin ≤ 15%, tạm dừng hàng đợi khi ổ đĩa còn < 2 GB. HandBrake **không** có cơ chế phát hiện người dùng rảnh/bận — nút điều tiết duy nhất là mức ưu tiên.
+
+**Số đo 2026-10-10** (Ryzen 7 8845HS 8 nhân/16 luồng, không có nhân E; ffmpeg 9 CLI; encode nền = x264 fast CRF 22 từ WMV VC-1 1080p; "tiền cảnh" giả lập = x264 medium 720p giới hạn 4 luồng, ưu tiên Normal):
+
+| Encode nền | Tiền cảnh chậm đi | Tốc độ encode nền |
+|---|---|---|
+| Normal, luồng tự động (= mặc định HandBrake) | +148% | 3.8× |
+| BelowNormal, luồng tự động | +39% đến +49% | 3.8× |
+| Idle, luồng tự động | +49% | 3.8× |
+| BelowNormal, 8 luồng | +19% | 2.0× |
+| Idle, 4 luồng | +19% | 1.6× |
+
+Hạ ưu tiên gần như miễn phí (tiền cảnh bớt chậm hẳn, encode không chậm đi) — đó chính là "tận dụng lúc rảnh" ở cấp hệ điều hành. Nhưng ưu tiên thấp **không xoá hết** độ chậm: phần còn lại nghi do chung cache, băng thông RAM, hyperthread và xung nhịp hạ khi nóng — chỉ giảm được bằng cách bớt lượng việc encode làm. Số luồng là núm gần như tuyến tính, nhưng x264 chỉ đặt được số luồng lúc mở encoder.
+
+**Quyết định (kế hoạch):**
+
+1. **Mở encoder với số luồng tối đa, điều tiết bằng hai núm đổi được giữa chừng** thay vì chọn số luồng cố định lúc bắt đầu:
+   - **Mức ưu tiên tiến trình** (`SetPriorityClass` trên tiến trình lõi Tauri) và **EcoQoS** của Windows 11 (`SetProcessInformation` + `ProcessPowerThrottling`, cách Chromium/Firefox dùng cho tác vụ nền). WebView2 chạy ở tiến trình riêng nên giao diện không giật; chưa cần tách worker như HandBrake.
+   - **Điều tiết nhịp nạp khung (frame pacing):** vòng lặp nạp khung chèn thời gian nghỉ để giữ CPU của tiến trình quanh một ngân sách (bộ điều khiển đọc `GetProcessTimes` mỗi giây). x264 thiếu khung thì các luồng tự chờ, CPU giảm theo. **Phải đo** xem pacing có cắt được phần chậm do chung cache/RAM như giới hạn luồng thật đã làm (+19%) không, trước khi chốt.
+2. **Ba chế độ, đổi được ngay trong lúc đang encode, lưu ở app-data (cơ chế prefs sẵn có, không dùng `localStorage`):**
+   - **Tự động (mặc định), thích ứng:** người dùng đang thao tác → BelowNormal + EcoQoS + ngân sách CPU ~50%. Không có thao tác bàn phím/chuột N phút (`GetLastInputInfo`) hoặc màn hình khoá → hết tốc độ, vẫn ở BelowNormal để tự nhường. Có thao tác lại → hạ ngay.
+   - **Nhẹ:** luôn giữ ngân sách thấp (họp, chơi game).
+   - **Tối đa:** ưu tiên Normal, không điều tiết — khi cần tốc độ và ít file.
+3. **Bảo vệ kiểu HandBrake:** chặn máy ngủ khi hàng đợi chạy (`SetThreadExecutionState`); tạm dừng khi dùng pin và pin ≤ 15%, hoặc tự chuyển sang Nhẹ khi rút sạc; **tạm dừng khi ổ đĩa còn < 2 GB** (tính cả file `held` của 4d.2, mỗi file 2–4 GB); nút **Tạm dừng / Tiếp tục** encode dựng trên `CancelFlag` sẵn có (thêm cờ pause trong vòng lặp).
+4. **Tách decode và encode thành hai luồng** nối bằng kênh có giới hạn. Nguồn VC-1 tự giải mã chỉ được 14.8×; chạy chung một vòng với encode 4× thì phần giải mã chiếm ~27% thời gian — lợi ích ước 20–30%, **đo trước khi làm**.
+5. **ETA ghi rõ "theo chế độ hiện tại"** và tính lại khi đổi chế độ; EMA hiện có cần ~20 s để ổn định lại.
+
+**Không làm:**
+- **Nhiều encode song song:** một encode x264 đã dùng hết nhân, thêm job chỉ tranh nhau. Thứ đáng song song là nén file N+1 trong lúc upload file N (CPU vs mạng) — để ngỏ ở 4d.1.
+- **Tách encode ra tiến trình worker riêng** để cách ly crash như HandBrake: chỉ cân nhắc nếu FFmpeg crash thật sự làm chết app.
+
+**Hệ quả / phải chấp nhận:**
+- API Windows (`windows` crate), đặt sau `cfg(windows)`; nền tảng khác là no-op.
+- Hạ ưu tiên cả tiến trình lõi kéo theo luồng upload MTProto cùng tiến trình. Upload bị giới hạn bởi mạng nên hiện không sao; khi 4d.1 cho upload chạy song song với encode thì cần nâng ưu tiên riêng luồng upload.
+- Chế độ Tự động chậm hơn Tối đa trong lúc người dùng đang thao tác — đó là chủ đích.
+- **Giới hạn số đo:** một máy, không có nhân E (EcoQoS trên máy có nhân P/E còn đẩy việc sang nhân E — chưa đo); tác vụ tiền cảnh giả lập bằng x264; chưa đo EcoQoS và frame pacing.

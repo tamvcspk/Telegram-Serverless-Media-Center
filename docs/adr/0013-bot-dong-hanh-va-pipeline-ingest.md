@@ -2,7 +2,7 @@
 
 - **Trạng thái:** Accepted
 - **Ngày:** 2026-08-23
-- **Liên quan:** [ADR-0001](./0001-kien-truc-client-heavy-khong-backend.md), [ADR-0010](./0010-catalog-spec-v1-va-chien-luoc-indexing.md), [ADR-0014](./0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md), [ADR-0017](./0017-grammers-cho-cong-cu-ingest-desktop.md) (chốt hướng GUI Tauri, gỡ "để ngỏ" ở addendum 2026-08-29)
+- **Liên quan:** [ADR-0001](./0001-kien-truc-client-heavy-khong-backend.md), [ADR-0010](./0010-catalog-spec-v1-va-chien-luoc-indexing.md), [ADR-0014](./0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md), [ADR-0017](./0017-grammers-cho-cong-cu-ingest-desktop.md) (chốt hướng GUI Tauri, gỡ "để ngỏ" ở addendum 2026-08-29), [ADR-0023](./0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md) (thay kết luận Đ2 "giữ LGPL" — chấp nhận GPL để dùng `libx264`)
 
 ## Bối cảnh
 
@@ -444,3 +444,11 @@ DLL — xem `tools/spike-09/README.md`.
 **Dọn theo (không phải quyết định kiến trúc, chỉ liệt kê cho đủ vết):** gỡ script `build:ingest` (`package.json` gốc), gỡ boundary type `app-ingest` + block ESLint riêng cho `apps/tsmc-ingest/src/**` (`eslint.config.mjs`), cập nhật sơ đồ kiến trúc (`docs/architecture.md` §2) và README gốc — không còn nhắc CLI/bot như "chưa dựng", mà là "khai tử, không làm nữa". `tools/spike-09/`, `tools/spike-10/` (nguồn của `ingest-ffmpeg`/`ingest-grammers`, đã port hoàn chỉnh từ lâu) cũng xoá cùng đợt — xem ghi chú "Mã nguồn đã xoá" ở đầu mỗi mục [SPIKE-09](../spikes/README.md#spike-09)/[SPIKE-10](../spikes/README.md#spike-10).
 
 **Việc tiếp theo:** không còn — đây là dọn dẹp, không mở thêm việc mới.
+
+## Cập nhật sau khi Accepted (2026-10-10, ADR-0023 — kết luận Đ2 "giữ LGPL" bị thay)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết
+> định đã Accepted ở trên. Mục này chỉ ghi nhận thông tin phát sinh sau đó —
+> quyết định gốc (pipeline ingest/chuẩn hoá media, hạng A/B/C/D) **vẫn đứng vững**.
+
+Kết luận Đ2 ở addendum 2026-09-13 ("bộ FFmpeg phân phối giữ LGPL, không kéo GPL") **không còn đúng từ ADR-0023**: re-encode Hạng D bằng `h264_mf` cho hình vỡ nét không cứu được bằng tham số (VMAF 74.4, 1% khung tệ nhất 31 ở ~1.45 Mbps, so với 81.4 / 71 của x264 fast 2-pass — số đo đầy đủ ở [ADR-0023](./0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md)). User chấp nhận GPL cho **riêng công cụ ingest desktop** để build FFmpeg với `libx264`; `apps/web` không bị ảnh hưởng. Câu "nếu sau này thật sự cần chất lượng encode tốt hơn `h264_mf`… cần quyết định lại có đáng đánh đổi để có `libx264`" ở mục "Việc tiếp theo" của addendum 2026-09-13 nay đã được trả lời: **có**. Phần còn lại của addendum đó (configure string, đóng gói DLL, nghĩa vụ dynamic-link) vẫn là bằng chứng lịch sử đúng tại thời điểm ghi; số DLL đi kèm sẽ thành 8 khi Giai đoạn 4c.1 xong.

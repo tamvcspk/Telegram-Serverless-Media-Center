@@ -58,7 +58,8 @@ fn encode(input: &str, window: Option<(f64, f64)>, max_height: u32, spec: &str) 
     let (w, h) = (((decoder.width() as f64 * scale) as u32) & !1, ((decoder.height() as f64 * scale) as u32) & !1);
     let mut scaler = scaling::Context::get(decoder.format(), decoder.width(), decoder.height(), Pixel::YUV420P, w, h, scaling::Flags::BILINEAR)?;
 
-    let h264 = encoder::find(codec::Id::H264).ok_or(ffmpeg::Error::EncoderNotFound)?;
+    // Đo ĐÚNG `h264_mf` (không phải "encoder H264 nào đó": build có x264 sẽ trả libx264 — ADR-0023).
+    let h264 = encoder::find_by_name("h264_mf").ok_or(ffmpeg::Error::EncoderNotFound)?;
     let mut ctx = codec::context::Context::new_with_codec(h264).encoder().video()?;
     ctx.set_width(w);
     ctx.set_height(h);

@@ -123,7 +123,7 @@ Liên quan: [docs/changelog.md § 2026-09-12](./changelog.md#2026-09-12--gui-ing
 
 ### Nếu có gì vỡ
 
-- `probe_media` lỗi `STATUS_DLL_NOT_FOUND` (`0xC0000135`) hoặc app không khởi động được sau khi build release → thiếu DLL FFmpeg cạnh `.exe` — cần đủ 7 file (`avcodec-61.dll`, `avdevice-61.dll`, `avfilter-10.dll`, `avformat-61.dll`, `avutil-59.dll`, `swscale-8.dll`, `swresample-5.dll`, xem [ADR-0013 § addendum 2026-09-04](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-09-04-tích-hợp-thật-vào-tsmc-ingest--sửa-số-liệu-đóng-gói-ở-addendum-trên)) — **chưa giải quyết ở slice này**, `cargo tauri dev`/`cargo build` chỉ chạy đúng trên máy đã có `vcpkg install ffmpeg:x64-windows` (xem `tools/spike-09/README.md`); đóng gói `.exe` phân phối được để dành việc sau.
+- `probe_media` lỗi `STATUS_DLL_NOT_FOUND` (`0xC0000135`) hoặc app không khởi động được sau khi build release → thiếu DLL FFmpeg cạnh `.exe` — cần đủ 8 file (7 file FFmpeg `avcodec-61.dll`, `avdevice-61.dll`, `avfilter-10.dll`, `avformat-61.dll`, `avutil-59.dll`, `swscale-8.dll`, `swresample-5.dll` cộng `libx264-165.dll` từ 2026-10-10 — [ADR-0023](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md), xem [ADR-0013 § addendum 2026-09-04](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md#cập-nhật-sau-khi-accepted-2026-09-04-tích-hợp-thật-vào-tsmc-ingest--sửa-số-liệu-đóng-gói-ở-addendum-trên)) — **chưa giải quyết ở slice này**, `cargo tauri dev`/`cargo build` chỉ chạy đúng trên máy đã có `vcpkg install ffmpeg:x64-windows` (xem `tools/spike-09/README.md`); đóng gói `.exe` phân phối được để dành việc sau.
 - Kéo thả không có phản ứng gì (không log, không item nào xuất hiện) → kiểm `capabilities/default.json` có đủ quyền cho sự kiện webview (`core:default` normally đủ, nhưng nếu Tauri đổi mặc định thì cần thêm permission `core:webview:default` tường minh) — khác lỗi "command not found" (đó là thiếu đăng ký ở `generate_handler!`).
 - Hạng hiện SAI so với đối chiếu tay bằng `ffprobe`/MediaInfo → nghi ngờ đầu tiên là `normalize_container()` (`ingest-ffmpeg/src/lib.rs`) đọc nhầm `AVInputFormat.name` cho một container lạ chưa gặp lúc code (function này PHẢI khớp `normalizeContainer()` của `apps/tsmc-ingest/src/ffprobe.ts` — hai bên cùng đọc field `iformat->name`/`format_name`, lệch nhau ở đây là bug, không phải khác biệt runtime).
 - Title/Season/Ep KHÔNG kế thừa từ dòng trước (mỗi dòng đều seed từ đầu như thể đứng một mình) → kiểm `addPaths()` (`workspace.ts`) có thật sự đọc `this.queue().at(-1)?.metadata` TRƯỚC khi push item mới hay không — bug hợp lý nếu logic vô tình đọc `previous` SAU khi đã `this.queue.update()` thêm cả batch (queue lúc đó đã đổi, `.at(-1)` trỏ nhầm item vừa thêm thay vì item cuối TRƯỚC batch).
@@ -838,3 +838,31 @@ Liên quan: [ADR-0022 § addendum 2026-10-07](./adr/0022-item-nhieu-phan-trong-c
 - [ ] Nguồn Hạng C (AC3 → AAC): dung lượng phần sau remux lệch bao nhiêu so với hiển thị ở editor; khi lệch làm phần vượt trần thì app rơi về tự động chứ không lỗi.
 - [ ] Ngắt mạng giữa lúc upload phần 2 → item báo lỗi; bấm "Bỏ khỏi hàng đợi" hỏi xoá "N message" → chọn "Xoá khỏi kênh" xoá sạch phần 1 (kiểm trên kênh Telegram); thử cả "Giữ trên kênh" (message còn, hiện ở "Tìm file mồ côi" như một mục lẻ).
 - [ ] Mở editor lúc file có audio mono/5.1 và file KHÔNG có audio (đường đo im lặng không crash; file không audio hiện không chia được vì `remux()` đòi audio — ghi nhận hành vi).
+
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — re-encode Hạng D bằng `libx264`, CRF + trần VBV (Giai đoạn 4c.1, 2026-10-10)
+
+Liên quan: [ADR-0023](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md) (§ addendum 2026-10-10), [tools/encode-bench](../tools/encode-bench/README.md). Đã verify bằng ví dụ dòng lệnh trên MỘT file WMV thật (40 s đầu: ra file hợp lệ, 3.5× thời gian thực, trần VBV giữ được); **user đã chạy qua app và so bằng mắt (2026-10-10, chấp nhận được); còn thiếu số đo dung lượng/tốc độ/VMAF trong app.**
+
+### Chuẩn bị
+
+- Dựng FFmpeg có x264 theo [ffmpeg-vcpkg/README.md](../apps/tsmc-ingest-desktop/ffmpeg-vcpkg/README.md), đặt `FFMPEG_DIR` vào cây cài mới, **bỏ** `PKG_CONFIG_PATH` trỏ cây cũ, thêm thư mục `bin` của cây mới vào `PATH` khi chạy `cargo tauri dev`.
+- Hai file WMV Caribbean (nguồn của lỗi hình mờ vỡ ghi ở ADR-0017 addendum 2026-10-07) hoặc một WMV 1080p dài; ghi lại dung lượng nguồn trước.
+
+### Các bước
+
+- [ ] `cargo run --release --example check_h264_encoder -p ingest-ffmpeg` in `OK: libx264 có trong build` (thoát mã 0). Chạy bằng build CŨ phải thoát mã 1 — app báo lỗi rõ "không có encoder libx264" thay vì lặng lẽ dùng `h264_mf`.
+- [ ] Kéo cả hai file WMV vào workspace → "Bắt đầu upload": dialog hiện dòng "Chất lượng: không đổi (RF 21/22 …) — trần bitrate N kbps"; không còn dòng "giữ gần bitrate nguồn".
+- [ ] "Ước tính chính xác" chạy được (3 mẫu), hiện dung lượng đo + thời gian; kéo thanh kích thước/ô kbps ở Thủ công → chuyển sang ABR (dòng "Chất lượng: không đổi" biến mất, quay lại bằng "Tự động").
+- [ ] Nén trọn một file: **ghi dung lượng ra so với nguồn** và tốc độ x-realtime thực trong app (kỳ vọng ~3.5–4× ở preset `fast` trên máy 8 nhân; nếu ~0.5× thì đa luồng KHÔNG bật trong tiến trình app — xem bên dưới).
+- [x] **Verify 2026-10-10, ĐẠT (user, cảm quan)** — nén lại + upload lại file thật qua app, so bằng mắt thường: chất lượng sụt khoảng 1–2% (ước lượng), chấp nhận được. Chưa ghi riêng cảnh khó/cảnh tối/banding.
+- [ ] Đo VMAF + p1 của bản ra so với nguồn bằng `tools/encode-bench` (clip 3 đoạn) và so với bản `h264_mf` cũ; ghi số vào ADR-0023.
+- [ ] Upload bản vừa nén lên kênh, phát lại ở web: tua giữa file, âm thanh đồng bộ. (Upload đã chạy — user xác nhận 2026-10-10; chưa ghi riêng tua/đồng bộ âm thanh.)
+- [ ] Ghi lại cảnh báo của muxer trong log (`Encoder did not produce proper pts` / `Timestamps are unset … stream 1`) có xuất hiện ở lần nén trọn không — nếu có, tìm nguồn trước khi đóng 4c.1.
+- [ ] Máy sạch: cài installer mới → Hạng D chạy, thư mục cài có đủ 8 DLL (thêm `libx264-165.dll`).
+
+### Nếu có gì vỡ
+
+- `ProcessError::EncoderMissing` / "không có encoder libx264" → app link nhầm FFmpeg cũ: `FFMPEG_DIR` chưa trỏ cây mới hoặc `PKG_CONFIG_PATH` cũ còn trong môi trường; `cargo clean -p ffmpeg-sys-next` rồi build lại.
+- Tốc độ ~0.5× → `thread_count` không được áp (kiểm `enable_auto_threads()` trong `reencode.rs` chạy TRƯỚC `decoder()`/`encoder()`), hoặc `ThreadPriority`/ưu tiên tiến trình của app đang hạ.
+- File ra vượt trần dù CRF + VBV → VBV bufsize quá rộng so với thời lượng (file ngắn); lưới an toàn của `processItem()` hỏi nén lại theo ABR — ghi lại thời lượng và dung lượng để chỉnh margin.
+- Hình vẫn mờ ở RF 22 với nguồn bitrate thấp → nguồn đã nén mạnh; RF không cứu được (ADR-0023 "Việc để ngỏ").

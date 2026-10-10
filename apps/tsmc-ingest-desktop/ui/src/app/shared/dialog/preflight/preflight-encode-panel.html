@@ -6,6 +6,10 @@
     <span class="line warn">Hạng D: video phải mã hoá lại — chậm, {{ store.timeText(it) }}. Bộ nén chạy tới khi xong (huỷ được).</span>
   }
   <span class="line">{{ store.sizeText(it) }} · {{ store.timeText(it) }}</span>
+  @let crf = store.crfInfo(it);
+  @if (crf) {
+    <span class="line quality quality-good">Chất lượng: không đổi (RF {{ crf.rf }}, kiểu preset "Fast" của HandBrake) — trần bitrate {{ crf.maxrateKbps }} kbps để file luôn vừa trần upload.</span>
+  }
   @let q = store.qualityOf(it);
   @if (q) {
     <span class="line quality" [class]="'quality-' + q.level">Chất lượng: {{ q.label }} ({{ q.bpp.toFixed(3) }} bit/pixel)</span>
@@ -22,7 +26,7 @@
   @if (s.mode === 'auto') {
     <span class="line">
       Thuật toán chọn:
-      @if (it.overCap) { mục tiêu ≤ {{ store.gb(s.sizeBytes) }} GB ({{ store.videoKbps(it) }} kbps video) } @else { giữ gần bitrate nguồn — {{ store.videoKbps(it) }} kbps video (~{{ store.gb(store.effectiveSizeBytes(it)) }} GB); không dùng mặc định của bộ nén vì cho hình rất mờ }
+      @if (crf) { chất lượng không đổi RF {{ crf.rf }}, để x264 chia bit theo độ khó từng cảnh } @else { mục tiêu ≤ {{ store.gb(s.sizeBytes) }} GB ({{ store.videoKbps(it) }} kbps video) }
       · độ phân giải {{ s.maxHeight ? s.maxHeight + 'p' : 'gốc' }} · audio {{ store.kbps(s.audioBps) }}.
     </span>
   }

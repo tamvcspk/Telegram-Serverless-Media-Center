@@ -34,7 +34,7 @@ mod thumbnail;
 
 pub use progress::{CancelFlag, PipelineProgress, PipelineProgressSink};
 pub use estimate::{estimate_reencode, EstimateSample};
-pub use reencode::{reencode_to_mp4, reencode_with_options, ReencodeOptions};
+pub use reencode::{reencode_to_mp4, reencode_with_options, CrfRate, ReencodeOptions, DEFAULT_X264_PRESET, VIDEO_ENCODER_NAME};
 pub use remux::remux;
 pub use signals::{analyze_cut_signals, CutSignal};
 pub use split::{scan_keyframes, split_at, KeyframeCandidate, SplitScan};
@@ -69,6 +69,11 @@ pub enum ProcessError {
     Ffmpeg(#[from] ffmpeg::Error),
     #[error("đã huỷ")]
     Cancelled,
+    /// Build FFmpeg không có encoder này. Không bao giờ lặng lẽ lui về encoder khác (ADR-0023 quyết định 1).
+    #[error("bản FFmpeg đang dùng không có encoder {0} — cần build FFmpeg có x264 (ADR-0023)")]
+    EncoderMissing(&'static str),
+    #[error("tham số encode không hợp lệ: {0}")]
+    InvalidOption(String),
 }
 
 /// Khớp `Container` của `libs/core-ingest/src/compat-rank.ts` — năm biến thể

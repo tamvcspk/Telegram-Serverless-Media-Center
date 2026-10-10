@@ -6,31 +6,25 @@
 //!
 //! Khung video: port gần nguyên văn ví dụ CHÍNH THỨC của `ffmpeg-next`
 //! (`examples/transcode-x264.rs` trong crate — decode → `send_frame`/
-//! `receive_packet` qua encoder tìm bằng `codec::Id::H264`, `preset=medium`
-//! khớp `apps/tsmc-ingest/src/ffmpeg.ts::reencodeToMp4()`). Khung audio: giữ
-//! NGUYÊN cách dựng encoder AAC + filter graph `anull` đã verify thật ở
-//! `remux.rs`/SPIKE-09 (không refactor dùng chung để tránh rủi ro đổi hành vi
-//! ở một chỗ đã chứng minh chạy đúng — hai file trùng lặp một đoạn ngắn, có
-//! chủ đích).
+//! `receive_packet`). Khung audio: giữ NGUYÊN cách dựng encoder AAC + filter
+//! graph `anull` đã verify thật ở `remux.rs`/SPIKE-09 (không refactor dùng
+//! chung để tránh rủi ro đổi hành vi ở một chỗ đã chứng minh chạy đúng — hai
+//! file trùng lặp một đoạn ngắn, có chủ đích).
 //!
-//! **Phát hiện thật (2026-09-13, lúc đóng gói + trả lời câu hỏi giấy phép
-//! Đ2 SPIKE-10) — encoder H264 THẬT KHÔNG PHẢI `libx264`:** ví dụ gốc của
-//! `ffmpeg-next` giả định build có `libx264`, nhưng `encoder::find(codec::
-//! Id::H264)` chỉ tìm "một encoder H264 nào đó đã đăng ký", không ép cứng
-//! tên. Build FFmpeg thật của app này (vcpkg `ffmpeg:x64-windows`, xem
-//! `tools/spike-09/README.md`) build với `--disable-libx264` (đọc trực tiếp
-//! từ configure string nhúng trong `avcodec-61.dll`) — verify bằng
-//! `cargo run --example check_h264_encoder -p ingest-ffmpeg` xác nhận encoder
-//! THẬT ĐANG DÙNG là `h264_mf` ("H264 via MediaFoundation", codec của
-//! Windows, không phải FFmpeg). Hệ quả: (1) TIN TỐT cho Đ2 — không có GPL
-//! (x264) nào bị kéo vào bản phân phối, giữ đúng LGPL như `share/ffmpeg/
-//! copyright` của vcpkg ghi, xem addendum ADR-0013; (2) `x264_opts.set(
-//! "preset", "medium")` bên dưới là AVOption CỦA `libx264`, `h264_mf` không
-//! hiểu — gần như chắc chắn bị bỏ qua thầm lặng (không lỗi, vì `open_with()`
-//! không strict-check option lạ), encode vẫn chạy đúng bằng tham số MẶC
-//! ĐỊNH của `h264_mf`, không phải preset developer định chọn. Chưa sửa —
-//! để nguyên, ghi lại đúng sự thật thay vì sửa hành vi một pipeline đã
-//! verify chạy đúng trên tài khoản thật mà không hỏi trước.
+//! **Encoder video là `libx264`, tìm THEO TÊN ([ADR-0023](../../../../docs/adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md)).**
+//! Trước 2026-10-10 file này gọi `encoder::find(codec::Id::H264)` — "một
+//! encoder H264 nào đó" — và build vcpkg `--disable-libx264` nên thật ra chạy
+//! `h264_mf` của Windows, còn option `preset` bị bỏ qua thầm lặng (phát hiện
+//! 2026-09-13, ADR-0013 § addendum). Giờ thiếu x264 là LỖI RÕ
+//! (`ProcessError::EncoderMissing`), không lặng lẽ lui về `h264_mf`: "tưởng
+//! đang chạy x264, thật ra là `h264_mf`" đúng là cái bẫy đã dính một lần.
+//! Chọn rate control (CRF + trần VBV hay ABR) là việc của tầng gọi qua
+//! `ReencodeOptions` (ADR-0017 điều kiện bắt buộc #4) — file này chỉ thực thi.
+//!
+//! **Đa luồng phải bật tường minh:** `AVCodecContext.thread_count` mặc định
+//! là 1 khi gọi qua API (CLI `ffmpeg` mới tự đặt auto). Đo 2026-10-10 x264
+//! `fast` trên nguồn WMV thật: 1 luồng 0.5× thời gian thực, 2 luồng 0.9×, 4
+//! luồng 1.6×, 8 luồng 2.0×, tự động 4.0× (ADR-0023 § 4c.1).
 //!
 //! **Rủi ro đã ghi ở ADR-0013 § addendum 2026-09-03 áp dụng NGUYÊN VẸN ở
 //! đây, khác `remux()`/`extract_thumbnail()`/`extract_subtitles()`:** đây là
@@ -107,17 +101,14 @@ fn measure_frame_rate(input_path: &str, video_index: usize) -> Option<Rational> 
     Some(Rational((fps * 1000.0).round() as i32, 1000))
 }
 
-/// `target_video_bitrate_bps`: `None` giữ NGUYÊN hành vi Hạng D thường (mặc
-/// định `h264_mf`, không set field này — hành vi đúng như trước
-/// 2026-09-19). `Some(bps)` là nhánh Option C (docs/roadmap.md § Ingest,
-/// "chuẩn hoá dung lượng vượt trần upload") — dùng khi file VẪN vượt trần
-/// upload sau remux/re-encode bình thường, tầng gọi (Angular,
+/// `target_video_bitrate_bps`: `None` = không đặt bitrate (x264 rơi về CRF mặc
+/// định của nó — tầng gọi nên truyền `ReencodeOptions::crf` thay vì dựa vào
+/// đây). `Some(bps)` là nhánh Option C (docs/roadmap.md § Ingest, "chuẩn hoá
+/// dung lượng vượt trần upload") — dùng khi file VẪN vượt trần upload sau
+/// remux/re-encode bình thường, tầng gọi (Angular,
 /// `computeTargetVideoBitrateBps()` ở `@tsmc/core-ingest`) đã tính sẵn số bps
 /// mục tiêu từ trần byte cho phép + `duration_sec`, hàm này chỉ THỰC THI
 /// (ADR-0017 điều kiện bắt buộc #4 — crate không tự quyết công thức).
-/// [SPIKE-11](../../../../docs/spikes/README.md#spike-11) (2026-09-19) đo
-/// thật xác nhận `h264_mf` tôn trọng `set_bit_rate()` — khác hẳn `preset`
-/// (AVOption riêng `libx264`, bị bỏ qua thầm lặng, xem doc comment đầu file).
 pub fn reencode_to_mp4(
     input_path: &str,
     output_path: &str,
@@ -130,13 +121,60 @@ pub fn reencode_to_mp4(
     reencode_with_options(input_path, output_path, &options, duration_sec, progress, cancel)
 }
 
+/// Tên encoder video — ADR-0023 quyết định 1. Tìm theo TÊN, không theo codec id.
+pub const VIDEO_ENCODER_NAME: &str = "libx264";
+
+/// Preset mặc định = "Fast" của HandBrake (ADR-0023 quyết định 3).
+pub const DEFAULT_X264_PRESET: &str = "fast";
+
+/// Các preset x264 hợp lệ (`x264 --help`, `placebo` cố ý không có: chậm gấp
+/// nhiều lần, không có nghĩa với công cụ này).
+const X264_PRESETS: [&str; 9] = ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"];
+
+fn is_known_x264_preset(name: &str) -> bool {
+    X264_PRESETS.contains(&name)
+}
+
+/// Chất lượng không đổi (CRF) kèm trần VBV — ADR-0023 quyết định 4. VBV giới
+/// hạn bitrate trung bình trên mọi cửa sổ dài bằng `bufsize_bits`, nên dung
+/// lượng không vượt trần dù dự đoán RF sai.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CrfRate {
+    /// Rate factor (HandBrake "RF"; 18–28, thấp hơn = đẹp hơn).
+    pub rf: f32,
+    /// `maxrate` của x264 (bps). 0 = không đặt trần VBV.
+    pub maxrate_bps: u64,
+    /// `bufsize` của x264 (bit).
+    pub bufsize_bits: u64,
+}
+
+/// Bật đa luồng cho một codec context CHƯA mở (decoder lẫn encoder). Mặc định
+/// của `AVCodecContext` khi gọi qua API là 1 luồng — xem doc đầu file.
+/// `FF_THREAD_FRAME | FF_THREAD_SLICE` (không dùng `set_threading` của
+/// `ffmpeg-next`: kiểu `Type` của nó chỉ chọn MỘT trong hai, mà codec cũ như
+/// MPEG-4/WMV chỉ hỗ trợ slice).
+fn enable_auto_threads(ctx: &mut codec::context::Context) {
+    // SAFETY: `ctx` là context hợp lệ, chưa mở; hai field này chỉ đọc lúc `avcodec_open2`.
+    unsafe {
+        let raw = ctx.as_mut_ptr();
+        (*raw).thread_count = 0;
+        (*raw).thread_type = (ffmpeg::ffi::FF_THREAD_FRAME | ffmpeg::ffi::FF_THREAD_SLICE) as i32;
+    }
+}
+
 /// Tham số một lần re-encode do tầng gọi quyết (Giai đoạn 2, dialog tiền kiểm
 /// — công thức ở `libs/core-ingest/src/reencode-plan.ts`, crate này chỉ thực
 /// thi). `Default` = hành vi Hạng D thường.
 #[derive(Debug, Clone, Default)]
 pub struct ReencodeOptions {
-    /// Xem doc `reencode_to_mp4()`.
+    /// Xem doc `reencode_to_mp4()`. Bị bỏ qua khi `crf` có giá trị.
     pub target_video_bitrate_bps: Option<u64>,
+    /// Chế độ chất lượng không đổi (CRF) + trần VBV. Ưu tiên hơn
+    /// `target_video_bitrate_bps`.
+    pub crf: Option<CrfRate>,
+    /// Preset x264; `None` = `DEFAULT_X264_PRESET`. Chỉ nhận tên preset đã biết
+    /// (`is_known_x264_preset`), tên lạ → lỗi — giá trị này đi vào AVOption.
+    pub preset: Option<String>,
     /// Hạ độ phân giải về chiều cao này (giữ tỉ lệ, không phóng to).
     pub max_height: Option<u32>,
     /// Bitrate AAC; `None` = 160 kbps như trước.
@@ -197,7 +235,8 @@ pub fn reencode_with_options(
     // --- Video: decode -> scale (chuẩn hoá format/kích thước) -> encode H.264
     // (khung port từ examples/transcode-x264.rs của chính ffmpeg-next, thêm
     // bước scale sau phát hiện thật — xem doc comment đầu file) ---
-    let video_dec_ctx = codec::context::Context::from_parameters(ictx.stream(video_in_index).unwrap().parameters())?;
+    let mut video_dec_ctx = codec::context::Context::from_parameters(ictx.stream(video_in_index).unwrap().parameters())?;
+    enable_auto_threads(&mut video_dec_ctx);
     let mut video_decoder = video_dec_ctx.decoder().video()?;
 
     const ENC_PIXEL_FORMAT: Pixel = Pixel::YUV420P;
@@ -226,9 +265,15 @@ pub fn reencode_with_options(
         scaling::Flags::BILINEAR
     )?;
 
-    let h264 = encoder::find(codec::Id::H264);
-    let mut vost = octx.add_stream(h264)?;
-    let mut video_enc_ctx = codec::context::Context::new_with_codec(h264.ok_or(ffmpeg::Error::EncoderNotFound)?).encoder().video()?;
+    let preset = options.preset.as_deref().unwrap_or(DEFAULT_X264_PRESET);
+    if !is_known_x264_preset(preset) {
+        return Err(ProcessError::InvalidOption(format!("preset x264 không hợp lệ: {preset:?}")));
+    }
+    let h264 = encoder::find_by_name(VIDEO_ENCODER_NAME).ok_or(ProcessError::EncoderMissing(VIDEO_ENCODER_NAME))?;
+    let mut vost = octx.add_stream(Some(h264))?;
+    let mut video_enc_base = codec::context::Context::new_with_codec(h264);
+    enable_auto_threads(&mut video_enc_base);
+    let mut video_enc_ctx = video_enc_base.encoder().video()?;
     video_enc_ctx.set_height(enc_height);
     video_enc_ctx.set_width(enc_width);
     video_enc_ctx.set_aspect_ratio(video_decoder.aspect_ratio());
@@ -245,15 +290,21 @@ pub fn reencode_with_options(
     if global_header {
         video_enc_ctx.set_flags(codec::flag::Flags::GLOBAL_HEADER);
     }
-    if let Some(bps) = target_video_bitrate_bps {
+    let mut x264_opts = ffmpeg::Dictionary::new();
+    x264_opts.set("preset", preset);
+    // `high` thay vì `main` của HandBrake: HandBrake chọn `main` vì thiết bị phần cứng cũ,
+    // mọi trình duyệt đích đều giải mã được High (ADR-0023 quyết định 3).
+    x264_opts.set("profile", "high");
+    if let Some(crf) = options.crf {
+        x264_opts.set("crf", &format!("{:.1}", crf.rf));
+        // `maxrate_bps == 0` = tầng gọi không biết thời lượng nên không có ngân sách để làm trần.
+        if crf.maxrate_bps > 0 {
+            x264_opts.set("maxrate", &crf.maxrate_bps.to_string());
+            x264_opts.set("bufsize", &crf.bufsize_bits.to_string());
+        }
+    } else if let Some(bps) = target_video_bitrate_bps {
         video_enc_ctx.set_bit_rate(bps as usize);
     }
-    // Tên biến/option `preset` giữ nguyên theo ví dụ gốc `ffmpeg-next` — build
-    // FFmpeg thật của app này KHÔNG có `libx264` (xem doc comment đầu file),
-    // option này gần như chắc chắn bị `h264_mf` bỏ qua thầm lặng, không phải
-    // đang thật sự áp dụng preset x264 nào.
-    let mut x264_opts = ffmpeg::Dictionary::new();
-    x264_opts.set("preset", "medium");
     let mut video_encoder = video_enc_ctx.open_with(x264_opts)?;
     vost.set_parameters(&video_encoder);
     let video_out_index = 0i32;
@@ -501,4 +552,21 @@ fn drain_audio_decoder(
         drain_audio_filter_and_encode(filter_graph, encoder_ctx, octx, dec_time_base, out_index)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_known_x264_preset, DEFAULT_X264_PRESET};
+
+    #[test]
+    fn default_preset_is_known() {
+        assert!(is_known_x264_preset(DEFAULT_X264_PRESET));
+    }
+
+    #[test]
+    fn unknown_preset_rejected() {
+        assert!(!is_known_x264_preset("placebo"));
+        assert!(!is_known_x264_preset("fast:crf=0"));
+        assert!(!is_known_x264_preset(""));
+    }
 }

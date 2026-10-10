@@ -138,7 +138,8 @@ fn fill_noise_frame(vframe: &mut frame::Video, rng: &mut Xorshift64) {
 /// byte packet THẬT — không mux ra container nào (đo trực tiếp elementary
 /// stream, không qua trung gian file/ffprobe).
 fn encode_pass(bit_rate: usize) -> Result<usize, ffmpeg::Error> {
-    let h264 = encoder::find(codec::Id::H264).ok_or(ffmpeg::Error::EncoderNotFound)?;
+    // Đo ĐÚNG `h264_mf` (không phải "encoder H264 nào đó": build có x264 sẽ trả libx264 — ADR-0023).
+    let h264 = encoder::find_by_name("h264_mf").ok_or(ffmpeg::Error::EncoderNotFound)?;
     let mut enc_ctx = codec::context::Context::new_with_codec(h264).encoder().video()?;
     enc_ctx.set_width(WIDTH);
     enc_ctx.set_height(HEIGHT);
@@ -180,7 +181,7 @@ fn main() {
     ffmpeg::init().expect("ffmpeg::init");
     ffmpeg::log::set_level(ffmpeg::log::Level::Warning);
 
-    match encoder::find(codec::Id::H264) {
+    match encoder::find_by_name("h264_mf") {
         Some(c) => println!("H264 encoder đang dùng: name={:?} description={:?}", c.name(), c.description()),
         None => {
             println!("KHÔNG tìm thấy encoder H264 nào — dừng, không đo được gì.");

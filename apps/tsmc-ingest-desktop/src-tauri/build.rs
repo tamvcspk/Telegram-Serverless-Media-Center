@@ -2,13 +2,12 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// 7 DLL runtime của FFmpeg cần để CHẠY (không phải build) `ingest-ffmpeg` —
-/// đúng danh sách đã verify thật ở `tools/spike-09/README.md` (dynamic
-/// triplet `x64-windows` của vcpkg, `spike09.exe` chạy sạch với ĐÚNG 7 file
-/// này đặt cạnh exe, không cần thêm gì khác — vcpkg build ffmpeg không kéo
-/// theo DLL codec ngoài như libx264 rời). Nếu bản `cargo tauri build` sau
-/// này vẫn báo thiếu DLL, kiểm `$FFMPEG_DIR/bin` xem còn file phụ thuộc nào
-/// khác không, đừng giả định danh sách này còn đúng mãi mãi.
+/// 8 DLL runtime của FFmpeg cần để CHẠY (không phải build) `ingest-ffmpeg`: 7 DLL FFmpeg đã verify
+/// thật ở `tools/spike-09/README.md` (dynamic triplet `x64-windows` của vcpkg) cộng `libx264-165.dll`
+/// từ ADR-0023 (re-encode Hạng D dùng `libx264`, không còn `h264_mf`). Build FFmpeg dựng theo
+/// `ffmpeg-vcpkg/README.md`. Nếu bản `cargo tauri build` vẫn báo thiếu DLL, kiểm `$FFMPEG_DIR/bin`
+/// xem còn file phụ thuộc nào khác không (đổi phiên bản x264 → đổi số trong tên DLL), đừng giả định
+/// danh sách này còn đúng mãi mãi.
 const FFMPEG_RUNTIME_DLLS: &[&str] = &[
   "avcodec-61.dll",
   "avdevice-61.dll",
@@ -17,6 +16,7 @@ const FFMPEG_RUNTIME_DLLS: &[&str] = &[
   "avutil-59.dll",
   "swscale-8.dll",
   "swresample-5.dll",
+  "libx264-165.dll",
 ];
 
 fn main() {
@@ -40,10 +40,10 @@ fn main() {
 /// đổi khác đi trong tương lai, không panic thêm lần nữa.
 ///
 /// Giữ NGUYÊN dynamic linking qua vcpkg (không đổi sang static triplet) —
-/// người dùng chấp nhận nghĩa vụ LGPL của FFmpeg cho một dự án cá nhân
-/// (ADR-0013 § Đ2, chưa ghi addendum chính thức) với điều kiện tương thích
-/// dynamic-link ngay từ đầu, để đổi bản phân phối FFmpeg sau này (nếu thật
-/// sự cần) không phải build lại từ một cấu hình static đã lỡ chọn.
+/// để đổi bản phân phối FFmpeg sau này (nếu thật sự cần) không phải build
+/// lại từ một cấu hình static đã lỡ chọn. Từ 2026-10-10 bản FFmpeg này là GPL
+/// (x264) — [ADR-0023](../../../docs/adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md)
+/// thay kết luận "giữ LGPL" của ADR-0013 § Đ2.
 fn copy_ffmpeg_runtime_dlls() {
   println!("cargo:rerun-if-env-changed=FFMPEG_DIR");
 

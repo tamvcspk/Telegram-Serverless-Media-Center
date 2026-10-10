@@ -116,7 +116,7 @@ Ngoài bốn đường trên còn một **đường ingest** chạy ở phía ad
 | F2.1–F2.3 Index | [0010](./adr/0010-catalog-spec-v1-va-chien-luoc-indexing.md), [0014](./adr/0014-mo-hinh-kenh-media-dung-chung-state-rieng-tu.md), [0006](./adr/0006-download-pipeline-dc-pool-flood-wait.md) |
 | F3.1–F3.3 Browsing | [0002](./adr/0002-angular-zoneless-signals-va-signalstore.md), [0016](./adr/0016-angular-material-va-cdk.md), [0008](./adr/0008-tim-kiem-client-side-minisearch.md) |
 | F4.1–F4.3 Playback | [0005](./adr/0005-streaming-qua-service-worker-http-range.md), [0004](./adr/0004-mo-hinh-da-luong.md) |
-| Đưa nội dung vào kho (mới, ngoài PRD) | [0013](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md) |
+| Đưa nội dung vào kho (mới, ngoài PRD) | [0013](./adr/0013-bot-dong-hanh-va-pipeline-ingest.md), [0017](./adr/0017-grammers-cho-cong-cu-ingest-desktop.md), [0022](./adr/0022-item-nhieu-phan-trong-catalog.md), [0023](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md) |
 
 ## 6. Những chỗ tôi **cố ý làm khác PRD**
 

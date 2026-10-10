@@ -1061,9 +1061,9 @@ export class Workspace implements OnInit {
       }
       if (prepared.file_size_bytes > maxUploadBytes) {
         if (plannedReencode?.targetVideoBitrateBps !== undefined) {
-          // Đã nén theo bitrate mục tiêu MỘT lần mà vẫn vượt — `h264_mf` có mức
-          // sàn theo nội dung (không hạ dưới mức đó dù target thấp hơn, xem
-          // ADR-0017 § addendum 2026-09-19 Option C). Không encode lặp lại.
+          // Đã nén theo bitrate mục tiêu MỘT lần mà vẫn vượt (ABR; một plan CRF
+          // không có `targetVideoBitrateBps` nên rơi xuống lưới an toàn bên
+          // dưới, hỏi nén lại theo ngân sách trần). Không encode lặp lại.
           throw new Error(
             `${describeSizeCapExceeded(prepared.file_size_bytes, maxUploadBytes)} Đã nén lại theo bitrate mục tiêu nhưng vẫn vượt trần — bỏ qua file này (thử giảm thêm bằng công cụ khác, hoặc cắt thành nhiều tập nhỏ hơn).`
           );

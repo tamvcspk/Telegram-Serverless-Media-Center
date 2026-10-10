@@ -1,0 +1,14 @@
+{
+  "name": "tsmc-ingest-ffmpeg-gpl",
+  "version": "0.0.0",
+  "description": "FFmpeg 7.1.1 có libx264 cho công cụ ingest desktop (ADR-0023, GPL). Dựng bằng README.md cạnh file này.",
+  "builtin-baseline": "e456309491fd875487bf02b8a0dca76c1b1b00cc",
+  "dependencies": [
+    {
+      "name": "ffmpeg",
+      "default-features": false,
+      "features": ["avcodec", "avdevice", "avfilter", "avformat", "swresample", "swscale", "gpl", "x264"]
+    }
+  ],
+  "overrides": [{ "name": "ffmpeg", "version": "7.1.1", "port-version": 1 }]
+}

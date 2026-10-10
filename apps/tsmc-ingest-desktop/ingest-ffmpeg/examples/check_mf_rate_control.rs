@@ -88,7 +88,8 @@ fn drain(enc: &mut encoder::Video, octx: &mut format::context::Output, enc_tb: R
 }
 
 fn encode_config(frames: &[frame::Video], fps_i: i32, w: u32, h: u32, cfg: &Config, out_path: &str) -> Result<Measured, ffmpeg::Error> {
-    let h264 = encoder::find(codec::Id::H264).ok_or(ffmpeg::Error::EncoderNotFound)?;
+    // Đo ĐÚNG `h264_mf` (không phải "encoder H264 nào đó": build có x264 sẽ trả libx264 — ADR-0023).
+    let h264 = encoder::find_by_name("h264_mf").ok_or(ffmpeg::Error::EncoderNotFound)?;
     let mut octx = format::output(out_path)?;
     let global_header = octx.format().flags().contains(format::flag::Flags::GLOBAL_HEADER);
     let enc_tb = Rational::new(1, fps_i);

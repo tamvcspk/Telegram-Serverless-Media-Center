@@ -1,18 +1,22 @@
 //! Verify "ước tính chính xác" THẬT (Giai đoạn 2) — chạy
 //! `cargo run --release --example check_estimate -p ingest-ffmpeg -- <input>
-//! [target_bps] [max_height]`. In từng đoạn thử (dung lượng, độ dài media thật,
+//! [target_bps] [max_height] [rf] [maxrate_kbps]`. `rf` > 0 = chế độ CRF + trần
+//! VBV (ADR-0023), bỏ qua `target_bps`. In từng đoạn thử (dung lượng, độ dài media thật,
 //! thời gian tường), rồi so ngoại suy cả file với thực tế nếu muốn đối chiếu
 //! (chạy `check_reencode_bitrate` cùng tham số để lấy dung lượng thật).
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        eprintln!("usage: check_estimate <input> [target_bps] [max_height]");
+        eprintln!("usage: check_estimate <input> [target_bps] [max_height] [rf] [maxrate_kbps]");
         std::process::exit(2);
     }
     let input = &args[1];
+    let rf: f32 = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(0.0);
+    let maxrate_bps: u64 = args.get(5).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0) * 1000;
     let options = ingest_ffmpeg::ReencodeOptions {
         target_video_bitrate_bps: args.get(2).and_then(|s| s.parse().ok()),
+        crf: (rf > 0.0).then_some(ingest_ffmpeg::CrfRate { rf, maxrate_bps, bufsize_bits: maxrate_bps * 2 }),
         max_height: args.get(3).and_then(|s| s.parse().ok()),
         ..Default::default()
     };

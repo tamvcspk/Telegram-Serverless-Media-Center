@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calibrateTargetBps, chooseAutoResolution, defaultReencodeBitrateBps, estimateFromSamples, estimateReencodeRangeBytes, isBelowAbrFloor, isReencodeFutile, minAbrVideoBitrateBps, rescaleEstimateBytes, resolutionChoices, resolveAbrFloor, scaledSize, sizeForVideoBitrateBps } from './reencode-plan';
+import { calibrateTargetBps, chooseAutoResolution, crfCeilingBytes, defaultReencodeBitrateBps, defaultRf, planCrf, estimateFromSamples, estimateReencodeRangeBytes, isBelowAbrFloor, isReencodeFutile, minAbrVideoBitrateBps, rescaleEstimateBytes, resolutionChoices, resolveAbrFloor, scaledSize, sizeForVideoBitrateBps } from './reencode-plan';
 import { computeTargetVideoBitrateBps, REENCODE_AUDIO_BITRATE_BPS } from './size-normalize';
 
 describe('scaledSize / resolutionChoices', () => {
@@ -195,5 +195,52 @@ describe('defaultReencodeBitrateBps (Hạng D dưới trần)', () => {
   it('sizeForVideoBitrateBps là nghịch đảo của computeTargetVideoBitrateBps', () => {
     const size = sizeForVideoBitrateBps(1_800_000, 3346.191);
     expect(Math.abs(computeTargetVideoBitrateBps(size, 3346.191) - 1_800_000)).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('defaultRf (bảng preset "Fast" của HandBrake)', () => {
+  it('RF theo chiều cao đầu ra: ≥1080 → 22, ≥720 → 21, thấp hơn → 20', () => {
+    expect(defaultRf(2160)).toBe(22);
+    expect(defaultRf(1080)).toBe(22);
+    expect(defaultRf(1079)).toBe(21);
+    expect(defaultRf(720)).toBe(21);
+    expect(defaultRf(576)).toBe(20);
+    expect(defaultRf(480)).toBe(20);
+  });
+});
+
+describe('planCrf', () => {
+  const GB = 1024 ** 3;
+  const base = { width: 1920, height: 1080, maxUploadBytes: 2 * GB, durationSec: 3 * 3600 };
+
+  it('maxrate = ngân sách bitrate vừa trần, bufsize = 2× maxrate', () => {
+    const plan = planCrf(base);
+    expect(plan.rf).toBe(22);
+    expect(plan.maxrateBps).toBe(computeTargetVideoBitrateBps(base.maxUploadBytes, base.durationSec));
+    expect(plan.bufsizeBits).toBe(plan.maxrateBps * 2);
+  });
+
+  it('RF theo độ phân giải ĐẦU RA, không phải của nguồn', () => {
+    expect(planCrf({ ...base, maxHeight: 720 }).rf).toBe(21);
+    expect(planCrf({ ...base, maxHeight: 480 }).rf).toBe(20);
+  });
+
+  it('rf truyền vào ghi đè mặc định', () => {
+    expect(planCrf({ ...base, rf: 18 }).rf).toBe(18);
+  });
+
+  it('không biết thời lượng → không đặt trần VBV (không ép về sàn 100 kbps)', () => {
+    const plan = planCrf({ ...base, durationSec: 0 });
+    expect(plan.maxrateBps).toBe(0);
+    expect(plan.bufsizeBits).toBe(0);
+  });
+});
+
+describe('crfCeilingBytes', () => {
+  it('cận trên của dung lượng ở chế độ CRF nằm dưới trần upload khi maxrate là ngân sách vừa trần', () => {
+    const GB = 1024 ** 3;
+    const durationSec = 5400;
+    const { maxrateBps } = planCrf({ width: 1920, height: 1080, maxUploadBytes: 2 * GB, durationSec });
+    expect(crfCeilingBytes({ maxrateBps, durationSec })).toBeLessThan(2 * GB);
   });
 });

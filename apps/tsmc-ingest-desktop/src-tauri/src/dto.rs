@@ -291,6 +291,16 @@ pub enum RemuxModeDto {
     ReencodeAll
 }
 
+/// Chế độ chất lượng không đổi (CRF) + trần VBV cho re-encode Hạng D — khớp `CrfRate`
+/// (`ingest-ffmpeg`) và `Crf` của `ReencodePlan` ở `libs/core-ingest`. Tầng gọi tính cả ba số
+/// (ADR-0023 quyết định 4); Rust chỉ thực thi.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CrfRateDto {
+    pub rf: f32,
+    pub maxrate_bps: u64,
+    pub bufsize_bits: u64,
+}
+
 /// Track phụ đề TEXT cần rút — Angular tự lọc bỏ track dạng ẢNH (PGS/DVD
 /// subtitle, xem `apps/tsmc-ingest/src/ffmpeg.ts::IMAGE_SUBTITLE_CODECS`,
 /// lặp lại có chủ đích ở `workspace.ts`) trước khi gửi mảng này —

@@ -42,11 +42,15 @@ export {
   ABR_FLOOR_BITS_PER_PIXEL,
   AUTO_MIN_BITS_PER_PIXEL,
   calibrateTargetBps,
+  CRF_VBV_BUFSIZE_FACTOR,
+  crfCeilingBytes,
+  defaultRf,
   isBelowAbrFloor,
   isReencodeFutile,
   rescaleEstimateBytes,
   resolveAbrFloor,
   minAbrVideoBitrateBps,
+  planCrf,
   chooseAutoResolution,
   D_REENCODE_SOURCE_FRACTION,
   defaultReencodeBitrateBps,
@@ -57,10 +61,12 @@ export {
   resolutionChoices,
   scaledSize,
   sizeForVideoBitrateBps,
+  type CrfPlan,
   type EstimateSample,
   type QualityLevel,
   type ReencodeEstimate,
-  type ReencodePlan
+  type ReencodePlan,
+  type X264Preset
 } from './reencode-plan';
 
 export { assignToSeries, findRepresentativeEpisode, listSeriesNames, suggestNextEpisode } from './series-registry';

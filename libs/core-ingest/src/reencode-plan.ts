@@ -5,13 +5,68 @@
 
 import { bitsPerPixel, computeTargetVideoBitrateBps, MIN_VIDEO_BITRATE_BPS, MUX_OVERHEAD_FRACTION, REENCODE_AUDIO_BITRATE_BPS, SIZE_SAFETY_MARGIN } from './size-normalize';
 
+/** Chất lượng không đổi (CRF) kèm trần VBV — khớp `CrfRate` (Rust). ADR-0023
+ * quyết định 4: VBV giới hạn bitrate trung bình trên mọi cửa sổ dài bằng
+ * `bufsizeBits`, nên dung lượng không vượt trần dù dự đoán RF sai. */
+export interface CrfPlan {
+  /** Rate factor kiểu HandBrake "RF" (thấp hơn = đẹp hơn, file to hơn). */
+  rf: number;
+  /** `maxrate` của x264 (bps). 0 = không đặt trần (không biết thời lượng). */
+  maxrateBps: number;
+  /** `bufsize` của x264 (bit). */
+  bufsizeBits: number;
+}
+
 /** Tham số một lần re-encode do bước tiền kiểm quyết — khớp `ReencodeOptions`
- * (Rust) trừ `window`. Field bỏ trống = giữ mặc định của Hạng D thường. */
+ * (Rust) trừ `window`. `crf` ưu tiên hơn `targetVideoBitrateBps` (ABR). */
 export interface ReencodePlan {
   targetVideoBitrateBps?: number;
+  crf?: CrfPlan;
+  /** Preset x264; bỏ trống = `fast` (preset "Fast" của HandBrake). */
+  preset?: X264Preset;
   /** Hạ độ phân giải: chiều cao tối đa (px), giữ tỉ lệ khung hình. */
   maxHeight?: number;
   audioBitrateBps?: number;
+}
+
+/** Khớp `X264_PRESETS` ở `reencode.rs` — Rust từ chối tên lạ. */
+export type X264Preset = 'ultrafast' | 'superfast' | 'veryfast' | 'faster' | 'fast' | 'medium' | 'slow' | 'slower' | 'veryslow';
+
+/** RF mặc định theo CHIỀU CAO ĐẦU RA — đúng bảng preset "Fast" của HandBrake
+ * (`preset_builtin.json`: 1080p30 → 22, 720p30 → 21, 576p25/480p30 → 20). ADR-0023
+ * quyết định 3. Trên 1080p tạm dùng 22 (bảng HandBrake dừng ở 1080p). */
+export function defaultRf(outputHeight: number): number {
+  if (outputHeight >= 1080) {
+    return 22;
+  }
+  return outputHeight >= 720 ? 21 : 20;
+}
+
+/** `bufsize` = 2× `maxrate` cho chế độ CRF (ADR-0023 quyết định 4): đủ rộng để x264 dồn bit
+ * cho cảnh khó, đủ hẹp để trung bình trên cửa sổ dài bám trần. */
+export const CRF_VBV_BUFSIZE_FACTOR = 2;
+
+/**
+ * CRF + trần VBV cho một lần re-encode vừa trần upload. `maxrateBps` = ngân sách bitrate
+ * video vừa trần (`computeTargetVideoBitrateBps`, cùng margin 0.92 — chưa có số đo VBV trên
+ * thực tế nên giữ margin thận trọng). `durationSec <= 0` (không biết thời lượng) → không đặt
+ * trần: để `computeTargetVideoBitrateBps` trả sàn 100 kbps sẽ ép CRF xuống mức vô dụng.
+ */
+export function planCrf(input: { width: number; height: number; maxHeight?: number; maxUploadBytes: number; durationSec: number; audioBitrateBps?: number; rf?: number }): CrfPlan {
+  const outHeight = scaledSize(input.width, input.height, input.maxHeight).height;
+  const rf = input.rf ?? defaultRf(outHeight);
+  if (!(input.durationSec > 0)) {
+    return { rf, maxrateBps: 0, bufsizeBits: 0 };
+  }
+  const maxrateBps = computeTargetVideoBitrateBps(input.maxUploadBytes, input.durationSec, input.audioBitrateBps);
+  return { rf, maxrateBps, bufsizeBits: maxrateBps * CRF_VBV_BUFSIZE_FACTOR };
+}
+
+/** Cận trên CHẮC CHẮN của dung lượng ở chế độ CRF: VBV giữ bitrate trung bình dưới `maxrate`.
+ * Không phải dự đoán — dung lượng thật thường thấp hơn nhiều; chỉ đo bằng encode mẫu mới biết. */
+export function crfCeilingBytes(input: { maxrateBps: number; audioBitrateBps?: number; durationSec: number }): number {
+  const audio = input.audioBitrateBps ?? REENCODE_AUDIO_BITRATE_BPS;
+  return ((input.maxrateBps + audio) * Math.max(input.durationSec, 0) * ESTIMATE_OVERHEAD) / 8;
 }
 
 /** Các mức bitrate audio panel Nâng cao cho chọn (bps). */

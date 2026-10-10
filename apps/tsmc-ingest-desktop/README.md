@@ -112,3 +112,7 @@ Toàn bộ 5 crate `grammers-*` ghim cứng `=0.10.0` (không `^`) trong `[works
 | Mở app vẫn hiện form Bước 1 dù đã đăng nhập thành công ít nhất một lần trước đó | Kiểm `credentials.json` có tồn tại ở app-data không (đường dẫn ở mục "Bảo mật & nơi lưu dữ liệu"); nếu không có, `save_credentials()` chưa từng chạy thành công (vd lần đăng nhập trước dùng bản code cũ hơn 2026-09-11, trước khi tính năng này tồn tại) — gõ lại Bước 1 đầy đủ một lần để tạo file, từ lần sau tự nhận ra |
 | `chưa resolve_channel() — gọi trước check_write_permission()/read_pinned_catalog()` dù đã resolve thành công | `AppState.selected_channel` bị bỏ trống lại — kiểm có đăng nhập lại (OTP/mật khẩu sai reset `ConnState::Disconnected`, xoá `GrammersIngestRpc` cùng peer cache) mà chưa `resolve_channel()` lại chưa |
 | Muốn xem chi tiết đã verify thật những gì, còn thiếu gì | [docs/pending-device-tests.md](../../docs/pending-device-tests.md) — checklist verify trên tài khoản/kênh thật |
+
+## Build FFmpeg (có x264)
+
+Re-encode Hạng D dùng `libx264` ([ADR-0023](../../docs/adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md)), nên cần FFmpeg dựng riêng, không phải `vcpkg install ffmpeg` mặc định — xem [ffmpeg-vcpkg/README.md](./ffmpeg-vcpkg/README.md). Bản phân phối `.exe` là GPL.

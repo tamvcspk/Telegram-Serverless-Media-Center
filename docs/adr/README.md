@@ -30,3 +30,4 @@ Mỗi ADR ghi lại **một** quyết định kiến trúc: bối cảnh, các p
 | [0020](./0020-ma-hoa-bi-mat-app-data-qua-os-keyring.md) | Mã hoá bí mật lưu ở app-data qua OS keyring, fallback plaintext — ingest desktop | Accepted |
 | [0021](./0021-ma-hoa-session-sqlite-qua-session-tu-implement.md) | Mã hoá `session.sqlite3` qua `Session` tự implement (libSQL encryption-at-rest) — ingest desktop | Accepted |
 | [0022](./0022-item-nhieu-phan-trong-catalog.md) | Item nhiều phần (`parts[]`) trong Catalog Spec v1 — một phim logic, N video Telegram độc lập | Accepted |
+| [0023](./0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md) | `libx264` (preset fast, RF kiểu HandBrake) thay `h264_mf` cho re-encode Hạng D — chấp nhận GPL cho riêng công cụ ingest desktop | Accepted |
