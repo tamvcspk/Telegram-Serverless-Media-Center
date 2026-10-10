@@ -660,10 +660,12 @@ export class PreflightStore {
     return `${info.text} (${info.note})`;
   }
 
-  timeText(item: PreflightDialogItem): string {
+  /** Thời gian nén: số chính ("~47 phút") và ghi chú nguồn gốc ("dự kiến theo tốc độ đo, 2.8x") tách riêng cho panel. */
+  timeInfo(item: PreflightDialogItem): { text: string; note: string } {
     const exact = this.validEstimate(item);
+    const minutes = (sec: number): string => `~${Math.max(1, Math.ceil(sec / 60))} phút`;
     if (exact) {
-      return `~${Math.max(1, Math.ceil(exact.etaSec / 60))} phút (đã đo, ${exact.speedXRealtime.toFixed(1)}x)`;
+      return { text: minutes(exact.etaSec), note: `đã đo, ${exact.speedXRealtime.toFixed(1)}x thời gian thực` };
     }
     const st = this.state(item.path);
     const basis = st.crfBasis;
@@ -671,9 +673,14 @@ export class PreflightStore {
       // Mốc đo là tốc độ 1 lượt; nén 2 lượt chậm hơn `TWO_PASS_TIME_FACTOR` lần.
       const passFactor = st.rateMode === 'abr' ? TWO_PASS_TIME_FACTOR : 1;
       const speed = (basis.speedX * (presetSpeedVsFast(st.preset) / presetSpeedVsFast(basis.preset))) / passFactor;
-      return `~${Math.max(1, Math.ceil(item.durationSec / speed / 60))} phút (dự kiến theo tốc độ đo, ${speed.toFixed(1)}x)`;
+      return { text: minutes(item.durationSec / speed), note: `dự kiến theo tốc độ đo, ${speed.toFixed(1)}x` };
     }
-    return `~${Math.max(1, Math.ceil(item.durationSec / 60))} phút (ước lượng thô)`;
+    return { text: minutes(item.durationSec), note: 'ước lượng thô, chưa đo' };
+  }
+
+  timeText(item: PreflightDialogItem): string {
+    const t = this.timeInfo(item);
+    return `${t.text} (${t.note})`;
   }
 
   /** Dung lượng CRF KHÔNG trần dự kiến ở RF hiện tại, ngoại suy từ lần đo gần nhất. `null` nếu chưa đo/không ở CRF. */

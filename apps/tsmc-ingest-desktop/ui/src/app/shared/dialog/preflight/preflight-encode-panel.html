@@ -19,12 +19,16 @@
     </div>
     <div class="metric">
       <span class="metric-label">Thời gian nén</span>
-      <span class="metric-value">{{ store.timeText(it) }}</span>
+      @let time = store.timeInfo(it);
+      <span class="metric-value">{{ time.text }}</span>
+      <span class="metric-note">{{ time.note }}</span>
     </div>
-    <div class="metric">
-      <span class="metric-label">Chất lượng</span>
-      <span class="metric-value">{{ store.qualityText(it) }}</span>
-    </div>
+    @if (s.mode === 'auto') {
+      <div class="metric">
+        <span class="metric-label">Chất lượng</span>
+        <span class="metric-value">{{ store.qualityText(it) }}</span>
+      </div>
+    }
     <div class="metric">
       <span class="metric-label">Độ phân giải</span>
       <span class="metric-value">{{ s.maxHeight ? s.maxHeight + 'p' : it.height > 0 ? 'gốc (' + it.height + 'p)' : 'gốc' }}</span>
@@ -66,7 +70,7 @@
 @if (s.mode === 'manual') {
   <div class="params">
     <div class="quality-block">
-      <span class="param-label">Chất lượng</span>
+      <span class="quality-title">Chất lượng: <strong>{{ store.qualityText(it) }}</strong></span>
       <div class="quality-slider-row">
         <span class="slider-end">Nhỏ hơn</span>
         <mat-slider [min]="rfMin" [max]="rfMax" [step]="1" [discrete]="true" [showTickMarks]="true" [displayWith]="sliderLabel" class="param-slider quality-slider">

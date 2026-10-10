@@ -27,11 +27,9 @@ export class PreflightEncodePanel {
   protected readonly rfMin = RF_MIN;
   protected readonly rfMax = RF_MAX;
 
-  /** Nhãn nổi trên núm thanh chất lượng khi kéo/rê chuột: vị trí → "RF 20 · cao". Vị trí trái = RF cao. */
-  protected readonly sliderLabel = (position: number): string => {
-    const rf = RF_MIN + RF_MAX - position;
-    return `RF ${rf} · ${this.store.rfLabel(rf)}`;
-  };
+  /** Nhãn nổi trên núm khi kéo/rê: CHỈ số RF (vị trí trái = RF cao). Phần diễn giải và giá trị hiện tại nằm ở tiêu đề
+   * của khối, vì nhãn nổi của Material rất hẹp — chữ dài bị bẻ xuống dòng. */
+  protected readonly sliderLabel = (position: number): string => String(RF_MIN + RF_MAX - position);
 
   /** Nhãn nổi của thanh dung lượng đích (byte → "1.85 GB"). */
   protected readonly gbLabel = (bytes: number): string => `${this.store.gb(bytes)} GB`;
