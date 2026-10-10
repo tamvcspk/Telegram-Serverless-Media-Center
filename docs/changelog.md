@@ -4,6 +4,10 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-10-11 — Ingest desktop: chốt Giai đoạn 4c (x264) — dùng thử OK, nén + upload thành công
+
+Tổng kết 4c.1 → 4c.4 ([ADR-0023](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md), ba vòng sửa giao diện sau ảnh chụp dùng thử). **Đã chạy thật:** user nén lại một file qua app và upload thành công; dialog (thanh chất lượng RF, số đo, một giới hạn hiển thị) xác nhận "ok". **Số đo của cả giai đoạn:** x264 `fast` 3.5–4.3× thời gian thực (đa luồng), 2-pass 2.25× và lệch +0.9% so với đích trên WMV 1080p 3882 s (1-pass ABR lệch −3.5%); dung lượng giảm ≈ 9.3%/bậc RF; điểm giao 1080p/720p ≈ 0.06 bit/pixel; mẫu CRF 3×8 s đoán cao 23% so với nén trọn. **Còn mở:** VMAF bản ra trong app, `aq-mode=3`, máy 4 nhân, đo thêm nguồn khác loại, cảnh báo "file ra có thể lớn hơn nguồn", cảnh báo muxer `Encoder did not produce proper pts`; sau đó Giai đoạn 4d (hàng đợi không khoá → hold khi vẫn vượt trần → quản lý tài nguyên CPU).
+
 ## 2026-10-11 — Ingest desktop: dialog tiền kiểm chỉ hiện số đã đo, tự đo khi dừng kéo, một thước giới hạn
 
 Ảnh chụp thứ hai: "lớn hơn giới hạn" nhưng số vẫn là 3.68 GB (< 4.00) — 3.68 là ngân sách (trần × 0.92) và là cận trên VBV, không phải dự đoán. Sửa theo [ADR-0023 § sửa theo phản hồi, vòng 2](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md#sửa-theo-phản-hồi-dùng-thử-2026-10-11-luồng-cơ-bản--nâng-cao-và-số-liệu-dễ-hiểu): chỉ hiện số đo (hoặc đích 2 lượt), bỏ số ngoại suy theo RF; đổi tham số ở Thủ công → tự đo sau 700 ms dừng tay; mọi so sánh và nhãn dùng MỘT giới hạn — trần Telegram 4.00 GB (vòng 3: bản đầu hiện thêm "giới hạn an toàn 3.68 GB" nên "3.88 GB < 4.00 GB mà vẫn báo vượt" — phần chừa 8% là dự phòng nội bộ, không lộ ra; với CRF báo "ép bớt khoảng N%"); CRF không còn bị khoá nút upload vì cảnh báo dung lượng; chừa chỗ cho bong bóng nhãn nổi. **Chưa:** nhìn lại sau bản sửa này.

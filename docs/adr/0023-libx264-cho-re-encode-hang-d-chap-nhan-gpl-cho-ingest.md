@@ -259,3 +259,9 @@ User dùng thử dialog 4c.3 và phản hồi: vào Thủ công **không thấy 
 - Bong bóng giá trị nổi không còn che tiêu đề khối (chừa khoảng trống phía trên thanh).
 
 **Vòng sửa 3 (cùng ngày):** vẫn rối — ảnh hiện "~3.88 GB · lớn hơn giới hạn · giới hạn an toàn 3.68 GB (trần Telegram 4.00 GB)": 3.88 < 4.00 mà báo vượt. Phần chừa 8% (`SIZE_SAFETY_MARGIN`) là dự phòng nội bộ cho độ trễ của bộ đệm VBV và sai số ngoại suy; hiển thị nó thành một "giới hạn" thứ hai là sai thiết kế. Quy tắc cuối: **người dùng chỉ thấy MỘT con số giới hạn — trần Telegram**; thanh tiến độ và cảnh báo so với trần đó; ngân sách chừa dự phòng chỉ còn dùng bên trong (`maxrate` của VBV, RF gợi ý "ước chừng RF N", `chooseRateMode`, đích 2 lượt). Với CRF: số đo ≤ trần → "vừa giới hạn"; số đo > trần → "trần bitrate sẽ ép bớt khoảng N% để file vừa" (N = phần phải cắt xuống ngân sách), tức cảnh báo tỉ lệ thay vì hai mốc.
+
+## Cập nhật sau khi Accepted (2026-10-11, chốt Giai đoạn 4c)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận kết quả triển khai — quyết định gốc **vẫn đứng vững**.
+
+User nén lại một file thật qua app (dialog Thủ công, thanh RF) và upload thành công lên kênh; giao diện sau ba vòng sửa được xác nhận "ok". Quyết định 1–7 đã được cài đặt và dùng được đầu-cuối: encoder `libx264` theo tên, `fast`/`high`, CRF + trần VBV, 2-pass ABR cho vượt trần, đa luồng, tầng điều khiển kiểu HandBrake. **Chưa đóng:** các mục "Chưa làm" của addendum 4c.1/4c.2/4c.4 (VMAF bản ra trong app, `aq-mode=3`, máy 4 nhân, nguồn khác loại), cảnh báo "file ra có thể lớn hơn nguồn", và nguồn gốc cảnh báo muxer pts. Ba bài học giao diện đáng nhớ cho các slice sau: người dùng thường không hiểu kbps/RF — đưa kết quả bằng lời + GB; chỉ hiện số đáng tin, đừng hiện ngoại suy; chỉ MỘT mốc giới hạn nhìn thấy được, dự phòng kỹ thuật phải ở bên trong.

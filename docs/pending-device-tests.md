@@ -893,7 +893,7 @@ Liên quan: [ADR-0023 § addendum 4c.2](./adr/0023-libx264-cho-re-encode-hang-d-
 
 ## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — dialog tiền kiểm kiểu HandBrake: thanh RF + Nâng cao (Giai đoạn 4c.3, 2026-10-10; sửa theo phản hồi 2026-10-11)
 
-Liên quan: [ADR-0023 § addendum 4c.3](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md#cập-nhật-sau-khi-accepted-2026-10-10-code-slice-4c3--dialog-kiểu-handbrake) và [sửa theo phản hồi dùng thử](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md#sửa-theo-phản-hồi-dùng-thử-2026-10-11-luồng-cơ-bản--nâng-cao-và-số-liệu-dễ-hiểu). Đã verify bằng `ng build` + lint + test hàm thuần; **user đã dùng thử bản đầu (phản hồi: số kbps khó hiểu, không thấy thanh RF với file vượt trần) — bản sửa chưa ai nhìn.**
+Liên quan: [ADR-0023 § addendum 4c.3](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md#cập-nhật-sau-khi-accepted-2026-10-10-code-slice-4c3--dialog-kiểu-handbrake) và [sửa theo phản hồi dùng thử](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md#sửa-theo-phản-hồi-dùng-thử-2026-10-11-luồng-cơ-bản--nâng-cao-và-số-liệu-dễ-hiểu). Đã verify bằng `ng build` + lint + test hàm thuần; **user đã dùng thử qua ba vòng sửa giao diện (số kbps khó hiểu → thanh chất lượng luôn đầu tiên; số ngoại suy gây hiểu lầm → chỉ hiện số đo; hai mốc giới hạn gây rối → một mốc) và xác nhận 2026-10-11 "đã ok": dialog dùng được, file nén lại qua app + upload thành công. Các bước bên dưới chưa được tick riêng từng cái.**
 
 ### Các bước
 
