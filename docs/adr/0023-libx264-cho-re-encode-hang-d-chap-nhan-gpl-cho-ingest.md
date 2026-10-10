@@ -250,3 +250,10 @@ User dùng thử dialog 4c.3 và phản hồi: vào Thủ công **không thấy 
 - **Vào Thủ công tự đo mẫu CRF không trần** một lần (và đo lại khi đổi độ phân giải) để các số có thật ngay, thay vì bắt người dùng bấm "Ước tính chính xác" trước. File vượt trần: thanh khởi đầu ở **mức đẹp nhất còn vừa giới hạn dung lượng** (nghịch đảo của hàm ngoại suy, `rfForBytes`), tức đúng kết quả của Tự động. Kéo sang phải quá mức đó → báo đỏ + nút "Về mức đẹp nhất còn vừa"; ngay RF 28 vẫn không vừa → chỉ dẫn hạ độ phân giải/chia phần.
 
 **Chưa làm:** nhìn dialog chạy thật sau sửa này; chưa xử lý nhiều file cùng vào Thủ công (mỗi file đo mẫu tuần tự, "Bắt đầu upload" chờ đo xong).
+
+**Vòng sửa 2 (cùng ngày, sau ảnh chụp thứ hai):** panel vừa báo "lớn hơn giới hạn" vừa hiện "tối đa ~3.68 GB" cạnh "giới hạn 4.00 GB" — hai nguồn gây hiểu lầm: (a) 3.68 GB là *ngân sách* (trần × `SIZE_SAFETY_MARGIN` 0.92) nhưng giới hạn hiển thị là trần Telegram; (b) số hiện ra là cận trên VBV chứ không phải dự đoán. Quy tắc mới, theo yêu cầu "chỉ hiện số chính xác, không chính xác thì đừng hiện":
+- **Chỉ hiện số ĐO** (encode thử cho đúng kế hoạch hiện tại) hoặc đích của nén 2 lượt (±2%). Số ngoại suy theo RF (sai số tới vài chục %) **không hiện nữa**; chỉ còn dùng để đặt vị trí khởi đầu của thanh và gợi ý "ước chừng RF N". Khi chưa đo: "chưa đo — sẽ tự đo sau khi bạn dừng kéo".
+- **Tự đo khi dừng tay:** đổi RF/preset/âm thanh/cách điều khiển ở Thủ công → đợi 700 ms không có thay đổi mới → chạy "Ước tính chính xác" cho kế hoạch mới (kéo liên tục chỉ đo một lần ở cuối; đang đo thì đợi xong).
+- **Một thước duy nhất:** thanh tiến độ, cảnh báo đỏ và lời báo đều so với **giới hạn an toàn** `budgetGb` (= 3.68 GB), và dòng ghi chú nói rõ "giới hạn an toàn 3.68 GB (trần Telegram 4.00 GB)".
+- Chế độ CRF không còn bị chặn "Bắt đầu upload" bởi cảnh báo dung lượng: trần VBV đã giữ file dưới giới hạn, "lớn hơn giới hạn" ở CRF chỉ là cảnh báo chất lượng (hình bị ép).
+- Bong bóng giá trị nổi không còn che tiêu đề khối (chừa khoảng trống phía trên thanh).

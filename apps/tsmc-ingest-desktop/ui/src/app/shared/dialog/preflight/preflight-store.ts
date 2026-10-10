@@ -21,7 +21,6 @@ import {
   computeTargetVideoBitrateBps,
   crfCeilingBytes,
   estimateFromSamples,
-  extrapolateCrfBytes,
   isReencodeFutile,
   nearestKeyframe,
   partFits,
@@ -152,6 +151,9 @@ export class PreflightStore {
   readonly data = inject<PreflightDialogData>(MAT_DIALOG_DATA);
 
   readonly maxGb = (this.data.maxUploadBytes / 1_000_000_000).toFixed(2);
+  /** Giới hạn AN TOÀN của đầu ra (trần × `SIZE_SAFETY_MARGIN`) — mốc mọi so sánh dung lượng dùng, để số hiển thị
+   * và lời báo "vượt" luôn cùng một thước. Nhỏ hơn trần Telegram một chút để chừa dự phòng. */
+  readonly budgetGb = ((this.data.maxUploadBytes * SIZE_SAFETY_MARGIN) / 1_000_000_000).toFixed(2);
   /** Cận dưới của slider kích thước: 10% trần (dưới đó bitrate chạm sàn). */
   readonly sliderMinBytes = Math.round((this.data.maxUploadBytes * 0.1) / 10_000_000) * 10_000_000;
   readonly sliderStepBytes = 10_000_000;
@@ -213,6 +215,8 @@ export class PreflightStore {
       .catch(() => undefined);
     inject(DestroyRef).onDestroy(() => {
       // Đóng dialog giữa lúc đang quét/đo/ước tính → dừng ngay, không để Rust chạy tiếp ngầm.
+      this.autoEstimateTimers.forEach((t) => clearTimeout(t));
+      this.autoEstimateTimers.clear();
       for (const s of this.states().values()) {
         if (s.estimatingTaskId !== null) {
           this.cancelTask(s.estimatingTaskId);
@@ -319,7 +323,37 @@ export class PreflightStore {
     if (s.strategy !== 'reencode' || s.mode !== 'manual' || s.crfBasis !== null || s.estimatingTaskId !== null || !(item.durationSec > 0)) {
       return;
     }
-    void this.measureBasis(item);
+    if (s.rateMode === 'crf') {
+      void this.runEstimate(item); // đo cho chính kế hoạch hiện tại: có số hiển thị ngay, đồng thời đặt mốc ngoại suy
+    } else {
+      void this.measureBasis(item);
+    }
+  }
+
+  private readonly autoEstimateTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  /** Sau khi user đổi tham số ở Thủ công (chế độ chất lượng): đợi họ DỪNG tay rồi tự đo lại cho kế hoạch mới, để
+   * số dung lượng hiện ra là số ĐO — không hiện số ngoại suy dễ sai. Kéo liên tục thì chỉ đo một lần ở cuối. */
+  private scheduleAutoEstimate(path: string): void {
+    const prev = this.autoEstimateTimers.get(path);
+    if (prev !== undefined) {
+      clearTimeout(prev);
+    }
+    this.autoEstimateTimers.set(path, setTimeout(() => this.fireAutoEstimate(path), 700));
+  }
+
+  private fireAutoEstimate(path: string): void {
+    this.autoEstimateTimers.delete(path);
+    const s = this.state(path);
+    const item = this.itemOf(path);
+    if (s.strategy !== 'reencode' || s.mode !== 'manual' || s.rateMode !== 'crf' || !(item.durationSec > 0) || this.validEstimate(item)) {
+      return;
+    }
+    if (s.estimatingTaskId !== null) {
+      this.scheduleAutoEstimate(path); // đang đo (kế hoạch cũ) — đợi xong rồi đo lại
+      return;
+    }
+    void this.runEstimate(item);
   }
 
   private async measureBasis(item: PreflightDialogItem): Promise<void> {
@@ -449,16 +483,6 @@ export class PreflightStore {
     return planCrf({ width: item.width, height: item.height, maxHeight: s.maxHeight, maxUploadBytes: this.data.maxUploadBytes, durationSec: item.durationSec, audioBitrateBps: s.audioBps, rf: s.rf ?? undefined });
   }
 
-  /** Cận trên chắc chắn của dung lượng ở chế độ CRF (= trần VBV). `null` khi không ở chế độ CRF hoặc không biết thời lượng. */
-  crfCeiling(item: PreflightDialogItem): number | null {
-    const s = this.state(item.path);
-    if (s.rateMode !== 'crf') {
-      return null;
-    }
-    const { maxrateBps } = this.crfPlan(item);
-    return maxrateBps > 0 ? crfCeilingBytes({ maxrateBps, audioBitrateBps: s.audioBps, durationSec: item.durationSec }) : null;
-  }
-
   /** Bitrate video đang nhắm. Chế độ CRF: đây là TRẦN VBV (x264 thường ra thấp hơn nhiều). */
   videoBps(item: PreflightDialogItem): number {
     const s = this.state(item.path);
@@ -554,19 +578,23 @@ export class PreflightStore {
   setQualitySlider(path: string, position: number): void {
     const rf = Math.min(RF_MAX, Math.max(RF_MIN, Math.round(RF_MIN + RF_MAX - position)));
     this.patch(path, { rf, rateMode: 'crf', rateNote: null, targetOverrideBps: null });
+    this.scheduleAutoEstimate(path);
   }
 
   setPreset(path: string, preset: X264Preset): void {
     this.patch(path, { preset: preset === 'fast' ? undefined : preset });
+    this.scheduleAutoEstimate(path);
   }
 
   /** Chuyển kiểu rate control: `crf` = chất lượng không đổi (thanh RF), `abr` = dung lượng đích (2 lượt). */
   setRateMode(path: string, mode: RateMode): void {
     this.patch(path, { rateMode: mode, rateNote: null, targetOverrideBps: null });
+    this.scheduleAutoEstimate(path);
   }
 
   setAudio(path: string, bps: number): void {
     this.patch(path, { audioBps: bps, targetOverrideBps: null });
+    this.scheduleAutoEstimate(path);
   }
 
   resetEncodeAuto(path: string): void {
@@ -576,6 +604,9 @@ export class PreflightStore {
 
   /** Dung lượng đã đo/dự kiến (sau "Ước tính chính xác") vượt trần upload. Chưa đo thì không biết → `false`. */
   overCap(item: PreflightDialogItem): boolean {
+    if (this.state(item.path).rateMode === 'crf') {
+      return false; // trần VBV giữ file dưới giới hạn; "lớn hơn giới hạn" ở CRF là cảnh báo chất lượng (crfExceedsBudget), không chặn
+    }
     const exact = this.validEstimate(item);
     return exact !== null && exact.estimatedBytes > this.data.maxUploadBytes;
   }
@@ -619,39 +650,35 @@ export class PreflightStore {
     return bpp === null || level === null ? null : { bpp, level, label: QUALITY_LABEL[level] };
   }
 
-  /** Dung lượng đầu ra cho người đọc: số GB, mô tả nguồn gốc con số, và tỉ lệ so với giới hạn (cho thanh tiến độ).
-   * Thứ tự ưu tiên: số đo thật → đích của nén 2 lượt → dự kiến theo thanh RF → cận trên (trần bitrate). */
+  /** Dung lượng đầu ra cho người đọc. CHỈ hiện số đáng tin: số ĐO bằng encode thử cho kế hoạch hiện tại, hoặc đích của
+   * nén 2 lượt (bám ±2%). Số ngoại suy theo thanh RF KHÔNG hiện (sai số tới vài chục %, từng gây hiểu lầm); thay vào đó
+   * "chưa đo" và tự đo sau khi dừng kéo. Mọi so sánh dùng giới hạn an toàn (`budgetGb`), cùng thước với số hiển thị. */
   sizeInfo(item: PreflightDialogItem): { text: string; note: string; percentOfCap: number | null; over: boolean } {
     const s = this.state(item.path);
-    const cap = this.data.maxUploadBytes;
-    const make = (bytes: number | null, prefix: string, note: string, over = false) => ({
-      text: bytes === null ? 'chưa biết' : `${prefix}${this.gb(bytes)} GB`,
+    const budget = this.budgetBytes();
+    const make = (bytes: number | null, note: string, over = false) => ({
+      text: bytes === null ? 'chưa đo' : `~${this.gb(bytes)} GB`,
       note,
-      percentOfCap: bytes === null || !(cap > 0) ? null : Math.min(100, (bytes / cap) * 100),
+      percentOfCap: bytes === null || !(budget > 0) ? null : Math.min(100, (bytes / budget) * 100),
       over
     });
-    const measuring = s.estimatingTaskId !== null;
     const exact = this.validEstimate(item);
     if (exact) {
-      return make(exact.estimatedBytes, '~', s.estimate?.extrapolated ? 'dự kiến — "Đo lại" để xác nhận' : 'đã đo bằng encode thử');
+      const over = exact.estimatedBytes > budget;
+      if (over) {
+        return make(exact.estimatedBytes, s.rateMode === 'crf' ? 'lớn hơn giới hạn — trần bitrate sẽ ép hình để file vừa' : 'vượt giới hạn dung lượng', true);
+      }
+      return make(exact.estimatedBytes, s.estimate?.extrapolated ? 'dự kiến — "Đo lại" để xác nhận' : 'ước lượng từ vài đoạn encode thử, có thể lệch ±20%');
     }
     const plan0 = this.plan(item);
     if (plan0.twoPass && plan0.targetVideoBitrateBps) {
       const bytes = crfCeilingBytes({ maxrateBps: plan0.targetVideoBitrateBps, audioBitrateBps: plan0.audioBitrateBps, durationSec: item.durationSec });
-      return make(bytes, '~', 'nén 2 lượt, bám giới hạn dung lượng (sai số ~2%)');
+      return make(bytes, 'nén 2 lượt theo dung lượng đích, sai số ~2%');
     }
-    if (this.crfExceedsBudget(item)) {
-      return make(this.crfCeiling(item), 'tối đa ~', 'mức này lớn hơn giới hạn — hình sẽ bị ép', true);
+    if (s.estimatingTaskId !== null) {
+      return make(null, 'đang encode thử để đo…');
     }
-    const predicted = this.crfPredictedBytes(item);
-    if (predicted !== null) {
-      return make(predicted, '~', 'dự kiến theo thanh chất lượng — "Đo lại" để xác nhận');
-    }
-    const ceiling = this.crfCeiling(item);
-    if (ceiling !== null) {
-      return make(ceiling, 'tối đa ~', measuring ? 'đang đo mẫu để biết số thật…' : 'bấm "Ước tính chính xác" để biết số thật');
-    }
-    return make(null, '', measuring ? 'đang đo mẫu…' : 'bấm "Ước tính chính xác"');
+    return make(null, s.mode === 'manual' && s.rateMode === 'crf' ? 'sẽ tự đo sau khi bạn dừng kéo' : 'bấm "Ước tính chính xác" để biết số');
   }
 
   /** Một dòng gọn cho thẻ "Nén lại" ở dialog (số GB + nguồn gốc). */
@@ -683,30 +710,10 @@ export class PreflightStore {
     return `${t.text} (${t.note})`;
   }
 
-  /** Dung lượng CRF KHÔNG trần dự kiến ở RF hiện tại, ngoại suy từ lần đo gần nhất. `null` nếu chưa đo/không ở CRF. */
-  crfPredictedBytes(item: PreflightDialogItem): number | null {
-    const s = this.state(item.path);
-    if (s.rateMode !== 'crf' || !s.crfBasis) {
-      return null;
-    }
-    return extrapolateCrfBytes({
-      basisBytes: s.crfBasis.bytes,
-      basisRf: s.crfBasis.rf,
-      rf: this.crfPlan(item).rf,
-      durationSec: item.durationSec,
-      audioBitrateBps: s.audioBps,
-      ceilingBytes: this.crfCeiling(item) ?? undefined
-    });
-  }
-
-  /** RF hiện tại dự kiến ra lớn hơn giới hạn dung lượng — trần bitrate sẽ ép hình. Cần mốc đo. */
+  /** Kết quả ĐO ở RF hiện tại cho thấy file tự nhiên lớn hơn giới hạn — trần bitrate sẽ ép hình. Chưa đo → `false` (không đoán). */
   crfExceedsBudget(item: PreflightDialogItem): boolean {
-    const s = this.state(item.path);
-    if (s.rateMode !== 'crf' || !s.crfBasis) {
-      return false;
-    }
-    const uncapped = extrapolateCrfBytes({ basisBytes: s.crfBasis.bytes, basisRf: s.crfBasis.rf, rf: this.crfPlan(item).rf, durationSec: item.durationSec, audioBitrateBps: s.audioBps });
-    return uncapped > this.budgetBytes();
+    const exact = this.state(item.path).rateMode === 'crf' ? this.validEstimate(item) : null;
+    return exact !== null && exact.estimatedBytes > this.budgetBytes();
   }
 
   validEstimate(item: PreflightDialogItem): ReencodeEstimate | null {

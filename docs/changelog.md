@@ -4,6 +4,10 @@
 >
 > **Cách cập nhật:** sau khi đóng một slice (thường đi kèm commit "Doc sync: đóng slice ..."), thêm 1 mục mới lên đầu danh sách dưới.
 
+## 2026-10-11 — Ingest desktop: dialog tiền kiểm chỉ hiện số đã đo, tự đo khi dừng kéo, một thước giới hạn
+
+Ảnh chụp thứ hai: "lớn hơn giới hạn" nhưng số vẫn là 3.68 GB (< 4.00) — 3.68 là ngân sách (trần × 0.92) và là cận trên VBV, không phải dự đoán. Sửa theo [ADR-0023 § sửa theo phản hồi, vòng 2](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md#sửa-theo-phản-hồi-dùng-thử-2026-10-11-luồng-cơ-bản--nâng-cao-và-số-liệu-dễ-hiểu): chỉ hiện số đo (hoặc đích 2 lượt), bỏ số ngoại suy theo RF; đổi tham số ở Thủ công → tự đo sau 700 ms dừng tay; mọi so sánh và nhãn dùng "giới hạn an toàn" (3.68 GB, trần 4.00 GB); CRF không còn bị khoá nút upload vì cảnh báo dung lượng; chừa chỗ cho bong bóng nhãn nổi. **Chưa:** nhìn lại sau bản sửa này.
+
 ## 2026-10-11 — Ingest desktop: sửa dialog tiền kiểm theo phản hồi dùng thử — thanh chất lượng luôn đầu tiên, số liệu dễ hiểu, nhãn nổi
 
 User: vào Thủ công không thấy thanh RF (file vượt trần rẽ vào nhánh kích thước/kbps), không hiểu số kbps; muốn cơ bản → nâng cao, tương tác. Sửa theo [ADR-0023 § sửa theo phản hồi](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md#sửa-theo-phản-hồi-dùng-thử-2026-10-11-luồng-cơ-bản--nâng-cao-và-số-liệu-dễ-hiểu): thanh chất lượng luôn là điều khiển đầu tiên (kể cả file vượt trần — khởi đầu ở mức đẹp nhất còn vừa giới hạn), nhãn nổi theo núm khi kéo, bốn ô số sống (dung lượng + thanh tiến độ so với giới hạn, thời gian, chất lượng bằng lời, độ phân giải), vào Thủ công tự đo mẫu để có số ngay, kbps/dung lượng đích chuyển vào "Nâng cao" kèm giải thích. Thêm `rfForBytes()` (nghịch đảo ngoại suy theo RF). **Sửa tiếp sau ảnh chụp dùng thử:** nhãn nổi chỉ hiện số RF (nhãn dài bị bẻ ba dòng), diễn giải + giá trị hiện tại lên tiêu đề khối "Chất lượng: cao (RF 20)", bỏ khoảng trống 10rem do `flex-basis` của `param-label` trong cột dọc, ô thời gian tách số chính/ghi chú. **Chưa:** nhìn lại sau bản sửa này.

@@ -163,3 +163,8 @@ mat-progress-bar.over {
 .quality-title {
   font-size: 0.95em;
 }
+
+.quality-slider-row {
+  /* Chừa chỗ cho bong bóng giá trị nổi phía trên núm, khỏi đè lên tiêu đề khối. */
+  padding-top: 1.75rem;
+}

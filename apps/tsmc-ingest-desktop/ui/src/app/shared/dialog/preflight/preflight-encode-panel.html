@@ -15,7 +15,7 @@
       @if (size.percentOfCap !== null) {
         <mat-progress-bar mode="determinate" [value]="size.percentOfCap" [class.over]="size.over" [attr.aria-label]="'Dung lượng so với giới hạn ' + store.maxGb + ' GB'" />
       }
-      <span class="metric-note" [class.over]="size.over">{{ size.note }} · giới hạn {{ store.maxGb }} GB</span>
+      <span class="metric-note" [class.over]="size.over">{{ size.note }} · giới hạn an toàn {{ store.budgetGb }} GB (trần Telegram {{ store.maxGb }} GB)</span>
     </div>
     <div class="metric">
       <span class="metric-label">Thời gian nén</span>
@@ -80,20 +80,20 @@
       </div>
       <span class="hint">
         Kéo thanh để đổi: bên phải đẹp hơn nhưng file to hơn, bên trái nhỏ gọn hơn. Mặc định "chuẩn" (RF {{ store.defaultRfFor(it) }}).
-        Các số ở trên đổi theo ngay khi bạn kéo.
+        Dừng kéo một chút, số dung lượng ở trên sẽ tự đo lại theo mức bạn chọn.
       </span>
     </div>
 
     @if (store.noRfFits(it)) {
       <div class="param-row">
-        <span class="hint error">Ngay cả mức nhỏ nhất vẫn vượt giới hạn dung lượng ở độ phân giải này. Mở "Nâng cao" để hạ độ phân giải, hoặc chọn "Chia phần".</span>
+        <span class="hint error">Có vẻ ngay cả mức nhỏ nhất vẫn vượt giới hạn dung lượng ở độ phân giải này. Mở "Nâng cao" để hạ độ phân giải, hoặc chọn "Chia phần".</span>
       </div>
     } @else if (store.crfExceedsBudget(it)) {
       @let fit = store.bestFitRf(it);
       <div class="param-row">
-        <span class="hint error">Mức này vượt giới hạn dung lượng nên hình sẽ bị ép xuống. Kéo sang trái{{ fit ? ' (tối đa đẹp còn vừa là RF ' + fit + ')' : '' }}.</span>
+        <span class="hint error">Ở mức này file tự nhiên lớn hơn giới hạn nên hình sẽ bị ép xuống. Kéo sang trái{{ fit ? ' (ước chừng RF ' + fit + ' là mức đẹp nhất còn vừa)' : '' }}.</span>
         @if (fit) {
-          <button mat-stroked-button type="button" (click)="store.setQualitySlider(it.path, rfMin + rfMax - fit)">Về mức đẹp nhất còn vừa</button>
+          <button mat-stroked-button type="button" (click)="store.setQualitySlider(it.path, rfMin + rfMax - fit)">Thử RF {{ fit }}</button>
         }
       </div>
     }
