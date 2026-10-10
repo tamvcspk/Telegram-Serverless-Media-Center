@@ -15,7 +15,7 @@
       @if (size.percentOfCap !== null) {
         <mat-progress-bar mode="determinate" [value]="size.percentOfCap" [class.over]="size.over" [attr.aria-label]="'Dung lượng so với giới hạn ' + store.maxGb + ' GB'" />
       }
-      <span class="metric-note" [class.over]="size.over">{{ size.note }} · giới hạn an toàn {{ store.budgetGb }} GB (trần Telegram {{ store.maxGb }} GB)</span>
+      <span class="metric-note" [class.over]="size.over">{{ size.note }} · giới hạn {{ store.maxGb }} GB</span>
     </div>
     <div class="metric">
       <span class="metric-label">Thời gian nén</span>

@@ -6,7 +6,7 @@
 
 ## 2026-10-11 — Ingest desktop: dialog tiền kiểm chỉ hiện số đã đo, tự đo khi dừng kéo, một thước giới hạn
 
-Ảnh chụp thứ hai: "lớn hơn giới hạn" nhưng số vẫn là 3.68 GB (< 4.00) — 3.68 là ngân sách (trần × 0.92) và là cận trên VBV, không phải dự đoán. Sửa theo [ADR-0023 § sửa theo phản hồi, vòng 2](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md#sửa-theo-phản-hồi-dùng-thử-2026-10-11-luồng-cơ-bản--nâng-cao-và-số-liệu-dễ-hiểu): chỉ hiện số đo (hoặc đích 2 lượt), bỏ số ngoại suy theo RF; đổi tham số ở Thủ công → tự đo sau 700 ms dừng tay; mọi so sánh và nhãn dùng "giới hạn an toàn" (3.68 GB, trần 4.00 GB); CRF không còn bị khoá nút upload vì cảnh báo dung lượng; chừa chỗ cho bong bóng nhãn nổi. **Chưa:** nhìn lại sau bản sửa này.
+Ảnh chụp thứ hai: "lớn hơn giới hạn" nhưng số vẫn là 3.68 GB (< 4.00) — 3.68 là ngân sách (trần × 0.92) và là cận trên VBV, không phải dự đoán. Sửa theo [ADR-0023 § sửa theo phản hồi, vòng 2](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md#sửa-theo-phản-hồi-dùng-thử-2026-10-11-luồng-cơ-bản--nâng-cao-và-số-liệu-dễ-hiểu): chỉ hiện số đo (hoặc đích 2 lượt), bỏ số ngoại suy theo RF; đổi tham số ở Thủ công → tự đo sau 700 ms dừng tay; mọi so sánh và nhãn dùng MỘT giới hạn — trần Telegram 4.00 GB (vòng 3: bản đầu hiện thêm "giới hạn an toàn 3.68 GB" nên "3.88 GB < 4.00 GB mà vẫn báo vượt" — phần chừa 8% là dự phòng nội bộ, không lộ ra; với CRF báo "ép bớt khoảng N%"); CRF không còn bị khoá nút upload vì cảnh báo dung lượng; chừa chỗ cho bong bóng nhãn nổi. **Chưa:** nhìn lại sau bản sửa này.
 
 ## 2026-10-11 — Ingest desktop: sửa dialog tiền kiểm theo phản hồi dùng thử — thanh chất lượng luôn đầu tiên, số liệu dễ hiểu, nhãn nổi
 

@@ -151,9 +151,6 @@ export class PreflightStore {
   readonly data = inject<PreflightDialogData>(MAT_DIALOG_DATA);
 
   readonly maxGb = (this.data.maxUploadBytes / 1_000_000_000).toFixed(2);
-  /** Giới hạn AN TOÀN của đầu ra (trần × `SIZE_SAFETY_MARGIN`) — mốc mọi so sánh dung lượng dùng, để số hiển thị
-   * và lời báo "vượt" luôn cùng một thước. Nhỏ hơn trần Telegram một chút để chừa dự phòng. */
-  readonly budgetGb = ((this.data.maxUploadBytes * SIZE_SAFETY_MARGIN) / 1_000_000_000).toFixed(2);
   /** Cận dưới của slider kích thước: 10% trần (dưới đó bitrate chạm sàn). */
   readonly sliderMinBytes = Math.round((this.data.maxUploadBytes * 0.1) / 10_000_000) * 10_000_000;
   readonly sliderStepBytes = 10_000_000;
@@ -651,24 +648,27 @@ export class PreflightStore {
   }
 
   /** Dung lượng đầu ra cho người đọc. CHỈ hiện số đáng tin: số ĐO bằng encode thử cho kế hoạch hiện tại, hoặc đích của
-   * nén 2 lượt (bám ±2%). Số ngoại suy theo thanh RF KHÔNG hiện (sai số tới vài chục %, từng gây hiểu lầm); thay vào đó
-   * "chưa đo" và tự đo sau khi dừng kéo. Mọi so sánh dùng giới hạn an toàn (`budgetGb`), cùng thước với số hiển thị. */
+   * nén 2 lượt (bám ±2%). Số ngoại suy theo thanh RF KHÔNG hiện (sai số tới vài chục %). Thước hiển thị DUY NHẤT là trần
+   * Telegram: phần chừa dự phòng nội bộ (`SIZE_SAFETY_MARGIN`, dùng cho trần bitrate/RF gợi ý) không lộ ra thành "giới hạn"
+   * thứ hai — từng làm user thấy "3.88 GB < 4.00 GB mà vẫn báo lớn hơn giới hạn". */
   sizeInfo(item: PreflightDialogItem): { text: string; note: string; percentOfCap: number | null; over: boolean } {
     const s = this.state(item.path);
-    const budget = this.budgetBytes();
+    const cap = this.data.maxUploadBytes;
     const make = (bytes: number | null, note: string, over = false) => ({
       text: bytes === null ? 'chưa đo' : `~${this.gb(bytes)} GB`,
       note,
-      percentOfCap: bytes === null || !(budget > 0) ? null : Math.min(100, (bytes / budget) * 100),
+      percentOfCap: bytes === null || !(cap > 0) ? null : Math.min(100, (bytes / cap) * 100),
       over
     });
     const exact = this.validEstimate(item);
     if (exact) {
-      const over = exact.estimatedBytes > budget;
-      if (over) {
-        return make(exact.estimatedBytes, s.rateMode === 'crf' ? 'lớn hơn giới hạn — trần bitrate sẽ ép hình để file vừa' : 'vượt giới hạn dung lượng', true);
+      if (exact.estimatedBytes > cap) {
+        // Trần bitrate (VBV) luôn giữ file dưới giới hạn; phần file tự nhiên lớn hơn bị ép bớt — nói rõ ép bao nhiêu.
+        const squeeze = Math.max(1, Math.round((1 - this.budgetBytes() / exact.estimatedBytes) * 100));
+        const note = s.rateMode === 'crf' ? `lớn hơn giới hạn — trần bitrate sẽ ép bớt khoảng ${squeeze}% để file vừa` : 'vượt giới hạn dung lượng';
+        return make(exact.estimatedBytes, note, true);
       }
-      return make(exact.estimatedBytes, s.estimate?.extrapolated ? 'dự kiến — "Đo lại" để xác nhận' : 'ước lượng từ vài đoạn encode thử, có thể lệch ±20%');
+      return make(exact.estimatedBytes, s.estimate?.extrapolated ? 'dự kiến — "Đo lại" để xác nhận' : 'vừa giới hạn · ước lượng từ vài đoạn encode thử, có thể lệch ±20%');
     }
     const plan0 = this.plan(item);
     if (plan0.twoPass && plan0.targetVideoBitrateBps) {
@@ -710,10 +710,11 @@ export class PreflightStore {
     return `${t.text} (${t.note})`;
   }
 
-  /** Kết quả ĐO ở RF hiện tại cho thấy file tự nhiên lớn hơn giới hạn — trần bitrate sẽ ép hình. Chưa đo → `false` (không đoán). */
+  /** Kết quả ĐO ở RF hiện tại cho thấy file tự nhiên lớn hơn giới hạn (trần Telegram) — trần bitrate sẽ ép hình. Giữa
+   * ngân sách nội bộ và trần chỉ ép nhẹ (≤ ~8%) nên không cảnh báo. Chưa đo → `false` (không đoán). */
   crfExceedsBudget(item: PreflightDialogItem): boolean {
     const exact = this.state(item.path).rateMode === 'crf' ? this.validEstimate(item) : null;
-    return exact !== null && exact.estimatedBytes > this.budgetBytes();
+    return exact !== null && exact.estimatedBytes > this.data.maxUploadBytes;
   }
 
   validEstimate(item: PreflightDialogItem): ReencodeEstimate | null {
