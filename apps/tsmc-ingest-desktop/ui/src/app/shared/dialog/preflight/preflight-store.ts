@@ -11,8 +11,8 @@ import { MAT_DIALOG_DATA } from '@angular/material/dialog';
 import {
   addCut,
   alternativeCuts,
-  calibrateTargetBps,
-  CALIBRATED_SAFETY_MARGIN,
+  chooseRateMode,
+  CRF_PREDICTION_DEVIATION,
   canRemoveCut,
   checkCutMove,
   chooseAutoResolution,
@@ -21,7 +21,6 @@ import {
   crfCeilingBytes,
   estimateFromSamples,
   estimateReencodeRangeBytes,
-  isBelowAbrFloor,
   isReencodeFutile,
   nearestKeyframe,
   partFits,
@@ -31,14 +30,16 @@ import {
   REENCODE_AUDIO_BITRATE_BPS,
   reencodeQuality,
   removeCut,
-  rescaleEstimateBytes,
   resolutionChoices,
-  resolveAbrFloor,
+  SIZE_SAFETY_MARGIN,
   SPLIT_SAFETY_MARGIN,
+  TWO_PASS_SAFETY_MARGIN,
+  TWO_PASS_TIME_FACTOR,
   splitPartsFromCuts,
   type CrfPlan,
   type CutMoveCheck,
   type QualityLevel,
+  type RateMode,
   type ReencodeEstimate,
   type ReencodePlan,
   type SizeCapStrategy,
@@ -55,8 +56,6 @@ export type ItemStrategy = 'upload' | 'reencode' | 'split' | 'skip';
 /** `auto` = thuật toán chọn, user chỉ xem; `manual` = user tự đặt, bắt đầu từ kết quả hiện tại
  * của thuật toán (kể cả target đã hiệu chỉnh sau "Ước tính chính xác"). */
 export type CalibrationMode = 'auto' | 'manual';
-
-export type RateMode = 'crf' | 'abr';
 
 /** Editor điểm cắt của MỘT file chọn "Chia phần" — quét trên file NGUỒN (chưa remux), nên dung
  * lượng từng phần là xấp xỉ; `processItem()` kiểm lại trên bản remux và rơi về tự động nếu điểm
@@ -103,6 +102,8 @@ export interface ItemState {
   /** `crf` = chất lượng không đổi + trần VBV vừa trần upload (ADR-0023, mặc định cho Hạng D dưới trần);
    * `abr` = nhắm bitrate/kích thước cụ thể (file vượt trần, hoặc user tự đặt kích thước/bitrate). */
   rateMode: RateMode;
+  /** Lý do app tự chuyển sang 2-pass sau "Ước tính chính xác" (chế độ Tự động); xoá khi user đổi tham số. */
+  rateNote: string | null;
   /** Kích thước đầu ra mục tiêu (trần cho bitrate). */
   sizeBytes: number;
   /** `undefined` = giữ độ phân giải gốc. */
@@ -160,9 +161,6 @@ export class PreflightStore {
       if (s.strategy === 'reencode') {
         if (s.estimatingTaskId !== null) {
           out.push({ path: item.path, name: item.name, reason: 'đang ước tính' });
-        }
-        if (this.belowFloor(item)) {
-          out.push({ path: item.path, name: item.name, reason: 'bitrate dưới mức sàn của bộ nén' });
         }
         if (this.overCap(item)) {
           out.push({ path: item.path, name: item.name, reason: 'dung lượng dự kiến vượt trần' });
@@ -245,12 +243,13 @@ export class PreflightStore {
    * tự chia bit theo độ khó cảnh (ADR-0023). Thanh kích thước khởi đầu ở trần (= trần VBV). */
   private autoState(item: PreflightDialogItem): ItemState {
     const audioBps = REENCODE_AUDIO_BITRATE_BPS;
-    const capVideoBps = computeTargetVideoBitrateBps(this.data.maxUploadBytes, item.durationSec, audioBps);
+    const capVideoBps = computeTargetVideoBitrateBps(this.data.maxUploadBytes, item.durationSec, audioBps, TWO_PASS_SAFETY_MARGIN);
     const sourceLike = !item.overCap;
     return {
       strategy: 'reencode',
       mode: 'auto',
       rateMode: sourceLike ? 'crf' : 'abr',
+      rateNote: null,
       sizeBytes: this.data.maxUploadBytes,
       maxHeight: sourceLike ? undefined : chooseAutoResolution({ width: item.width, height: item.height, fps: item.fps, videoBitrateBps: capVideoBps }),
       audioBps,
@@ -376,7 +375,7 @@ export class PreflightStore {
     if (s.rateMode === 'crf') {
       return { crf: this.crfPlan(item), maxHeight: s.maxHeight, audioBitrateBps };
     }
-    return { targetVideoBitrateBps: this.videoBps(item), maxHeight: s.maxHeight, audioBitrateBps };
+    return { targetVideoBitrateBps: this.videoBps(item), twoPass: true, maxHeight: s.maxHeight, audioBitrateBps };
   }
 
   /** CRF + trần VBV của file này ở độ phân giải/audio hiện chọn (chỉ có nghĩa khi `rateMode === 'crf'`). */
@@ -398,7 +397,7 @@ export class PreflightStore {
   /** Bitrate video đang nhắm. Chế độ CRF: đây là TRẦN VBV (x264 thường ra thấp hơn nhiều). */
   videoBps(item: PreflightDialogItem): number {
     const s = this.state(item.path);
-    return s.targetOverrideBps ?? computeTargetVideoBitrateBps(s.sizeBytes, item.durationSec, s.audioBps);
+    return s.targetOverrideBps ?? computeTargetVideoBitrateBps(s.sizeBytes, item.durationSec, s.audioBps, TWO_PASS_SAFETY_MARGIN);
   }
 
   videoKbps(item: PreflightDialogItem): number {
@@ -416,12 +415,12 @@ export class PreflightStore {
   }
 
   setSize(path: string, bytes: number): void {
-    this.patch(path, { sizeBytes: bytes, targetOverrideBps: null, rateMode: 'abr' });
+    this.patch(path, { sizeBytes: bytes, targetOverrideBps: null, rateMode: 'abr', rateNote: null });
   }
 
   setVideoKbps(path: string, kbps: number): void {
     if (Number.isFinite(kbps) && kbps > 0) {
-      this.patch(path, { targetOverrideBps: Math.round(kbps * 1000), rateMode: 'abr' });
+      this.patch(path, { targetOverrideBps: Math.round(kbps * 1000), rateMode: 'abr', rateNote: null });
     }
   }
 
@@ -435,15 +434,7 @@ export class PreflightStore {
 
   resetEncodeAuto(path: string): void {
     const auto = this.autoState(this.itemOf(path));
-    this.patch(path, { sizeBytes: auto.sizeBytes, maxHeight: auto.maxHeight, audioBps: auto.audioBps, targetOverrideBps: null, rateMode: auto.rateMode });
-  }
-
-  /** Target dưới mức sàn ABR của `h264_mf` → file ra to hơn dự kiến, hình sụp (ADR-0017 § addendum 2026-10-04). */
-  belowFloor(item: PreflightDialogItem): boolean {
-    if (this.state(item.path).rateMode === 'crf') {
-      return false; // mức sàn là của ABR h264_mf; CRF của x264 không có (ADR-0023)
-    }
-    return isBelowAbrFloor({ width: item.width, height: item.height, fps: item.fps, videoBitrateBps: this.videoBps(item), maxHeight: this.state(item.path).maxHeight });
+    this.patch(path, { sizeBytes: auto.sizeBytes, maxHeight: auto.maxHeight, audioBps: auto.audioBps, targetOverrideBps: null, rateMode: auto.rateMode, rateNote: null });
   }
 
   /** Dung lượng đã đo/dự kiến (sau "Ước tính chính xác") vượt trần upload. Chưa đo thì không biết → `false`. */
@@ -456,18 +447,6 @@ export class PreflightStore {
   futile(item: PreflightDialogItem): boolean {
     // Hạng D phải mã hoá lại để trình duyệt phát được dù bitrate không giảm — "vô nghĩa" không áp dụng.
     return this.state(item.path).rateMode === 'abr' && !mustReencode(item) && isReencodeFutile({ targetVideoBitrateBps: this.videoBps(item), sourceBytes: item.sourceBytes, durationSec: item.durationSec, maxHeight: this.state(item.path).maxHeight, sourceHeight: item.height });
-  }
-
-  /** Độ phân giải cao nhất còn đạt mức sàn ABR (`undefined` = gốc), `null` = không mức nào đạt. Chỉ có nghĩa khi `belowFloor`. */
-  floorFix(item: PreflightDialogItem): { resolution: number | undefined } | null {
-    return resolveAbrFloor({ width: item.width, height: item.height, fps: item.fps, videoBitrateBps: this.videoBps(item), maxHeight: this.state(item.path).maxHeight });
-  }
-
-  applyFloorFix(item: PreflightDialogItem): void {
-    const fix = this.floorFix(item);
-    if (fix !== null) {
-      this.patch(item.path, { maxHeight: fix.resolution });
-    }
   }
 
   resolutionOptions(item: PreflightDialogItem): number[] {
@@ -499,6 +478,11 @@ export class PreflightStore {
     const exact = this.validEstimate(item);
     if (exact) {
       return s.estimate?.extrapolated ? `~${this.gb(exact.estimatedBytes)} GB (dự kiến sau hiệu chỉnh — đo lại để xác nhận)` : `~${this.gb(exact.estimatedBytes)} GB (đã đo)`;
+    }
+    const plan0 = this.plan(item);
+    if (plan0.twoPass && plan0.targetVideoBitrateBps) {
+      const bytes = crfCeilingBytes({ maxrateBps: plan0.targetVideoBitrateBps, audioBitrateBps: plan0.audioBitrateBps, durationSec: item.durationSec });
+      return `~${this.gb(bytes)} GB (nén 2 lượt theo dung lượng đích, sai số ~2%)`;
     }
     const ceiling = this.crfCeiling(item);
     if (ceiling !== null) {
@@ -532,40 +516,60 @@ export class PreflightStore {
 
   async runEstimate(item: PreflightDialogItem): Promise<void> {
     const plan = this.plan(item);
+    // Chế độ CRF: đo KHÔNG trần VBV — số cần biết là dung lượng ở RF đã chọn (để chọn CRF hay 2-pass), mà mẫu
+    // bị trần chặn luôn ra đúng trần (xem ADR-0023 § 4c.2).
+    const estimatePlan: ReencodePlan = plan.crf ? { ...plan, crf: { ...plan.crf, maxrateBps: 0, bufsizeBits: 0 } } : plan;
     const taskId = crypto.randomUUID();
     this.patch(item.path, { estimatingTaskId: taskId, estimateError: null });
     try {
-      const samples = await this.enqueue(taskId, () => estimateReencode(taskId, item.path, plan));
+      const samples = await this.enqueue(taskId, () => estimateReencode(taskId, item.path, estimatePlan));
       const value = estimateFromSamples(samples, item.durationSec);
       if (!value) {
         this.patch(item.path, { estimate: null, estimateError: 'Không đo được (file quá ngắn hoặc lỗi).' });
         return;
       }
-      // Tự hiệu chỉnh target theo mẫu đo (ABR bám ±3% sau hiệu chỉnh). So đầu ra đo được với mức video MUỐN
-      // đạt (margin 0.955, cố định theo kích thước mục tiêu), KHÔNG so với target hiện tại — nếu không mỗi lần
-      // đo lại sẽ hiệu chỉnh chồng và target trôi mãi.
       if (plan.crf) {
-        // CRF không có bitrate đích để hiệu chỉnh — dung lượng đo được là số cuối, trần VBV đã chặn phía trên.
-        this.patch(item.path, { estimate: { planKey: JSON.stringify(plan), value, extrapolated: false }, estimateError: null });
+        this.applyCrfEstimate(item, plan, value);
         return;
       }
-      const target = plan.targetVideoBitrateBps ?? 0;
-      const s = this.state(item.path);
-      const desiredVideoBitrateBps = computeTargetVideoBitrateBps(s.sizeBytes, item.durationSec, s.audioBps, CALIBRATED_SAFETY_MARGIN);
-      const calibrated = calibrateTargetBps({ targetVideoBitrateBps: target, audioBitrateBps: plan.audioBitrateBps, samples, desiredVideoBitrateBps });
-      if (calibrated !== null && target > 0 && Math.abs(calibrated / target - 1) > 0.02) {
-        this.patch(item.path, { targetOverrideBps: calibrated });
-        const estimatedBytes = rescaleEstimateBytes({ estimatedBytes: value.estimatedBytes, durationSec: item.durationSec, fromVideoBps: target, toVideoBps: calibrated, audioBitrateBps: plan.audioBitrateBps });
-        this.patch(item.path, { estimate: { planKey: JSON.stringify(this.plan(item)), value: { ...value, estimatedBytes }, extrapolated: true }, estimateError: null });
-      } else {
-        this.patch(item.path, { estimate: { planKey: JSON.stringify(plan), value, extrapolated: false }, estimateError: null });
-      }
+      // 2-pass bám đích ±2% theo thiết kế nên dung lượng = đích, KHÔNG lấy từ mẫu: mẫu 8 s dưới `bufsize` 4× target
+      // cho phép vọt đỉnh đầu đoạn (đo 2026-10-10: mẫu ra ~2050 kbps cho đích 1610 kbps tổng) — số đó không mang
+      // sang cả file được. Mẫu chạy đủ hai lượt nên `speedXRealtime` là tốc độ của CẢ HAI lượt; còn thiên lệch
+      // chậm vì chi phí mở decoder/encoder mỗi đoạn (ETA thật thường nhanh hơn ~30%).
+      const nominalBytes = crfCeilingBytes({ maxrateBps: plan.targetVideoBitrateBps ?? 0, audioBitrateBps: plan.audioBitrateBps, durationSec: item.durationSec });
+      this.patch(item.path, { estimate: { planKey: JSON.stringify(plan), value: { ...value, estimatedBytes: nominalBytes }, extrapolated: false }, estimateError: null });
     } catch (err) {
       const e = toIngestRpcError(err);
       this.patch(item.path, { estimateError: e.kind === 'Cancelled' ? null : describeIngestError(e) });
     } finally {
       this.patch(item.path, { estimatingTaskId: null });
     }
+  }
+
+  /** Kết quả mẫu CRF không trần → chọn CRF hay 2-pass (`chooseRateMode`). Chế độ Tự động tự chuyển sang
+   * 2-pass kèm lý do; Thủ công giữ CRF (VBV vẫn chặn trần) và chỉ báo dự đoán vượt ngân sách. */
+  private applyCrfEstimate(item: PreflightDialogItem, plan: ReencodePlan, measured: ReencodeEstimate): void {
+    const s = this.state(item.path);
+    const decision = chooseRateMode({ predictedBytes: measured.estimatedBytes, maxUploadBytes: this.data.maxUploadBytes });
+    if (decision === 'crf' || s.mode !== 'auto') {
+      this.patch(item.path, { estimate: { planKey: JSON.stringify(plan), value: measured, extrapolated: false }, rateNote: null, estimateError: null });
+      return;
+    }
+    const rf = plan.crf?.rf ?? 0;
+    this.patch(item.path, {
+      rateMode: 'abr',
+      targetOverrideBps: null,
+      rateNote: `Ở RF ${rf} dự đoán ~${this.gb(measured.estimatedBytes)} GB (có thể lệch tới ${Math.round((CRF_PREDICTION_DEVIATION - 1) * 100)}%) — gần/vượt ngân sách ${this.gb(this.data.maxUploadBytes * SIZE_SAFETY_MARGIN)} GB nên nén 2 lượt theo dung lượng đích để không bị trần ép hình.`,
+      estimateError: null
+    });
+    // Số cho kế hoạch MỚI là ngoại suy (dung lượng ≈ đích, tốc độ = tốc độ 1 lượt / hệ số 2 lượt) — gắn
+    // `extrapolated` để UI ghi "dự kiến", user bấm "Đo lại" để đo thật bằng mẫu 2 lượt.
+    const next = this.plan(item);
+    const speed = measured.speedXRealtime / TWO_PASS_TIME_FACTOR;
+    const estimatedBytes = crfCeilingBytes({ maxrateBps: next.targetVideoBitrateBps ?? 0, audioBitrateBps: next.audioBitrateBps, durationSec: item.durationSec });
+    this.patch(item.path, {
+      estimate: { planKey: JSON.stringify(next), value: { estimatedBytes, speedXRealtime: speed, etaSec: item.durationSec / speed }, extrapolated: true }
+    });
   }
 
   stopEstimate(path: string): void {

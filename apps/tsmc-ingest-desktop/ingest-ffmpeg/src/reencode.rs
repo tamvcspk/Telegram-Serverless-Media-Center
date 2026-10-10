@@ -55,7 +55,7 @@ use ffmpeg_next::{self as ffmpeg, channel_layout::ChannelLayout, codec, encoder,
 
 use crate::audio_layout::{ensure_decoder_layout, ensure_frame_layout, aac_target_layout, aformat_filter_spec, ensure_frame_matches_encoder};
 use crate::ensure_init;
-use crate::progress::{maybe_tick, CancelFlag, PipelineProgressSink};
+use crate::progress::{maybe_tick, CancelFlag, PipelineProgress, PipelineProgressSink};
 use crate::ProcessError;
 
 /// 4:2:0 (chroma nửa độ phân giải cả hai chiều) yêu cầu width/height CHẴN —
@@ -172,6 +172,10 @@ pub struct ReencodeOptions {
     /// Chế độ chất lượng không đổi (CRF) + trần VBV. Ưu tiên hơn
     /// `target_video_bitrate_bps`.
     pub crf: Option<CrfRate>,
+    /// 2-pass ABR (ADR-0023 § 4c.2): chạy thêm một vòng decode→scale→encode không mux, không audio
+    /// để x264 ghi thống kê, rồi pass 2 nhắm đúng `target_video_bitrate_bps`. Chỉ có nghĩa khi có
+    /// bitrate đích và không có `crf`; bỏ qua nếu không. Kèm `maxrate` 2× / `bufsize` 4× target.
+    pub two_pass: bool,
     /// Preset x264; `None` = `DEFAULT_X264_PRESET`. Chỉ nhận tên preset đã biết
     /// (`is_known_x264_preset`), tên lạ → lỗi — giá trị này đi vào AVOption.
     pub preset: Option<String>,
@@ -183,6 +187,146 @@ pub struct ReencodeOptions {
     /// dung lượng/tốc độ, `estimate_reencode()`). Seek về keyframe gần nhất
     /// trước `start` nên đoạn thật có thể dài hơn một chút.
     pub window: Option<(f64, f64)>,
+}
+
+/// Pass nào của x264 — `Single` = 1-pass (CRF hoặc ABR), `First` ghi thống kê, `Second` đọc thống kê.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pass {
+    Single,
+    First,
+    Second,
+}
+
+/// Phần THỜI GIAN của cả việc 2-pass mà pass 1 chiếm — đo 2026-10-10 trên WMV VC-1 1080p, 120 s đầu,
+/// x264 `fast`, máy 8 nhân: pass 1 ≈ 45% (cả hai pass 2.43× thời gian thực, 1-pass 4.8×). Giải mã
+/// nguồn VC-1 là phần lớn chi phí và lặp lại ở cả hai pass nên pass 1 không rẻ hơn nhiều. Sai số
+/// chỉ làm thanh tiến trình nhảy, không hỏng kết quả.
+const FIRST_PASS_PROGRESS_SHARE: f64 = 0.45;
+
+/// Pass 1 chiếm đầu trục tiến trình gộp; chưa có file đầu ra nên `bytes_written = 0`.
+fn first_pass_progress(p: PipelineProgress) -> PipelineProgress {
+    PipelineProgress { elapsed_sec: p.elapsed_sec * FIRST_PASS_PROGRESS_SHARE, duration_sec: p.duration_sec, bytes_written: 0 }
+}
+
+/// Pass 2 chiếm phần còn lại. `projected_final_bytes` ở tầng gọi = bytes_written / %, mà % giờ là phần
+/// của CẢ HAI pass — quy bytes về đúng tỉ lệ của pass 2 để phép chia đó vẫn ra dung lượng cuối của file.
+fn second_pass_progress(p: PipelineProgress) -> PipelineProgress {
+    let real = if p.duration_sec > 0.0 { (p.elapsed_sec / p.duration_sec).clamp(0.0, 1.0) } else { 0.0 };
+    let overall = FIRST_PASS_PROGRESS_SHARE + (1.0 - FIRST_PASS_PROGRESS_SHARE) * real;
+    let bytes_written = if real > 0.0 { (p.bytes_written as f64 * overall / real) as u64 } else { 0 };
+    PipelineProgress { elapsed_sec: overall * p.duration_sec, duration_sec: p.duration_sec, bytes_written }
+}
+
+/// Đường dẫn file thống kê 2-pass của x264 (cùng thư mục file đầu ra; x264 còn ghi kèm `<đường dẫn>.mbtree`).
+fn stats_path_for(output_path: &str) -> String {
+    format!("{output_path}.x264stats")
+}
+
+fn remove_stats_files(stats_path: &str) {
+    let _ = std::fs::remove_file(stats_path);
+    let _ = std::fs::remove_file(format!("{stats_path}.mbtree"));
+    // x264 ghi file tạm `<stats>.temp` rồi đổi tên khi đóng; dọn phòng khi huỷ giữa chừng.
+    let _ = std::fs::remove_file(format!("{stats_path}.temp"));
+    let _ = std::fs::remove_file(format!("{stats_path}.mbtree.temp"));
+}
+
+/// Mở input, seek về keyframe gần nhất TRƯỚC điểm bắt đầu nếu encode thử một đoạn (cùng cách
+/// `thumbnail.rs`; vòng packet dừng khi vượt điểm kết thúc). Seek lỗi → bỏ qua (encode từ đầu
+/// file) — vẫn cho ra mẫu, chỉ kém đại diện.
+fn open_input_window(input_path: &str, window: Option<(f64, f64)>) -> Result<format::context::Input, ffmpeg::Error> {
+    let mut in_opts = Dictionary::new();
+    in_opts.set("fflags", "+genpts");
+    let mut ictx = format::input_with_dictionary(input_path, in_opts)?;
+    if let Some((start, _)) = window {
+        if start > 0.0 {
+            let target_ts = (start * f64::from(ffmpeg::ffi::AV_TIME_BASE)) as i64;
+            let _ = ictx.seek(target_ts, ..target_ts);
+        }
+    }
+    Ok(ictx)
+}
+
+/// Frame rate cho encoder. WMV/VC-1: decoder không báo frame_rate (None) → h264_mf "could not set output type"
+/// (lỗi STAR-505/502, 2026-10-05); rơi về avg_frame_rate của stream. Container VFR như ASF/WMV có thể khai CẢ hai
+/// đều vô dụng (`avg_frame_rate = 0/0`, `r_frame_rate = 1000/1` vì time_base 1/1000 — lỗi Caribbean
+/// 070307-487.wmv, 2026-10-07): lúc đó đo từ chính các packet đầu.
+fn resolve_frame_rate(decoder: &codec::decoder::Video, ictx: &format::context::Input, video_index: usize, input_path: &str) -> Option<Rational> {
+    decoder
+        .frame_rate()
+        .or_else(|| Some(ictx.stream(video_index).unwrap().avg_frame_rate()).filter(|r| r.numerator() > 0 && r.denominator() > 0))
+        .or_else(|| measure_frame_rate(input_path, video_index))
+}
+
+const ENC_PIXEL_FORMAT: Pixel = Pixel::YUV420P;
+
+/// Hình học + nhịp của video đầu ra — giống hệt giữa pass 1 và pass 2.
+struct VideoGeometry {
+    width: u32,
+    height: u32,
+    aspect: Rational,
+    frame_rate: Option<Rational>,
+    time_base: Rational,
+}
+
+fn check_preset(options: &ReencodeOptions) -> Result<&str, ProcessError> {
+    let preset = options.preset.as_deref().unwrap_or(DEFAULT_X264_PRESET);
+    if is_known_x264_preset(preset) {
+        Ok(preset)
+    } else {
+        Err(ProcessError::InvalidOption(format!("preset x264 không hợp lệ: {preset:?}")))
+    }
+}
+
+/// Dựng + mở encoder `libx264` cho một pass. `stats_path` chỉ dùng khi `pass != Single`.
+fn open_video_encoder(codec: ffmpeg::Codec, geom: &VideoGeometry, options: &ReencodeOptions, preset: &str, global_header: bool, pass: Pass, stats_path: &str) -> Result<encoder::Video, ProcessError> {
+    let mut base = codec::context::Context::new_with_codec(codec);
+    enable_auto_threads(&mut base);
+    let mut ctx = base.encoder().video()?;
+    ctx.set_height(geom.height);
+    ctx.set_width(geom.width);
+    ctx.set_aspect_ratio(geom.aspect);
+    ctx.set_format(ENC_PIXEL_FORMAT);
+    ctx.set_frame_rate(geom.frame_rate);
+    ctx.set_time_base(geom.time_base);
+
+    // `set_flags` GHI ĐÈ cả bitmask — gom hết rồi đặt một lần.
+    let mut flags = codec::flag::Flags::empty();
+    if global_header && pass != Pass::First {
+        flags |= codec::flag::Flags::GLOBAL_HEADER;
+    }
+    match pass {
+        Pass::First => flags |= codec::flag::Flags::PASS1,
+        Pass::Second => flags |= codec::flag::Flags::PASS2,
+        Pass::Single => {}
+    }
+    if !flags.is_empty() {
+        ctx.set_flags(flags);
+    }
+
+    let mut x264_opts = ffmpeg::Dictionary::new();
+    x264_opts.set("preset", preset);
+    // `high` thay vì `main` của HandBrake: HandBrake chọn `main` vì thiết bị phần cứng cũ,
+    // mọi trình duyệt đích đều giải mã được High (ADR-0023 quyết định 3).
+    x264_opts.set("profile", "high");
+    if let Some(crf) = options.crf {
+        x264_opts.set("crf", &format!("{:.1}", crf.rf));
+        // `maxrate_bps == 0` = tầng gọi không biết thời lượng nên không có ngân sách để làm trần.
+        if crf.maxrate_bps > 0 {
+            x264_opts.set("maxrate", &crf.maxrate_bps.to_string());
+            x264_opts.set("bufsize", &crf.bufsize_bits.to_string());
+        }
+    } else if let Some(bps) = options.target_video_bitrate_bps {
+        ctx.set_bit_rate(bps as usize);
+        if pass != Pass::Single {
+            // ADR-0023 quyết định 4: trần 2× / bufsize 4× target không tốn VMAF, giữ được đỉnh cho stream.
+            x264_opts.set("maxrate", &bps.saturating_mul(2).to_string());
+            x264_opts.set("bufsize", &bps.saturating_mul(4).to_string());
+        }
+    }
+    if pass != Pass::Single {
+        x264_opts.set("stats", stats_path);
+    }
+    Ok(ctx.open_with(x264_opts)?)
 }
 
 /// Kích thước đầu ra khi hạ về `max_height` — PHẢI khớp `scaledSize()` ở
@@ -198,6 +342,9 @@ fn scaled_dimensions(src_width: u32, src_height: u32, max_height: Option<u32>) -
     }
 }
 
+/// Re-encode Hạng D. `options.two_pass` + bitrate đích → chạy pass 1 (không mux) rồi pass 2; ngược
+/// lại một lượt. Tiến trình của hai pass được gộp vào MỘT trục 0..duration (xem
+/// `FIRST_PASS_PROGRESS_SHARE`) để tầng gọi tính %/ETA như một lượt, không phải đổi gì.
 pub fn reencode_with_options(
     input_path: &str,
     output_path: &str,
@@ -207,23 +354,117 @@ pub fn reencode_with_options(
     cancel: &CancelFlag,
 ) -> Result<(), ProcessError> {
     ensure_init();
-    let target_video_bitrate_bps = options.target_video_bitrate_bps;
+    let preset = check_preset(options)?;
+    let two_pass = options.two_pass && options.crf.is_none() && options.target_video_bitrate_bps.is_some();
+    if !two_pass {
+        return reencode_pass(input_path, output_path, options, duration_sec, progress, cancel, Pass::Single, "");
+    }
+
+    let stats_path = stats_path_for(output_path);
+    remove_stats_files(&stats_path);
+    let result = (|| {
+        let first_sink = |p: PipelineProgress| progress(first_pass_progress(p));
+        first_pass(input_path, options, preset, duration_sec, &stats_path, &first_sink, cancel)?;
+        if cancel.is_cancelled() {
+            return Err(ProcessError::Cancelled);
+        }
+        let second_sink = |p: PipelineProgress| progress(second_pass_progress(p));
+        reencode_pass(input_path, output_path, options, duration_sec, &second_sink, cancel, Pass::Second, &stats_path)
+    })();
+    remove_stats_files(&stats_path);
+    result
+}
+
+/// Pass 1 của 2-pass: decode → scale → encode (PASS1) mà KHÔNG mux, KHÔNG audio — chỉ để x264 ghi
+/// file thống kê. Cùng cách mở input / seek cửa sổ / chuẩn hoá khung như pass 2 (hai pass phải thấy
+/// CHÍNH XÁC cùng dãy khung hình, nếu không thống kê lệch với pass 2).
+fn first_pass(
+    input_path: &str,
+    options: &ReencodeOptions,
+    preset: &str,
+    duration_sec: f64,
+    stats_path: &str,
+    progress: PipelineProgressSink<'_>,
+    cancel: &CancelFlag,
+) -> Result<(), ProcessError> {
+    let mut ictx = open_input_window(input_path, options.window)?;
+    let window_end = options.window.map(|(start, len)| start + len);
+    let video_in_index = ictx.streams().best(MediaType::Video).ok_or(ffmpeg::Error::StreamNotFound)?.index();
+    let ist_time_base = ictx.stream(video_in_index).unwrap().time_base();
+
+    let mut dec_ctx = codec::context::Context::from_parameters(ictx.stream(video_in_index).unwrap().parameters())?;
+    enable_auto_threads(&mut dec_ctx);
+    let mut decoder = dec_ctx.decoder().video()?;
+    let (width, height) = scaled_dimensions(decoder.width(), decoder.height(), options.max_height);
+    let mut scaler = scaling::Context::get(decoder.format(), decoder.width(), decoder.height(), ENC_PIXEL_FORMAT, width, height, scaling::Flags::BILINEAR)?;
+    let geom = VideoGeometry {
+        width,
+        height,
+        aspect: decoder.aspect_ratio(),
+        frame_rate: resolve_frame_rate(&decoder, &ictx, video_in_index, input_path),
+        time_base: ist_time_base,
+    };
+    let codec = encoder::find_by_name(VIDEO_ENCODER_NAME).ok_or(ProcessError::EncoderMissing(VIDEO_ENCODER_NAME))?;
+    let mut video_encoder = open_video_encoder(codec, &geom, options, preset, false, Pass::First, stats_path)?;
+
+    let mut last_emit = Instant::now();
+    let mut drain = |decoder: &mut codec::decoder::Video, encoder_ctx: &mut encoder::Video| -> Result<(), ProcessError> {
+        let mut decoded = frame::Video::empty();
+        while decoder.receive_frame(&mut decoded).is_ok() {
+            if cancel.is_cancelled() {
+                return Err(ProcessError::Cancelled);
+            }
+            let ts = decoded.timestamp();
+            if let Some(ts) = ts {
+                maybe_tick(&mut last_emit, ts as f64 * f64::from(ist_time_base), duration_sec, "", progress);
+            }
+            let mut scaled = frame::Video::empty();
+            scaler.run(&decoded, &mut scaled)?;
+            scaled.set_pts(ts);
+            encoder_ctx.send_frame(&scaled)?;
+            // Gói của pass 1 bị bỏ — chỉ rút để encoder không đầy hàng đợi.
+            let mut discarded = ffmpeg::Packet::empty();
+            while encoder_ctx.receive_packet(&mut discarded).is_ok() {}
+        }
+        Ok(())
+    };
+
+    for (stream, packet) in ictx.packets() {
+        if stream.index() != video_in_index {
+            continue;
+        }
+        if let Some(end) = window_end {
+            if packet.pts().is_some_and(|pts| pts as f64 * f64::from(ist_time_base) >= end) {
+                break;
+            }
+        }
+        decoder.send_packet(&packet)?;
+        drain(&mut decoder, &mut video_encoder)?;
+    }
+    decoder.send_eof()?;
+    drain(&mut decoder, &mut video_encoder)?;
+    video_encoder.send_eof()?;
+    let mut discarded = ffmpeg::Packet::empty();
+    while video_encoder.receive_packet(&mut discarded).is_ok() {}
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn reencode_pass(
+    input_path: &str,
+    output_path: &str,
+    options: &ReencodeOptions,
+    duration_sec: f64,
+    progress: PipelineProgressSink<'_>,
+    cancel: &CancelFlag,
+    pass: Pass,
+    stats_path: &str,
+) -> Result<(), ProcessError> {
     let audio_bitrate_bps = options.audio_bitrate_bps.unwrap_or(160_000);
 
-    let mut in_opts = Dictionary::new();
-    in_opts.set("fflags", "+genpts");
-    let mut ictx = format::input_with_dictionary(input_path, in_opts)?;
+    let mut ictx = open_input_window(input_path, options.window)?;
     let mut octx = format::output(output_path)?;
-    // Encode thử một đoạn: seek về keyframe gần nhất TRƯỚC điểm bắt đầu (cùng
-    // cách `thumbnail.rs`), vòng packet bên dưới dừng khi vượt điểm kết thúc.
-    // Seek lỗi → bỏ qua (encode từ đầu file) — vẫn cho ra mẫu, chỉ kém đại diện.
     let window_end = options.window.map(|(start, len)| start + len);
-    if let Some((start, _)) = options.window {
-        if start > 0.0 {
-            let target_ts = (start * f64::from(ffmpeg::ffi::AV_TIME_BASE)) as i64;
-            let _ = ictx.seek(target_ts, ..target_ts);
-        }
-    }
 
     let video_in_index = ictx.streams().best(MediaType::Video).ok_or(ffmpeg::Error::StreamNotFound)?.index();
     let audio_in_index = ictx.streams().best(MediaType::Audio).ok_or(ffmpeg::Error::StreamNotFound)?.index();
@@ -239,7 +480,6 @@ pub fn reencode_with_options(
     enable_auto_threads(&mut video_dec_ctx);
     let mut video_decoder = video_dec_ctx.decoder().video()?;
 
-    const ENC_PIXEL_FORMAT: Pixel = Pixel::YUV420P;
     let (enc_width, enc_height) = scaled_dimensions(video_decoder.width(), video_decoder.height(), options.max_height);
     // Bắt buộc theo dõi dts cuối đã mux của VIDEO (khác chuẩn hoá format/pts
     // của audio ở trên) — phát hiện thật 2026-09-17, file AVI Xvid "packed
@@ -265,47 +505,17 @@ pub fn reencode_with_options(
         scaling::Flags::BILINEAR
     )?;
 
-    let preset = options.preset.as_deref().unwrap_or(DEFAULT_X264_PRESET);
-    if !is_known_x264_preset(preset) {
-        return Err(ProcessError::InvalidOption(format!("preset x264 không hợp lệ: {preset:?}")));
-    }
+    let preset = check_preset(options)?;
     let h264 = encoder::find_by_name(VIDEO_ENCODER_NAME).ok_or(ProcessError::EncoderMissing(VIDEO_ENCODER_NAME))?;
     let mut vost = octx.add_stream(Some(h264))?;
-    let mut video_enc_base = codec::context::Context::new_with_codec(h264);
-    enable_auto_threads(&mut video_enc_base);
-    let mut video_enc_ctx = video_enc_base.encoder().video()?;
-    video_enc_ctx.set_height(enc_height);
-    video_enc_ctx.set_width(enc_width);
-    video_enc_ctx.set_aspect_ratio(video_decoder.aspect_ratio());
-    video_enc_ctx.set_format(ENC_PIXEL_FORMAT);
-    // WMV/VC-1: decoder không báo frame_rate (None) → h264_mf "could not set output type" (lỗi STAR-505/502, 2026-10-05); rơi về avg_frame_rate của stream.
-    // Container VFR như ASF/WMV có thể khai CẢ hai đều vô dụng (`avg_frame_rate = 0/0`, `r_frame_rate = 1000/1` vì time_base 1/1000 —
-    // lỗi Caribbean 070307-487.wmv, 2026-10-07): lúc đó đo từ chính các packet đầu.
-    let in_frame_rate = video_decoder
-        .frame_rate()
-        .or_else(|| Some(ictx.stream(video_in_index).unwrap().avg_frame_rate()).filter(|r| r.numerator() > 0 && r.denominator() > 0))
-        .or_else(|| measure_frame_rate(input_path, video_in_index));
-    video_enc_ctx.set_frame_rate(in_frame_rate);
-    video_enc_ctx.set_time_base(video_ist_time_base);
-    if global_header {
-        video_enc_ctx.set_flags(codec::flag::Flags::GLOBAL_HEADER);
-    }
-    let mut x264_opts = ffmpeg::Dictionary::new();
-    x264_opts.set("preset", preset);
-    // `high` thay vì `main` của HandBrake: HandBrake chọn `main` vì thiết bị phần cứng cũ,
-    // mọi trình duyệt đích đều giải mã được High (ADR-0023 quyết định 3).
-    x264_opts.set("profile", "high");
-    if let Some(crf) = options.crf {
-        x264_opts.set("crf", &format!("{:.1}", crf.rf));
-        // `maxrate_bps == 0` = tầng gọi không biết thời lượng nên không có ngân sách để làm trần.
-        if crf.maxrate_bps > 0 {
-            x264_opts.set("maxrate", &crf.maxrate_bps.to_string());
-            x264_opts.set("bufsize", &crf.bufsize_bits.to_string());
-        }
-    } else if let Some(bps) = target_video_bitrate_bps {
-        video_enc_ctx.set_bit_rate(bps as usize);
-    }
-    let mut video_encoder = video_enc_ctx.open_with(x264_opts)?;
+    let geom = VideoGeometry {
+        width: enc_width,
+        height: enc_height,
+        aspect: video_decoder.aspect_ratio(),
+        frame_rate: resolve_frame_rate(&video_decoder, &ictx, video_in_index, input_path),
+        time_base: video_ist_time_base,
+    };
+    let mut video_encoder = open_video_encoder(h264, &geom, options, preset, global_header, pass, stats_path)?;
     vost.set_parameters(&video_encoder);
     let video_out_index = 0i32;
 
@@ -556,7 +766,47 @@ fn drain_audio_decoder(
 
 #[cfg(test)]
 mod tests {
-    use super::{is_known_x264_preset, DEFAULT_X264_PRESET};
+    use super::{first_pass_progress, is_known_x264_preset, remove_stats_files, second_pass_progress, stats_path_for, DEFAULT_X264_PRESET, FIRST_PASS_PROGRESS_SHARE};
+    use crate::progress::PipelineProgress;
+
+    fn tick(elapsed: f64, bytes: u64) -> PipelineProgress {
+        PipelineProgress { elapsed_sec: elapsed, duration_sec: 100.0, bytes_written: bytes }
+    }
+
+    #[test]
+    fn progress_is_monotonic_across_both_passes() {
+        let first_end = first_pass_progress(tick(100.0, 0));
+        let second_start = second_pass_progress(tick(0.0, 0));
+        let second_end = second_pass_progress(tick(100.0, 1_000));
+        assert!((first_end.elapsed_sec - 100.0 * FIRST_PASS_PROGRESS_SHARE).abs() < 1e-9);
+        assert!((second_start.elapsed_sec - first_end.elapsed_sec).abs() < 1e-9);
+        assert!((second_end.elapsed_sec - 100.0).abs() < 1e-9);
+        assert_eq!(first_end.bytes_written, 0);
+    }
+
+    #[test]
+    fn second_pass_bytes_project_to_final_size() {
+        // Qua nửa pass 2 đã ghi 500 byte → dung lượng cuối ~1000. Tầng gọi tính bytes / (elapsed/duration).
+        let p = second_pass_progress(tick(50.0, 500));
+        let percent = p.elapsed_sec / p.duration_sec;
+        let projected = p.bytes_written as f64 / percent;
+        assert!((projected - 1000.0).abs() < 1.0, "projected = {projected}");
+    }
+
+    #[test]
+    fn stats_files_are_removed() {
+        let dir = std::env::temp_dir().join(format!("tsmc-stats-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("x.mp4");
+        let stats = stats_path_for(&out.to_string_lossy());
+        for suffix in ["", ".mbtree", ".temp", ".mbtree.temp"] {
+            std::fs::write(format!("{stats}{suffix}"), b"x").unwrap();
+        }
+        remove_stats_files(&stats);
+        let left: Vec<_> = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).collect();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(left.is_empty(), "còn lại: {left:?}");
+    }
 
     #[test]
     fn default_preset_is_known() {

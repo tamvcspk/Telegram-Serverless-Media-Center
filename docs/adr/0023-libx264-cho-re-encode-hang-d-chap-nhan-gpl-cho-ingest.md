@@ -172,3 +172,26 @@ Khớp 4.0× của CLI (ADR § 4c.1 ghi 1 luồng = 0.5×, tự động = 4.0×)
 ### Nghiệm thu bằng mắt (2026-10-10, user)
 
 User đã nén lại và upload lại file thật qua app rồi so bằng mắt thường: chất lượng sụt khoảng **1–2% (ước lượng chủ quan)**, **chấp nhận được**. Đây là kết luận cảm quan, không phải số đo — chưa có VMAF/p1 của bản ra, chưa ghi dung lượng và tốc độ trong app. Với mục đích của 4c.1 (hết hình "mờ vỡ" của `h264_mf`) thì coi là đạt; hai phần còn mở là cảnh báo muxer `Encoder did not produce proper pts` (chưa tìm nguồn) và số đo VMAF để đối chiếu bảng ở trên khi cần hiệu chỉnh ở 4c.4.
+
+## Cập nhật sau khi Accepted (2026-10-10, code slice 4c.2 — 2-pass cho vượt trần, chọn chế độ)
+
+> Theo quy tắc ở [docs/adr/README.md](./README.md): không sửa nội dung Quyết định đã Accepted ở trên. Mục này chỉ ghi nhận điều phát sinh khi code 4c.2 — quyết định gốc **vẫn đứng vững**.
+
+**Đã code:**
+- Rust: `ReencodeOptions::two_pass` — pass 1 là vòng decode→scale→encode **không mux, không audio** (cờ `PASS1` + AVOption `stats` của wrapper libx264, không cần FFI thủ công), pass 2 cờ `PASS2` cùng `stats`; `maxrate` 2× / `bufsize` 4× target (quyết định 4). Hai pass dùng chung `open_input_window()`/`resolve_frame_rate()`/`open_video_encoder()` nên thấy đúng cùng dãy khung. Tiến trình gộp hai pass vào một trục `0..duration` (pass 1 chiếm `FIRST_PASS_PROGRESS_SHARE` = 0.45), `bytes_written` của pass 2 quy về đúng tỉ lệ để `projected_final_bytes` ở tầng gọi vẫn ra dung lượng cuối. Huỷ giữa hai pass trả `Cancelled` và dọn `<out>.x264stats`, `.mbtree`, `.temp` (xác nhận bằng `check_two_pass_cancel`).
+- TS: `chooseRateMode()` (CRF nếu dự đoán × `CRF_PREDICTION_DEVIATION` = 1.3 còn dưới ngân sách `trần × 0.92`, ngược lại 2-pass), `TWO_PASS_SAFETY_MARGIN` = 0.97, `TWO_PASS_TIME_FACTOR` = 1.8. Mọi kế hoạch ABR của dialog tiền kiểm (file vượt trần, user đặt tay kích thước/bitrate, lưới an toàn giữa batch) giờ là 2-pass. Chế độ CRF: "Ước tính chính xác" đo KHÔNG trần VBV (mẫu bị trần chặn luôn ra đúng trần, vô nghĩa để dự đoán); ở Tự động thì tự chuyển sang 2-pass kèm lý do hiển thị, ở Thủ công giữ CRF.
+- **Gỡ chặn cứng "dưới sàn ABR"** khỏi dialog (`belowFloor`/`floorFix`/`applyFloorFix` + dòng cảnh báo): sàn 0.045 bit/pixel là đặc tính của `h264_mf`, còn x264 ở 0.023 bit/pixel vẫn đạt VMAF 81 — ca 3 giờ 1080p của chính ADR này (≈0.023) bị chặn nhầm. Hằng số `ABR_FLOOR_BITS_PER_PIXEL` và hàm thuần tương ứng vẫn còn trong `core-ingest` cho tới 4c.4. Hiệu chỉnh target theo mẫu (`calibrateTargetBps`/`rescaleEstimateBytes`/`CALIBRATED_SAFETY_MARGIN`) không còn nơi dùng ở UI (2-pass tự bám đích) — cũng gỡ ở 4c.4.
+
+**Số đo (máy dev Ryzen 7 8845HS, `reencode_with_options` thật, nguồn WMV VC-1 1080p, x264 `fast`, đích 1450 kbps video + 160 kbps audio):**
+
+| Phép đo | Kết quả |
+|---|---|
+| Cả file 3882 s, 2-pass | 788,122,050 byte = **1624 kbps tổng** (đích 1610 → lệch **+0.9%**, gồm overhead container); **2.25× thời gian thực**, pass 1 ≈ 43% thời gian |
+| 120 s đầu, 2-pass | 1612 kbps tổng (lệch +0.1%), 2.43×, pass 1 ≈ 45% |
+| 120 s đầu, 1-pass ABR | 1554 kbps tổng (**−3.5%**), 4.79× |
+| 120 s đầu, CRF 22 + VBV 1450 | 1604 kbps tổng, 4.33× |
+| Mẫu 8 s của `estimate_reencode` ở chế độ 2-pass | 2051/1771/2264 kbps tổng cho đích 1610 — **vọt +10…+40%** do `bufsize` 4× cho phép đỉnh đầu đoạn; tốc độ 1.4–2.0× (thấp hơn thật ~30% vì chi phí mở decoder/encoder mỗi đoạn) |
+
+Hệ quả cho ước tính: với kế hoạch 2-pass, dung lượng hiển thị là **đích danh nghĩa** (không lấy từ mẫu — mẫu 8 s không đại diện), "Ước tính chính xác" chỉ còn để đo tốc độ/ETA.
+
+**Chưa làm của tiêu chí nghiệm thu 4c.2:** VMAF của bản ra trong app (đo thử đối chiếu bản ra với nguồn bằng `-ss` + `libvmaf` bị lệch khung — min 0 — nên bỏ, không ghi số; cần dựng clip tham chiếu FFV1 như `tools/encode-bench` và encode **từ clip đó**); chưa nén file 3 giờ thật; chưa chạy qua UI (chọn Tự động → xem tự chuyển 2-pass; huỷ giữa hai pass) — checklist ở [pending-device-tests](../pending-device-tests.md).

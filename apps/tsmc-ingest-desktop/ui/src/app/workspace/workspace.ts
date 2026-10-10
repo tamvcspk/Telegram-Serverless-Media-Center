@@ -17,6 +17,7 @@ import {
   classifyCompatRank,
   composeCaption,
   computeTargetVideoBitrateBps,
+  TWO_PASS_SAFETY_MARGIN,
   deriveCompat,
   findRepresentativeEpisode,
   flattenMetadataTree,
@@ -1077,7 +1078,7 @@ export class Workspace implements OnInit {
         // A.2 mục 1): Hạng A/B/C bình thường stream-copy video, nhánh này buộc
         // chúng decode+encode thật chỉ vì lý do dung lượng.
         const overCap = describeSizeCapExceeded(prepared.file_size_bytes, maxUploadBytes);
-        const targetBps = computeTargetVideoBitrateBps(maxUploadBytes, prepared.final_probe.duration_sec);
+        const targetBps = computeTargetVideoBitrateBps(maxUploadBytes, prepared.final_probe.duration_sec, undefined, TWO_PASS_SAFETY_MARGIN);
         const allowReencode = await this.dialogService.confirm({
           title: 'File vượt trần dung lượng',
           message: `${item.name}: ${overCap} Cho phép nén lại video xuống dưới trần? Việc này giải mã và mã hoá lại TOÀN BỘ video — chậm hơn hẳn remux và giảm chất lượng hình.`,
@@ -1093,7 +1094,7 @@ export class Workspace implements OnInit {
         // (`finally` bên dưới chỉ dọn bản CUỐI CÙNG).
         void cleanupTempDir(prepared.temp_dir);
         this.updateQueueItem(item.taskId, { stage: 'reencoding' });
-        prepared = await prepareUpload(item.taskId, item.path, 'reencode_all', subtitleTracks, { targetVideoBitrateBps: targetBps });
+        prepared = await prepareUpload(item.taskId, item.path, 'reencode_all', subtitleTracks, { targetVideoBitrateBps: targetBps, twoPass: true });
 
         if (prepared.file_size_bytes > maxUploadBytes) {
           throw new Error(

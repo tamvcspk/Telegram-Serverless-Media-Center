@@ -866,3 +866,27 @@ Liên quan: [ADR-0023](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho
 - Tốc độ ~0.5× → `thread_count` không được áp (kiểm `enable_auto_threads()` trong `reencode.rs` chạy TRƯỚC `decoder()`/`encoder()`), hoặc `ThreadPriority`/ưu tiên tiến trình của app đang hạ.
 - File ra vượt trần dù CRF + VBV → VBV bufsize quá rộng so với thời lượng (file ngắn); lưới an toàn của `processItem()` hỏi nén lại theo ABR — ghi lại thời lượng và dung lượng để chỉnh margin.
 - Hình vẫn mờ ở RF 22 với nguồn bitrate thấp → nguồn đã nén mạnh; RF không cứu được (ADR-0023 "Việc để ngỏ").
+
+## GUI ingest desktop (`apps/tsmc-ingest-desktop`) — nén 2 lượt (x264 2-pass) cho file vượt trần + tự chọn CRF/2-pass (Giai đoạn 4c.2, 2026-10-10)
+
+Liên quan: [ADR-0023 § addendum 4c.2](./adr/0023-libx264-cho-re-encode-hang-d-chap-nhan-gpl-cho-ingest.md#cập-nhật-sau-khi-accepted-2026-10-10-code-slice-4c2--2-pass-cho-vượt-trần-chọn-chế-độ). Đã verify bằng ví dụ dòng lệnh trên một WMV 1080p thật (độ chính xác dung lượng, tốc độ, huỷ giữa hai pass, dọn file thống kê); **chưa chạy qua UI/upload.**
+
+### Chuẩn bị
+
+- Build FFmpeg có x264 như mục 4c.1; một file Hạng D mà bản nén CRF 22 vừa trần (để thấy Tự động giữ CRF) và một file khiến dự đoán vượt ngân sách (để thấy chuyển 2-pass) — có thể ép bằng file dài.
+
+### Các bước
+
+- [ ] File Hạng D vừa trần: "Ước tính chính xác" → giữ CRF, hiện số đo và ETA; không có dòng "nén 2 lượt".
+- [ ] File dự đoán vượt ngân sách (Tự động): sau "Ước tính chính xác" dialog tự chuyển sang "Nén 2 lượt theo dung lượng đích" kèm lý do (RF, dự đoán GB, ngân sách GB); dung lượng hiển thị ≈ đích.
+- [ ] Chế độ Thủ công cùng file đó: **không** tự chuyển (giữ CRF + VBV); kéo thanh kích thước/ô kbps → chuyển sang 2-pass.
+- [ ] File vượt trần thật (Hạng A/B/C chọn "Nén lại"): chạy trọn, thanh tiến trình đi 0→100% đơn điệu qua hai lượt (không lùi/nhảy bất thường), ETA hợp lý; ghi lại dung lượng ra so với trần — kỳ vọng 0.97–0.99 × trần.
+- [ ] Huỷ giữa lượt 1 và giữa lượt 2: dừng ngay, không để lại file `*.x264stats*` trong thư mục tạm (`%TEMP%\tsmc-ingest-desktop-*`).
+- [ ] Hạng D 3 giờ 1080p (ca của ADR): không còn bị chặn "dưới mức sàn"; ra file dưới 2 GB; so bằng mắt với bản chia phần.
+- [ ] Ghi tốc độ x-realtime thật của app cho 2-pass trên máy này (kỳ vọng ~2.2–2.4× ở `fast`, nguồn VC-1 1080p) và so với ETA hiển thị.
+
+### Nếu có gì vỡ
+
+- File ra vượt trần dù 2-pass → xem `TWO_PASS_SAFETY_MARGIN` (0.97): nội dung quá phức tạp làm 2-pass lệch > +3%; lưới an toàn giữa batch sẽ hỏi nén lại. Ghi dung lượng thật/đích để chỉnh margin.
+- Thanh tiến trình nhảy ở chỗ chuyển lượt → `FIRST_PASS_PROGRESS_SHARE` (0.45) lệch với nguồn này; chỉ là hiển thị.
+- Thấy file `*.x264stats*` còn sót trong thư mục tạm → huỷ/lỗi giữa chừng không qua nhánh dọn của `reencode_with_options`; báo lại kèm cách tái hiện.

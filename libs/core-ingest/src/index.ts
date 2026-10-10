@@ -33,6 +33,8 @@ export {
   planSizeCap,
   REENCODE_AUDIO_BITRATE_BPS,
   REENCODE_DEFAULT_MAX_REDUCTION,
+  SIZE_SAFETY_MARGIN,
+  TWO_PASS_SAFETY_MARGIN,
   type SizeCapPlan,
   type SizeCapStrategy
 } from './size-normalize';
@@ -42,6 +44,8 @@ export {
   ABR_FLOOR_BITS_PER_PIXEL,
   AUTO_MIN_BITS_PER_PIXEL,
   calibrateTargetBps,
+  chooseRateMode,
+  CRF_PREDICTION_DEVIATION,
   CRF_VBV_BUFSIZE_FACTOR,
   crfCeilingBytes,
   defaultRf,
@@ -61,9 +65,11 @@ export {
   resolutionChoices,
   scaledSize,
   sizeForVideoBitrateBps,
+  TWO_PASS_TIME_FACTOR,
   type CrfPlan,
   type EstimateSample,
   type QualityLevel,
+  type RateMode,
   type ReencodeEstimate,
   type ReencodePlan,
   type X264Preset

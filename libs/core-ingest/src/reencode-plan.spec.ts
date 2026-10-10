@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calibrateTargetBps, chooseAutoResolution, crfCeilingBytes, defaultReencodeBitrateBps, defaultRf, planCrf, estimateFromSamples, estimateReencodeRangeBytes, isBelowAbrFloor, isReencodeFutile, minAbrVideoBitrateBps, rescaleEstimateBytes, resolutionChoices, resolveAbrFloor, scaledSize, sizeForVideoBitrateBps } from './reencode-plan';
+import { calibrateTargetBps, chooseAutoResolution, chooseRateMode, CRF_PREDICTION_DEVIATION, crfCeilingBytes, defaultReencodeBitrateBps, defaultRf, planCrf, estimateFromSamples, estimateReencodeRangeBytes, isBelowAbrFloor, isReencodeFutile, minAbrVideoBitrateBps, rescaleEstimateBytes, resolutionChoices, resolveAbrFloor, scaledSize, sizeForVideoBitrateBps } from './reencode-plan';
 import { computeTargetVideoBitrateBps, REENCODE_AUDIO_BITRATE_BPS } from './size-normalize';
 
 describe('scaledSize / resolutionChoices', () => {
@@ -242,5 +242,30 @@ describe('crfCeilingBytes', () => {
     const durationSec = 5400;
     const { maxrateBps } = planCrf({ width: 1920, height: 1080, maxUploadBytes: 2 * GB, durationSec });
     expect(crfCeilingBytes({ maxrateBps, durationSec })).toBeLessThan(2 * GB);
+  });
+});
+
+describe('chooseRateMode', () => {
+  const GB = 1024 ** 3;
+  const max = 2 * GB;
+
+  it('dự đoán × độ lệch còn dưới ngân sách → CRF', () => {
+    expect(chooseRateMode({ predictedBytes: 1.0 * GB, maxUploadBytes: max })).toBe('crf');
+  });
+
+  it('dự đoán thấp hơn ngân sách nhưng × độ lệch vượt → 2-pass (VBV sẽ phải gồng)', () => {
+    const budget = max * 0.92;
+    const predicted = (budget / CRF_PREDICTION_DEVIATION) * 1.05;
+    expect(predicted).toBeLessThan(budget);
+    expect(chooseRateMode({ predictedBytes: predicted, maxUploadBytes: max })).toBe('abr');
+  });
+
+  it('dự đoán đã vượt trần → 2-pass', () => {
+    expect(chooseRateMode({ predictedBytes: 3 * GB, maxUploadBytes: max })).toBe('abr');
+  });
+
+  it('đúng ngưỡng → CRF', () => {
+    const predicted = (max * 0.92) / CRF_PREDICTION_DEVIATION;
+    expect(chooseRateMode({ predictedBytes: predicted, maxUploadBytes: max })).toBe('crf');
   });
 });

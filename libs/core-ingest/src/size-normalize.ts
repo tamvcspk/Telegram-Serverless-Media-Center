@@ -23,6 +23,11 @@ export const SIZE_SAFETY_MARGIN = 0.92;
  * chỉnh thì overshoot tới +10% (0.92 × 1.099 ≈ 1.011) nên PHẢI giữ 0.92. */
 export const CALIBRATED_SAFETY_MARGIN = 0.955;
 
+/** Margin cho nén 2 lượt (ADR-0023 § 4c.2): x264 2-pass bám target ±2% (đo 2026-10-10 trên WMV
+ * 1080p: 1452 kbps video cho target 1450, lệch +0.1%; 1-pass ABR lệch −3.9%), nên 0.97 × 1.02 ≈
+ * 0.99 vẫn dưới trần. Chỉ dùng cho kế hoạch `twoPass` — 1-pass ABR chưa hiệu chỉnh vẫn cần 0.92. */
+export const TWO_PASS_SAFETY_MARGIN = 0.97;
+
 /** Sàn cứng — dưới mức này hình gần như vô dụng; nếu vẫn vượt trần thì để bước
  * kiểm tra dung lượng sau re-encode báo lỗi rõ ràng thay vì hạ thêm. */
 export const MIN_VIDEO_BITRATE_BPS = 100_000;

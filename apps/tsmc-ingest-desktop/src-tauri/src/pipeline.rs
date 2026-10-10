@@ -61,10 +61,11 @@ fn emit_stage(app: &AppHandle, task_id: &str, path: &str, stage: &str) {
 
 /// Gom tham số re-encode từ lệnh Tauri vào `ReencodeOptions` — một chỗ duy nhất để `prepare_upload` và `estimate_reencode`
 /// không lệch nhau (ước tính phải chạy ĐÚNG tham số sẽ dùng thật).
-fn reencode_options_from(target_video_bitrate: Option<u64>, crf: Option<CrfRateDto>, preset: Option<String>, max_height: Option<u32>, audio_bitrate: Option<u32>) -> ingest_ffmpeg::ReencodeOptions {
+fn reencode_options_from(target_video_bitrate: Option<u64>, crf: Option<CrfRateDto>, two_pass: bool, preset: Option<String>, max_height: Option<u32>, audio_bitrate: Option<u32>) -> ingest_ffmpeg::ReencodeOptions {
     ingest_ffmpeg::ReencodeOptions {
         target_video_bitrate_bps: target_video_bitrate,
         crf: crf.map(|c| ingest_ffmpeg::CrfRate { rf: c.rf, maxrate_bps: c.maxrate_bps, bufsize_bits: c.bufsize_bits }),
+        two_pass,
         preset,
         max_height,
         audio_bitrate_bps: audio_bitrate,
@@ -89,11 +90,12 @@ pub async fn prepare_upload(
     subtitle_tracks: Vec<SubtitleTrackDto>,
     target_video_bitrate: Option<u64>,
     crf: Option<CrfRateDto>,
+    two_pass: Option<bool>,
     preset: Option<String>,
     max_height: Option<u32>,
     audio_bitrate: Option<u32>
 ) -> Result<PreparedUploadDto, IngestRpcErrorDto> {
-    let reencode_options = reencode_options_from(target_video_bitrate, crf, preset, max_height, audio_bitrate);
+    let reencode_options = reencode_options_from(target_video_bitrate, crf, two_pass.unwrap_or(false), preset, max_height, audio_bitrate);
     let cancel = ingest_ffmpeg::CancelFlag::new();
     *state.active_cancel.lock().await = Some((task_id.clone(), CancelHandle::Ffmpeg(cancel.clone())));
 
@@ -278,6 +280,7 @@ pub async fn estimate_reencode(
     input_path: String,
     target_video_bitrate: Option<u64>,
     crf: Option<CrfRateDto>,
+    two_pass: Option<bool>,
     preset: Option<String>,
     max_height: Option<u32>,
     audio_bitrate: Option<u32>
@@ -285,7 +288,7 @@ pub async fn estimate_reencode(
     let cancel = ingest_ffmpeg::CancelFlag::new();
     *state.active_cancel.lock().await = Some((task_id, CancelHandle::Ffmpeg(cancel.clone())));
 
-    let options = reencode_options_from(target_video_bitrate, crf, preset, max_height, audio_bitrate);
+    let options = reencode_options_from(target_video_bitrate, crf, two_pass.unwrap_or(false), preset, max_height, audio_bitrate);
     let result = tokio::task::spawn_blocking(move || {
         let duration_sec = ingest_ffmpeg::probe(&input_path).map_err(|e| IngestRpcErrorDto::other(format!("probe trước ước tính lỗi: {e}")))?.duration_sec;
         let work_dir = std::env::temp_dir().join(format!("tsmc-ingest-desktop-estimate-{}", unique_suffix()));

@@ -206,6 +206,7 @@ function reencodeArgs(plan: ReencodePlan | undefined): Record<string, unknown> {
   return {
     targetVideoBitrate: plan?.targetVideoBitrateBps ?? null,
     crf: plan?.crf ? { rf: plan.crf.rf, maxrate_bps: plan.crf.maxrateBps, bufsize_bits: plan.crf.bufsizeBits } : null,
+    twoPass: plan?.twoPass ?? null,
     preset: plan?.preset ?? null,
     maxHeight: plan?.maxHeight ?? null,
     audioBitrate: plan?.audioBitrateBps ?? null
@@ -224,7 +225,8 @@ function reencodeArgs(plan: ReencodePlan | undefined): Record<string, unknown> {
  * không đổi + trần VBV của `libx264`; `reencode.targetVideoBitrateBps` (Option
  * C, ADR-0017 § addendum 2026-09-19) = nhắm bitrate đó để file ra nằm dưới trần
  * upload (`computeTargetVideoBitrateBps()` của `@tsmc/core-ingest` tính số
- * này). `crf` ưu tiên hơn bitrate; không có cả hai = mặc định của x264. */
+ * này; `twoPass` = chạy 2-pass ABR theo bitrate đó, ADR-0023 § 4c.2). `crf` ưu tiên
+ * hơn bitrate; không có cả hai = mặc định của x264. */
 export function prepareUpload(
   taskId: string,
   inputPath: string,

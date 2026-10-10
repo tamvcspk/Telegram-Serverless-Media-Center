@@ -10,12 +10,15 @@
   @if (crf) {
     <span class="line quality quality-good">Chất lượng: không đổi (RF {{ crf.rf }}, kiểu preset "Fast" của HandBrake) — trần bitrate {{ crf.maxrateKbps }} kbps để file luôn vừa trần upload.</span>
   }
+  @if (s.rateNote) {
+    <span class="line quality quality-ok">{{ s.rateNote }}</span>
+  }
+  @if (s.rateMode === 'abr') {
+    <span class="line">Nén 2 lượt theo dung lượng đích (lâu gấp ~2 lần một lượt, bám đích ~2%).</span>
+  }
   @let q = store.qualityOf(it);
   @if (q) {
     <span class="line quality" [class]="'quality-' + q.level">Chất lượng: {{ q.label }} ({{ q.bpp.toFixed(3) }} bit/pixel)</span>
-  }
-  @if (store.belowFloor(it)) {
-    <span class="line quality quality-low">Bitrate dưới mức sàn của bộ nén — file sẽ ra lớn hơn dự kiến và hình kém. Hạ độ phân giải hoặc đổi cách xử lý mới tiếp tục được.</span>
   }
   @if (store.overCap(it)) {
     <span class="line quality quality-low">Dung lượng dự kiến vượt trần — hạ kích thước/bitrate/độ phân giải rồi đo lại, hoặc đổi cách xử lý.</span>
@@ -41,14 +44,6 @@
     <button mat-stroked-button type="button" [disabled]="it.durationSec <= 0" (click)="store.runEstimate(it)">
       {{ store.validEstimate(it) ? 'Đo lại' : 'Ước tính chính xác' }}
     </button>
-    @if (store.belowFloor(it)) {
-      @let fix = store.floorFix(it);
-      @if (fix) {
-        <button mat-stroked-button type="button" (click)="store.applyFloorFix(it)">Hạ về {{ fix.resolution ? fix.resolution + 'p' : 'gốc' }}</button>
-      } @else {
-        <span class="hint error">Không độ phân giải nào đạt mức sàn — chọn "Chia phần" hoặc "Bỏ qua".</span>
-      }
-    }
     @if (store.estimateStale(it)) {
       <span class="hint">Kết quả cũ không còn khớp tuỳ chọn hiện tại — đo lại để cập nhật.</span>
     }

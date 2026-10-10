@@ -21,6 +21,8 @@ export interface CrfPlan {
  * (Rust) trừ `window`. `crf` ưu tiên hơn `targetVideoBitrateBps` (ABR). */
 export interface ReencodePlan {
   targetVideoBitrateBps?: number;
+  /** 2-pass ABR theo `targetVideoBitrateBps` (ADR-0023 § 4c.2). Bỏ qua nếu có `crf` hoặc không có bitrate đích. */
+  twoPass?: boolean;
   crf?: CrfPlan;
   /** Preset x264; bỏ trống = `fast` (preset "Fast" của HandBrake). */
   preset?: X264Preset;
@@ -60,6 +62,27 @@ export function planCrf(input: { width: number; height: number; maxHeight?: numb
   }
   const maxrateBps = computeTargetVideoBitrateBps(input.maxUploadBytes, input.durationSec, input.audioBitrateBps);
   return { rf, maxrateBps, bufsizeBits: maxrateBps * CRF_VBV_BUFSIZE_FACTOR };
+}
+
+/** Dung lượng CRF thật so với dự đoán từ mẫu 8 s thường lệch; hệ số này là điểm bắt đầu 1.3 theo độ
+ * lệch của chế độ `quality` đã đo (ADR-0023 § 4c.2), cần đo lại ở 4c.4 bằng nén trọn nhiều file. */
+export const CRF_PREDICTION_DEVIATION = 1.3;
+
+/** Thời gian nén 2 lượt so với 1 lượt cùng preset — đo 2026-10-10: 1-pass 4.8×, 2-pass 2.43× thời gian
+ * thực trên WMV VC-1 1080p (pass 1 ≈ 45% thời gian vì giải mã nguồn lặp lại ở cả hai pass). */
+export const TWO_PASS_TIME_FACTOR = 1.8;
+
+export type RateMode = 'crf' | 'abr';
+
+/**
+ * Chọn chế độ rate control cho một file (ADR-0023 § 4c.2). `predictedBytes` = dung lượng đo được từ
+ * mẫu CRF KHÔNG trần (ở RF đã chọn, ngoại suy cả file). CRF + trần VBV chỉ đủ tốt khi VBV không phải
+ * gồng — dự đoán × độ lệch vẫn dưới ngân sách. Ngược lại 2-pass nhắm thẳng ngân sách: CRF bị trần chặn
+ * là 1-pass ABR trá hình (80.1 VMAF, hụt target 10% ở medium — ADR-0023 quyết định 4).
+ */
+export function chooseRateMode(input: { predictedBytes: number; maxUploadBytes: number }): RateMode {
+  const budget = input.maxUploadBytes * SIZE_SAFETY_MARGIN;
+  return input.predictedBytes * CRF_PREDICTION_DEVIATION <= budget ? 'crf' : 'abr';
 }
 
 /** Cận trên CHẮC CHẮN của dung lượng ở chế độ CRF: VBV giữ bitrate trung bình dưới `maxrate`.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bitsPerPixel, chooseDefaultStrategy, computeTargetVideoBitrateBps, MIN_VIDEO_BITRATE_BPS, planSizeCap, REENCODE_AUDIO_BITRATE_BPS } from './size-normalize';
+import { bitsPerPixel, chooseDefaultStrategy, computeTargetVideoBitrateBps, MIN_VIDEO_BITRATE_BPS, planSizeCap, REENCODE_AUDIO_BITRATE_BPS, SIZE_SAFETY_MARGIN, TWO_PASS_SAFETY_MARGIN } from './size-normalize';
 
 describe('computeTargetVideoBitrateBps', () => {
   it('tính đúng cho trường hợp thường: trần 2 GB, phim 2 giờ', () => {
@@ -77,5 +77,18 @@ describe('bitsPerPixel', () => {
     expect(bitsPerPixel({ bitrateBps: 0, width: 1920, height: 1080, fps: 24 })).toBeNull();
     expect(bitsPerPixel({ bitrateBps: 1e6, width: 0, height: 1080, fps: 24 })).toBeNull();
     expect(bitsPerPixel({ bitrateBps: 1e6, width: 1920, height: 1080, fps: Number.NaN })).toBeNull();
+  });
+});
+
+describe('TWO_PASS_SAFETY_MARGIN', () => {
+  it('cao hơn margin 1-pass nhưng vẫn dưới 1: 2-pass bám đích ±2% nên 0.97 × 1.02 < 1', () => {
+    expect(TWO_PASS_SAFETY_MARGIN).toBeGreaterThan(SIZE_SAFETY_MARGIN);
+    expect(TWO_PASS_SAFETY_MARGIN * 1.02).toBeLessThan(1);
+  });
+
+  it('margin cao hơn cho nhiều bitrate hơn ở cùng trần', () => {
+    const base = computeTargetVideoBitrateBps(2_000_000_000, 10_800);
+    const twoPass = computeTargetVideoBitrateBps(2_000_000_000, 10_800, REENCODE_AUDIO_BITRATE_BPS, TWO_PASS_SAFETY_MARGIN);
+    expect(twoPass).toBeGreaterThan(base);
   });
 });
